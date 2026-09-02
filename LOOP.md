@@ -1,13 +1,19 @@
-# Agent Loop — Procedure
+# Pipeline — Procedure
 
-Purely procedural. Follow these steps in order each session.
-Pass `--workspace <name>` to all commands.
+One deliverable: the barrier surface, per node. Nothing else is produced.
 
-Every command runs against **one barrier** — the outcome declared in the workspace's
-`universe.json`, or overridden with `--outcome` / `--threshold`. All output is scoped
-by that barrier's event label (`dd10`, `run10`, …), so a downside sweep and an upside
-sweep never overwrite each other. Check which barrier you are on before you start:
-`--status` prints it in the header.
+Pass `--workspace <name>` to every command.
+
+---
+
+## The question this answers
+
+> Given that condition X holds, how likely is price to *reach* level θ within h bars?
+
+That is the question a stop, a limit, a liquidation and a margin call all turn on, and
+it is not the same as asking where price closes. The pipeline answers it for every
+barrier level, every condition and every horizon at once, then filters the result twice
+before letting you believe any of it.
 
 ---
 
@@ -17,100 +23,97 @@ sweep never overwrite each other. Check which barrier you are on before you star
 python run.py --workspace <name> --status
 ```
 
-Read the table. Pick the next family with `pending > 0`. Prefer seed families before derived-only families.
-
-Status is derived from disk, not stored: a node counts as `tested` when its xlsx
-exists under the current event's directory. `skipped` nodes are listed underneath
-with the reason — usually too few observations, or a barrier too rare to measure.
+The columns are the funnel: how many nodes exist, how many have a surface, how many
+clear the economic filter, how many clear the null, how many survive both.
 
 ---
 
-## 1. Run seeds for the chosen family
+## 1. Build the surfaces
 
 ```
-python run.py --workspace <name> --family <family>
+python run.py --workspace <name> --surfaces
+python run.py --workspace <name> --surfaces --family volatility   # or one family
 ```
 
-Writes:
-- `workspaces/<name>/<family>/<event>/<node_id>.xlsx` — the surface
-- `workspaces/<name>/<family>/<event>/log.jsonl` — metadata + base rates
+Writes `surfaces/<family>/<node>.xlsx` — four sheets, one per horizon. Rows are barrier
+levels θ, columns are the feature's quantile bins, cells are
+P(price touches θ within h | feature in bin) with the event count beside them. Column B
+is the unconditional base rate, so every cell reads against the row it sits on.
 
-Add `--rerun` to re-run nodes that are already tested or skipped.
+Also writes `evaluation.json`, the economic filter's verdict per node.
+`--rerun` rebuilds surfaces that already exist.
+
+**Reading a sheet.** Negative θ asks whether the *low* reached it, positive θ whether
+the *high* did — both on intraday extremes, not closes, because a stop fills on the low.
+Two dead zones are expected and are not signal: θ near zero is touched almost always,
+and large |θ| at short horizons is touched almost never.
 
 ---
 
-## 2. Read the results
+## 2. Validate
 
 ```
-python run.py --workspace <name> --read <node_id>
+python run.py --workspace <name> --validate --shifts 20000
 ```
 
-Prints significant rows from the `above` and `below` tabs. All values are deviations from the base rate — 0 = no edge.
+A surface's headline is a maximum over ~40 barrier levels × ~10 bins. That is 400 noisy
+estimates, and the largest lands well into the tens of pp even on a feature carrying
+nothing — a bigger bias than any one-dimensional scan, because the search is
+two-dimensional. This builds the null of that same statistic by circularly shifting the
+feature against price, preserving the feature's autocorrelation and destroying only its
+alignment with the future.
+
+Writes `validation.json`. Verdicts: `structure` (clears Bonferroni), `nominal` (clears
+α alone), `underpowered` (at the resolution floor — re-run with more shifts), `noise`.
+
+Choose `--shifts` so the floor `1/(shifts+1)` sits below `0.05 / n_tests`.
 
 ---
 
-## 3. Assess edge
+## 3. The gate
 
-A condition shows **candidate edge** when:
-- Deviates from base rate by **> 10pp** on at least one horizon
-- Deviation is **consistent across consecutive horizons** (not a single spike)
-- Sample size `n` **≥ 50**
+```
+python run.py --workspace <name> --gate
+python run.py --workspace <name> --gate --require nominal   # looser
+```
 
-Within ±10pp across all horizons — record it and move on.
+Intersects the two filters and writes `cleared.json`.
 
-**This is a triage filter, not a result.** A peak is a maximum over ~30 bins and lands
-near 10pp by construction even on a feature carrying nothing. Nothing found here counts
-until it clears the shuffled null in step 7.
+- **Economic** (from `--surfaces`): a cell deviates from the base rate by at least
+  `min_dev` pp, in a bin holding at least `min_bin_n` observations, across at least
+  `min_run` *adjacent* θ rows with the same sign.
+- **Statistical** (from `--validate`): the surface clears its shuffled null.
+
+Both are required. A large steady edge that fails its null is a shape found by
+searching. A significant edge concentrated in a single cell is real and useless — an
+edge at exactly −7% and nowhere else is not a stop level, it is an artifact. The
+adjacency requirement is what encodes "usable" rather than merely "large".
+
+This is the end of the pipeline. What clears the gate is a measured, falsified statement
+about where price reaches under a stated condition — not a strategy.
 
 ---
 
-## 4. Decide: derive or exhaust
+## What to distrust
 
-**Derive** if any of the following are true:
-- A seed showed candidate edge → test parameter variants (e.g. RSI14 → RSI10, RSI18)
-- Two seeds show opposing behavior → test their spread or ratio
-- A seed shows edge only in extreme quantiles → test a normalized distance-from-extreme feature
-- A pattern is visible but noisy → test a smoothed version
+**Overlapping windows.** Every count in a sheet is a count of *bars*, and consecutive
+bars in the same bin share almost the same forward window. A decile condition on ten
+years of daily bars is ~425 bars but only ~100–200 independent windows. Read `n` as an
+upper bound on the evidence, not a measure of it, and more so at long horizons.
 
-**Exhaust** if:
-- All seeds sit within noise with no consistent pattern
-- All reasonable derivatives have been tested and none improve on seeds
-- ≥ 3 derived features tested with no candidate edge found
+**The best cell of any search.** The null exists because the maximum of 400 noisy
+estimates is large by construction. A number without its verdict beside it is not a
+result.
 
-When exhausted, go to step 5 before picking the next family.
-
----
-
-## 5. Record findings
-
-Run `--findings` to auto-populate `best_node`, `peak_signal`, `verdict`, and `conditions` for every tested family:
-
-```
-python run.py --workspace <name> --findings
-```
-
-Then open `workspaces/<name>/findings.<event>.json` and add qualitative `notes` for this
-family. The `notes` field is preserved on every subsequent `--findings` run.
-
-Return to step 0 and pick the next family.
+**Bar resolution.** Daily OHLC records a session's high and low but not their order, so
+any question that depends on which came first is unanswerable at this bar size. That is
+a data problem, not a code one.
 
 ---
 
-## 6. Add a derived feature
+## Adding a feature
 
-**Step 6a — Register the feature.**
-
-If the feature is specific to this workspace, add it to `workspaces/<name>/plugin.py`:
-
-```python
-from data import features
-
-def _my_feature(data, period): ...
-
-features.register('my_feature', lambda d, p: _my_feature(d, p['period']))
-```
-
-If the feature is cross-asset (useful across workspaces), add it to `data/features.py`:
+Cross-asset features go in `data/features.py`:
 
 ```python
 def _my_feature(close: pd.Series, period: int) -> pd.Series: ...
@@ -118,7 +121,8 @@ def _my_feature(close: pd.Series, period: int) -> pd.Series: ...
 register('my_feature', lambda d, p: _my_feature(d['close'], p['period']))
 ```
 
-**Step 6b — Append the node** to `workspaces/<name>/universe.json` under the correct family:
+Workspace-specific features and data sources go in `workspaces/<name>/plugin.py`, which
+is imported automatically. Then append the node to `universe.json`:
 
 ```json
 {
@@ -132,76 +136,35 @@ register('my_feature', lambda d, p: _my_feature(d['close'], p['period']))
 }
 ```
 
-There is no `status` field. `universe.json` is a pure declaration and is never written
-back by the pipeline; progress lives on disk.
-
-**Step 6c — Run it:**
-
-```
-python run.py --workspace <name> --node <new_node_id>
-```
-
-Then return to step 2.
+There is no `status` field — progress is read from disk.
 
 ---
 
-## 7. After all families exhausted — falsify, then combine
+## Adding a workspace
 
-Once `--status` shows 0 pending across all families:
+`universe.json` `meta` carries everything asset-specific:
 
-```
-python run.py --workspace <name> --validate     # do this FIRST
-python run.py --workspace <name> --skew
-python run.py --workspace <name> --probe
-python run.py --workspace <name> --backtest
-python run.py --workspace <name> --findings
-```
+| field | meaning |
+|---|---|
+| `asset` | `{provider, ticker, interval}` |
+| `start_date` | history start |
+| `barrier_horizons` | the four sheets of Deliverable A |
+| `theta` | `{min, max, step}` — the barrier ladder |
+| `n_bins` | condition bins per feature (quantile) |
+| `evaluate` | `{min_dev, min_bin_n, min_run}` — the economic filter |
 
-`--validate` is the step that decides whether anything found in steps 2–4 is real. It
-shuffles the outcome against the feature and reads each node's peak as a quantile of
-that null, Bonferroni-corrected across the whole sweep. Run it before drawing any
-conclusion from a peak deviation.
-
-`--skew` runs the mirror barrier over identical bars and reports the asymmetry. A
-condition that raises the downside touch probability may simply be picking out
-volatility — in which case it raises the upside barrier by just as much and carries no
-directional information. Counting one barrier alone cannot tell those apart.
-
-`--probe` evaluates current feature values and outputs a Naive Bayes combined touch
-probability. `--backtest` reports calibration (does a stated 40% mean 40%?) and a Brier
-skill score against the base rate. `--findings` writes the final structured record.
+**Scale `theta` to the asset and horizon.** BTC daily runs ±20% in 1% steps; NASDAQ
+hourly runs ±4% in 0.2% steps, because a 20% move inside a trading day does not happen
+and every row of that ladder would be empty.
 
 ---
 
-## 8. Running the mirror barrier
+## Files
 
-To sweep the same universe against the opposite barrier:
-
-```
-python run.py --workspace <name> --outcome runup --family <family>
-python run.py --workspace <name> --outcome runup --validate
-```
-
-Output lands under `<family>/run10/` and `validation.run10.json`, leaving the downside
-sweep untouched. Node status is tracked per event, so `--status --outcome runup` shows
-that barrier's own progress.
-
-**Scale θ to the asset and horizon.** A 10% barrier over 14 BTC days is a 21.7% event;
-the same 10% over 24 NASDAQ hours is a 0.4% one, which cannot be measured at all. The
-pipeline refuses to write a surface below a 5% base rate and records the reason as a
-skip.
-
----
-
-## Key file locations
-
-| Path | Purpose |
-|------|---------|
-| `workspaces/<name>/universe.json` | Master node list + barrier declaration — add derived nodes here |
-| `workspaces/<name>/findings.<event>.json` | Family verdicts — machine-generated, human-annotated |
-| `workspaces/<name>/validation.<event>.json` | Per-node null-test p-values and verdicts |
-| `workspaces/<name>/plugin.py` | Workspace-specific features and data sources |
-| `workspaces/<name>/<family>/<event>/` | Surface xlsx files, per-family log, skip records |
-| `data/features.py` | Cross-asset feature registry |
-| `data/fetcher.py` | Cross-asset source registry |
-| `engine/outcomes.py` | Barrier registry — the event being measured |
+| Path | Written by | Contents |
+|------|-----------|----------|
+| `universe.json` | you | nodes + asset config; never written by the pipeline |
+| `surfaces/<family>/<node>.xlsx` | `--surfaces` | **the deliverable** |
+| `evaluation.json` | `--surfaces` | economic filter verdict per node |
+| `validation.json` | `--validate` | null-test p-values and verdicts |
+| `cleared.json` | `--gate` | nodes clearing both filters |
