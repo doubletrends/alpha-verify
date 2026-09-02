@@ -108,6 +108,11 @@ Two caveats bound the risk result:
    drawdown result is if anything understated. A block bootstrap would tighten it.
 2. **Significance is not tradability.** These are in-sample conditional probabilities
    over the full history, not a walk-forward backtest with costs.
+   [`research/drawdown_overlay/`](research/drawdown_overlay/) follows the four
+   Bonferroni-clearing nodes all the way to an equity curve: shorting the signal
+   loses badly against BTC's drift, while a walk-forward *risk-off* overlay
+   roughly matches buy-and-hold's return with the max drawdown cut from ~83% to
+   ~64%. A real p-value bought a modest risk overlay, not a return engine.
 
 * * *
 
