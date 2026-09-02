@@ -17,7 +17,9 @@ deviation, realized volatility, on-chain valuation, time-of-day, …) paired wit
 forward horizon $h$ — and an agent drives the pipeline through every one against
 history, unattended. For each condition it counts
 
-$$ P\big(\text{outcome} \mid X_t \in \text{condition}\big) - P\big(\text{outcome}\big) $$
+$$
+P\left(\text{outcome} \mid X_t \in \text{condition}\right) - P\left(\text{outcome}\right)
+$$
 
 the deviation of the conditional probability from its unconditional base rate. There
 is no fitted model and no forecast in the machine-learning sense — only conditional
@@ -187,7 +189,11 @@ A node computes a feature series $X_t$, then evaluates 30 thresholds spanning it
 2nd–98th empirical percentiles. For each threshold $x$ and horizon $h$ it records two
 cumulative deviations:
 
-$$ \Delta_{>}(x, h) = P\big(\text{outcome} \mid X_t > x\big) - p_0(h), \qquad \Delta_{<}(x, h) = P\big(\text{outcome} \mid X_t < x\big) - p_0(h) $$
+$$
+\Delta_{>}(x, h) = P\left(\text{outcome} \mid X_t > x\right) - p_0(h),
+\qquad
+\Delta_{<}(x, h) = P\left(\text{outcome} \mid X_t < x\right) - p_0(h)
+$$
 
 These are the CDF of the outcome in the feature. Differencing adjacent cumulative rows
 recovers the **local** (PDF) edge — the deviation for observations whose feature value
@@ -202,14 +208,21 @@ counts report the longest-horizon (most conservative) count.
 at the pivot horizon (subject to $n \geq 30$ slices), then combines the survivors in
 log-odds space. Assuming conditional independence given the outcome,
 
-$$ \mathrm{logit}\,p_\text{comb}(h) = \mathrm{logit}\,p_0(h) + \sum_i w_i \Big[\mathrm{logit}\big(p_0(h) + \delta_i(h)\big) - \mathrm{logit}\,p_0(h)\Big] $$
+$$
+\mathrm{logit}\,p_\mathrm{comb}(h) = \mathrm{logit}\,p_0(h) + \sum_i w_i \left[ \mathrm{logit}\left(p_0(h) + \delta_i(h)\right) - \mathrm{logit}\,p_0(h) \right]
+$$
 
 where $\delta_i(h)$ is family $i$'s local deviation at the current feature value. The
 independence assumption is deliberately optimistic — correlated signals inflate the
 combined edge — and the tool flags it. Thin slices are shrunk toward zero with a CLT
 floor at $n_0 = 30$ and half-weight scale $N_0 = 50$:
 
-$$ w(n) = \begin{cases} 0 & n < 30 \\ \dfrac{n - 30}{(n - 30) + 50} & n \geq 30 \end{cases} $$
+$$
+w(n) = \begin{cases}
+0 & n < 30 \\
+\frac{n - 30}{(n - 30) + 50} & n \geq 30
+\end{cases}
+$$
 
 ### 4. Shuffle-null validation
 
@@ -225,10 +238,12 @@ autocorrelation of both series — which matters, because overlapping $h$-bar ou
 are strongly serially correlated — while destroying any real alignment. The real peak
 is read as a quantile of that null:
 
-$$ p = \frac{1 + \#\{\text{shifts with peak} \geq \text{real peak}\}}{1 + n_\text{shifts}} $$
+$$
+p = \frac{1 + \mathrm{count}\left(\text{shift peak} \geq \text{real peak}\right)}{1 + n_\mathrm{shifts}}
+$$
 
 The add-one estimator (Davison & Hinkley) keeps $p$ strictly positive; its floor,
-$1/(n_\text{shifts}+1)$, is also the resolution limit, so a sweep of $k$ tests needs a
+$1/(n_\mathrm{shifts}+1)$, is also the resolution limit, so a sweep of $k$ tests needs a
 Bonferroni $\alpha/k$ and nothing below the floor can be resolved.
 
 | Verdict | Meaning |
