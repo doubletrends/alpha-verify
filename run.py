@@ -5,9 +5,10 @@ Barrier-touch pipeline.
                          P(touch θ in h | bin), saved as .npz.
             --surfaces   Deliverable A: projects a few horizon slices of each cube into
                          a workbook. Renders only; it never re-measures.
-            --validate   null-test every node's surface.
-            --gate       apply the economic filter and the null test together; write
-                         the nodes that clear both.
+            --validate   stage three: an exact circular-shift null per node, by FFT,
+                         written as one artifact per node beside its cube.
+            --gate       correct across the sweep with Benjamini-Hochberg, intersect
+                         with the economic filter, write what clears both.
 
 The gate is the conclusion, not a hand-off: a node clears it only by passing both the
 economic filter and the null test. The economic one asks whether the edge is large and
@@ -17,7 +18,7 @@ all. Either alone is a way to be confidently wrong.
 Usage:
     python run.py --workspace btc_daily_14days --cubes
     python run.py --workspace btc_daily_14days --surfaces
-    python run.py --workspace btc_daily_14days --validate --shifts 20000
+    python run.py --workspace btc_daily_14days --validate
     python run.py --workspace btc_daily_14days --gate
     python run.py --workspace btc_daily_14days --status
     python run.py --workspace btc_daily_14days --read bb_pct_20
@@ -36,7 +37,7 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
 from data import features, fetcher
-from engine import barrier, writer
+from engine import barrier, validate as val, writer
 from tree.tree import load_tree, all_nodes, find_node, all_in_family
 from workspace import Workspace, BASELINE_NODE
 
@@ -203,139 +204,175 @@ def cmd_surfaces(ws: Workspace, family: str | None = None) -> None:
 
 # ── Validation ────────────────────────────────────────────────────────────────
 
-def cmd_validate(ws: Workspace, family: str | None = None, n_shifts: int = 20000) -> None:
+def cmd_validate(ws: Workspace, family: str | None = None, rerun: bool = False) -> None:
+    """
+    Stage three, per node: null-test the cube and write an artifact beside it.
+
+    Every node gets one, the baseline included. Shuffling a constant feature cannot
+    change anything, so its artifact comes out degenerate -- peak deviation 0, p = 1 --
+    and that is deliberate: a uniform pipeline with one meaningless file beats a
+    pipeline with a special case in it.
+
+    Per-node artifacts also mean two runs never write the same path, which is the
+    failure that made the previous shared validation.json untrustworthy.
+    """
     tree  = load_tree(ws.tree_path)
-    # The baseline carries no condition, so shuffling its feature changes nothing and
-    # a null test on it is vacuous. Excluding it also keeps it out of the Bonferroni
-    # denominator, where it would only make every real test harder to pass.
     nodes = [n for n in (all_in_family(tree, family) if family else all_nodes(tree))
-             if ws.has_cube(n['family'], n['id']) and n['id'] != BASELINE_NODE]
+             if ws.has_cube(n['family'], n['id'])]
+    if not rerun:
+        nodes = [n for n in nodes if not ws.has_validation(n['family'], n['id'])]
     if not nodes:
-        print('No cubes to validate — run --surfaces first.')
+        print('Nothing to validate (use --rerun to redo existing artifacts).')
         return
 
     get_data = _loader(ws)
-    n_tests  = len(nodes) * len(ws.barrier_horizons)
-    print(f"\n=== Validation [{ws.dir.name}] ===")
-    print(f"  sweep : {len(nodes)} nodes x {len(ws.barrier_horizons)} horizons = {n_tests} tests, "
-          f"{n_shifts:,} feature shuffles each")
-    print(f"  alpha : 0.05 / {n_tests} = {0.05 / n_tests:.2e} (Bonferroni)\n")
-    hdr = ''.join(f'{f"+{h}{ws.horizon_unit}":>24}' for h in ws.barrier_horizons)
-    print(f"  {'node':<26}{hdr}")
-    print(f"  {'-' * 26}{''.join('-' * 24 for _ in ws.barrier_horizons)}")
+    print(f"\n=== Validation [{ws.dir.name}] - {len(nodes)} nodes ===")
+    print(f"  exact circular-shift null over every shift, by FFT; "
+          f"{len(ws.thetas)} θ x {ws.n_bins} bins x {len(ws.horizons)} horizons per node")
+    print(f"  guard {val.EDGE_GUARD} bars either side, so the p-value floor is 1/(usable+1)\n")
 
-    results = {}
+    done = 0
     for node in nodes:
         try:
             data, feat = _node_feature(ws, node, get_data)
+            cube = barrier.load_cube(ws.cube_path(node['family'], node['id']))
         except Exception as e:
-            print(f"  {node['id']:<26}  [skip] {e}")
+            print(f"  {node['id']:<26} [skip] {e}")
             continue
-        cells, per_h = [], {}
-        for h in ws.barrier_horizons:
-            r = barrier.null_test(data, feat, h, ws.thetas, ws.n_bins, n_shifts=n_shifts)
-            r['verdict'] = barrier.verdict(r['p_value'], n_tests=n_tests,
-                                           p_floor=r.get('p_floor', 0.0))
-            per_h[f'+{h}{ws.horizon_unit}'] = r
-            if pd.isna(r['real']):
-                cells.append(f"{'insufficient':>24}")
-            else:
-                mark = {'structure': '**', 'nominal': ' *', 'underpowered': ' ?',
-                        'noise': '  ', 'insufficient': '  '}[r['verdict']]
-                cells.append(f"{r['real']:>7.1f} vs{r['null_p95']:>5.1f} p={r['p_value']:<6.4f}{mark}")
-        results[node['id']] = {'family': node['family'], 'horizons': per_h}
-        print(f"  {node['id']:<26}{''.join(cells)}")
 
-    # Merge into any prior sweep, so validating one family never discards the rest.
-    # Bonferroni is then applied over every test the merged file holds -- narrowing
-    # --family must not quietly shrink the correction for a search already run wide.
-    prior = ws.read_json(ws.validation_path)
-    merged = prior.get('nodes', {}) if prior else {}
-    merged.update(results)
-    results = merged
+        # the cube's own edges, so validation partitions the sample identically
+        r = val.validate_node(data, feat, ws.horizons, ws.thetas, cube['edges'])
+        val.save(r, ws.validation_path(node['family'], node['id']), {
+            'node': node['id'], 'family': node['family'],
+            'feature': node['feature'], 'params': node['params'],
+            'workspace': ws.dir.name,
+            'bin_labels': cube['meta']['bin_labels'],
+            'generated': datetime.now(timezone.utc).isoformat(),
+        })
+        done += 1
 
-    flat = [r for n in results.values() for r in n['horizons'].values()]
-    if len(flat) != n_tests:
-        for n in results.values():
-            for r in n['horizons'].values():
-                r['verdict'] = barrier.verdict(r['p_value'], n_tests=len(flat),
-                                               p_floor=r.get('p_floor', 0.0))
-        print(f"\n  (merged with earlier runs: Bonferroni now over {len(flat)} tests)")
+        finite = np.isfinite(r['peak_p'])
+        if finite.any():
+            k = int(np.nanargmin(np.where(finite, r['peak_p'], np.nan)))
+            floor = 1.0 / (1.0 + r['n_shifts'][k])
+            tag = '  [at the floor]' if r['peak_p'][k] <= floor + 1e-12 else ''
+            print(f"  {node['id']:<26} best p={r['peak_p'][k]:.5f} at +{r['horizons'][k]}"
+                  f"{ws.horizon_unit}  peak {r['peak_real'][k]:5.1f} vs p95 "
+                  f"{r['peak_p95'][k]:5.1f}{tag}")
+        else:
+            print(f"  {node['id']:<26} insufficient data at every horizon")
 
-    n_st = sum(1 for r in flat if r['verdict'] == 'structure')
-    n_no = sum(1 for r in flat if r['verdict'] == 'nominal')
-    print()
-    print('  columns: real peak  vs  null p95   p-value')
-    print('  ** clears Bonferroni   * nominal only   ? at the resolution floor\n')
-    print(f"  clears Bonferroni : {n_st:>4} / {len(flat)}")
-    print(f"  nominal (p<0.05)  : {n_no:>4} / {len(flat)}   (expected by chance ~{0.05 * len(flat):.1f})")
-
-    ws.write_json(ws.validation_path, {
-        'workspace': ws.dir.name,
-        'generated': datetime.now(timezone.utc).isoformat(),
-        'n_shifts': n_shifts,
-        'n_tests': len(flat),
-        'alpha_bonf': 0.05 / max(len(flat), 1),
-        'summary': {'structure': n_st, 'nominal': n_no, 'total': len(flat)},
-        'nodes': results,
-    })
-    print(f"\n  wrote {ws.validation_path.relative_to(ROOT)}")
+    print(f"\n  wrote {done} artifacts under {ws.dir.relative_to(ROOT)}/validations/")
+    print(f"  verdicts are assigned by --gate, which needs the whole sweep to correct across")
 
 
-# ── The gate ──────────────────────────────────────────────────────────────────
-
-_RANK = {'structure': 3, 'nominal': 2, 'underpowered': 1, 'noise': 0, 'insufficient': 0}
-
-
-def cmd_gate(ws: Workspace, require: str = 'structure') -> None:
+def cmd_gate(ws: Workspace, q: float = 0.05) -> None:
     """
-    Intersect the economic and statistical filters; write the cleared.
+    Stage three's conclusion: correct across the sweep, then intersect with the
+    economic filter.
 
-    Both are required. A node with a large, steady edge that does not clear its null is
-    a shape found by searching; a node that clears its null on a two-point edge is real
-    and unusable. Round 2 is only worth running on nodes that are both.
+    Verdicts are assigned here rather than stored per node, because a multiple-testing
+    correction is a property of the collection. Baking a verdict into a node's artifact
+    would silently invalidate it the moment another node joined the sweep.
+
+    The correction is Benjamini-Hochberg. Bonferroni is not available: it needs a
+    p-value below q/m, and with m in the hundreds that threshold falls under the
+    1/(n+1) floor the circular-shift null can physically reach, so nothing could ever
+    clear it however strong the signal.
     """
-    ev  = ws.read_json(ws.eval_path)
-    val = ws.read_json(ws.validation_path)
-    if not ev or not val:
-        print('Need both --surfaces and --validate first.')
+    ev = ws.read_json(ws.eval_path)
+    if not ev:
+        print('No evaluation.json - run --cubes first.')
         return
-    need = _RANK[require]
+
+    tree = load_tree(ws.tree_path)
+    rows = []
+    for node in all_nodes(tree):
+        path = ws.validation_path(node['family'], node['id'])
+        if not path.exists():
+            continue
+        r = val.load(path)
+        for j, h in enumerate(r['horizons']):
+            rows.append({'node': node['id'], 'family': node['family'],
+                         'horizon': int(h), 'peak_p': float(r['peak_p'][j]),
+                         'peak_real': float(r['peak_real'][j]),
+                         'peak_p95': float(r['peak_p95'][j]),
+                         'n_shifts': int(r['n_shifts'][j])})
+    if not rows:
+        print('No validation artifacts - run --validate first.')
+        return
+
+    pvals = np.array([r['peak_p'] for r in rows])
+    rejected, qvals = val.bh(pvals, q)
+    for r, rej, qv in zip(rows, rejected, qvals):
+        floor = 1.0 / (1.0 + r['n_shifts']) if r['n_shifts'] else np.nan
+        r['q_value'] = None if not np.isfinite(qv) else round(float(qv), 6)
+        r['at_floor'] = bool(np.isfinite(r['peak_p']) and np.isfinite(floor)
+                             and r['peak_p'] <= floor + 1e-12)
+        r['verdict'] = val.verdict(bool(rej), r['peak_p'], r['at_floor'])
+
+    m = int(np.isfinite(pvals).sum())
+    n_disc = sum(1 for r in rows if r['verdict'] == 'discovery')
+    n_nom  = sum(1 for r in rows if r['verdict'] == 'nominal')
+    floors = sorted({r['n_shifts'] for r in rows if r['n_shifts']})
+    floor_lo = 1.0 / (1.0 + max(floors)) if floors else float('nan')
+
+    print(f"\n=== Gate [{ws.dir.name}] ===")
+    print(f"  {m} tests over {len({r['node'] for r in rows})} nodes x "
+          f"{len({r['horizon'] for r in rows})} horizons")
+    print(f"  Benjamini-Hochberg at q = {q}   |   p-value floor ~ {floor_lo:.2e} "
+          f"(exact null has only n distinct shifts)")
+    print(f"  Bonferroni would need p <= {0.05 / max(m, 1):.2e}, "
+          f"{'reachable' if 0.05 / max(m, 1) >= floor_lo else 'BELOW the floor - unusable'}\n")
+    print(f"  BH discoveries    : {n_disc:>4} / {m}")
+    print(f"  nominal (p<=0.05) : {n_nom:>4} / {m}")
+
+    # a node clears when it is economically usable and statistically survives
+    passed_econ = set(ev.get('passed', []))
+    by_node: dict[str, dict] = {}
+    for r in rows:
+        if r['verdict'] != 'discovery':
+            continue
+        cur = by_node.get(r['node'])
+        if cur is None or r['q_value'] < cur['q_value']:
+            by_node[r['node']] = r
 
     cleared = []
-    for nid, rec in ev.get('nodes', {}).items():
-        if not rec.get('passed'):
+    for nid, r in by_node.items():
+        if nid not in passed_econ:
             continue
-        hz = val.get('nodes', {}).get(nid, {}).get('horizons', {})
-        best = None
-        for h, r in hz.items():
-            k = _RANK.get(r.get('verdict', 'noise'), 0)
-            if best is None or k > best[1] or (k == best[1] and r.get('p_value', 1) < best[2]):
-                best = (h, k, r.get('p_value', 1.0), r.get('verdict', 'noise'))
-        if best and best[1] >= need:
-            cleared.append({'node': nid, 'family': val['nodes'][nid]['family'],
-                              'best_cell': rec['best'], 'validated_horizon': best[0],
-                              'verdict': best[3], 'p_value': best[2]})
+        best = ev['nodes'].get(nid, {}).get('best')
+        cleared.append({'node': nid, 'family': r['family'],
+                        'horizon': r['horizon'], 'q_value': r['q_value'],
+                        'peak_p': r['peak_p'], 'peak_real': r['peak_real'],
+                        'at_floor': r['at_floor'], 'best_cell': best})
+    cleared.sort(key=lambda c: (c['q_value'], -abs(c['best_cell']['dev'] if c['best_cell'] else 0)))
 
-    cleared.sort(key=lambda s: s['p_value'])
-    print(f"\n=== Gate [{ws.dir.name}] ===")
-    print(f"  economic filter passed  : {len(ev.get('passed', []))}")
-    print(f"  and reaching '{require}' : {len(cleared)}\n")
+    print(f"\n  economic filter passed : {len(passed_econ)}")
+    print(f"  and a BH discovery     : {len(cleared)}\n")
     if cleared:
-        print(f"  {'node':<26}{'family':<13}{'horizon':<9}{'verdict':<11}{'p':<10}best cell")
-        print(f"  {'-'*26}{'-'*13}{'-'*9}{'-'*11}{'-'*10}{'-'*34}")
-        for s in cleared:
-            b = s['best_cell']
-            print(f"  {s['node']:<26}{s['family']:<13}{s['validated_horizon']:<9}"
-                  f"{s['verdict']:<11}{s['p_value']:<10.5f}"
-                  f"{b['dev']:+.1f}pp @ θ={b['theta']:+.0%} bin {b['bin']} n={b['bin_n']}")
+        print(f"  {'node':<26}{'family':<13}{'h':>5}  {'q':<10}{'peak':>7}  best cell")
+        print(f"  {'-'*26}{'-'*13}{'-'*5}  {'-'*10}{'-'*7}  {'-'*36}")
+        for c in cleared:
+            b = c['best_cell'] or {}
+            cell = (f"{b.get('dev', 0):+.1f}pp @ θ={b.get('theta', 0):+.0%} "
+                    f"bin {b.get('bin')} n={b.get('bin_n')}") if b else ''
+            print(f"  {c['node']:<26}{c['family']:<13}{c['horizon']:>5}  "
+                  f"{c['q_value']:<10.5f}{c['peak_real']:>7.1f}  {cell}")
     else:
-        print('  Nothing survives both gates. Round 2 has nothing to evaluate.')
+        print('  Nothing clears both filters.')
 
     ws.write_json(ws.cleared_path, {
         'workspace': ws.dir.name,
         'generated': datetime.now(timezone.utc).isoformat(),
-        'require': require, 'cleared': cleared,
+        'method': {'correction': 'benjamini-hochberg', 'q': q,
+                   'n_tests': m, 'p_floor': floor_lo,
+                   'note': 'circular-shift null is exact over all n shifts; '
+                           'the floor 1/(n+1) is below no Bonferroni threshold at this m, '
+                           'so FDR is used instead of FWER'},
+        'summary': {'discovery': n_disc, 'nominal': n_nom, 'cleared': len(cleared)},
+        'cleared': cleared,
+        'tests': rows,
     })
     print(f"\n  wrote {ws.cleared_path.relative_to(ROOT)}")
 
@@ -345,40 +382,46 @@ def cmd_gate(ws: Workspace, require: str = 'structure') -> None:
 def cmd_status(ws: Workspace) -> None:
     tree = load_tree(ws.tree_path)
     ev   = ws.read_json(ws.eval_path).get('nodes', {})
-    val  = ws.read_json(ws.validation_path).get('nodes', {})
-    surv = {s['node'] for s in ws.read_json(ws.cleared_path).get('cleared', [])}
+    cl   = ws.read_json(ws.cleared_path)
+    cleared = {c['node'] for c in cl.get('cleared', [])}
+    disc = {t['node'] for t in cl.get('tests', []) if t.get('verdict') == 'discovery'}
 
-    by_fam = defaultdict(lambda: [0, 0, 0, 0, 0])
+    by_fam = defaultdict(lambda: [0, 0, 0, 0, 0, 0])
     for n in all_nodes(tree):
         c = by_fam[n['family']]
         c[0] += 1
         c[1] += bool(ws.has_cube(n['family'], n['id']))
-        c[2] += bool(ev.get(n['id'], {}).get('passed'))
-        c[3] += any(r.get('verdict') in ('structure', 'nominal')
-                    for r in val.get(n['id'], {}).get('horizons', {}).values())
-        c[4] += n['id'] in surv
+        c[2] += bool(ws.has_surface(n['family'], n['id']))
+        c[3] += bool(ws.has_validation(n['family'], n['id']))
+        c[4] += bool(ev.get(n['id'], {}).get('passed'))
+        c[5] += n['id'] in cleared
 
     print(f"\n=== Status [{ws.dir.name}] ===")
     print(f"  θ {ws.thetas[0]:+.0%}..{ws.thetas[-1]:+.0%}   "
-          f"horizons {', '.join(f'+{h}{ws.horizon_unit}' for h in ws.barrier_horizons)}   "
-          f"{ws.n_bins} bins\n")
-    print(f"  {'family':<16}{'nodes':>7}{'cube':>7}{'econ':>7}{'signif':>8}{'cleared':>10}")
-    print('  ' + '-' * 57)
+          f"horizons +{ws.horizons[0]}{ws.horizon_unit}..+{ws.horizons[-1]}{ws.horizon_unit}   "
+          f"{ws.n_bins} bins")
+    if cl:
+        meth = cl.get('method', {})
+        print(f"  gate: BH q={meth.get('q')} over {meth.get('n_tests')} tests, "
+              f"{len(disc)} nodes with a discovery")
+    print()
+    print(f"  {'family':<16}{'nodes':>7}{'cube':>7}{'sheet':>7}{'valid':>7}{'econ':>7}{'cleared':>9}")
+    print('  ' + '-' * 60)
     for fam in sorted(by_fam):
         c = by_fam[fam]
-        print(f"  {fam:<16}{c[0]:>7}{c[1]:>7}{c[2]:>7}{c[3]:>8}{c[4]:>10}")
-    tot = [sum(by_fam[f][i] for f in by_fam) for i in range(5)]
-    print('  ' + '-' * 57)
-    print(f"  {'TOTAL':<16}{tot[0]:>7}{tot[1]:>7}{tot[2]:>7}{tot[3]:>8}{tot[4]:>10}")
+        print(f"  {fam:<16}{c[0]:>7}{c[1]:>7}{c[2]:>7}{c[3]:>7}{c[4]:>7}{c[5]:>9}")
+    tot = [sum(by_fam[f][i] for f in by_fam) for i in range(6)]
+    print('  ' + '-' * 60)
+    print(f"  {'TOTAL':<16}{tot[0]:>7}{tot[1]:>7}{tot[2]:>7}{tot[3]:>7}{tot[4]:>7}{tot[5]:>9}")
 
 
 def cmd_read(ws: Workspace, node_id: str) -> None:
     """
-    Print one node's cube in the terminal: the θ rows carrying a qualifying cell,
-    for whichever bin is strongest.
+    Print one node's cube in the terminal: the θ rows carrying a qualifying cell, for
+    whichever bin is strongest, with the null test beside them.
 
-    Reads the stored cube rather than recomputing, so what prints is exactly what the
-    workbook shows.
+    Reads the stored artifacts rather than recomputing, so what prints is exactly what
+    the workbook and the validation hold.
     """
     tree = load_tree(ws.tree_path)
     node = find_node(tree, node_id)
@@ -392,7 +435,6 @@ def cmd_read(ws: Workspace, node_id: str) -> None:
     thetas = cube['thetas']
     hz     = cube['horizons']
     labels = cube['meta']['bin_labels']
-    val    = ws.read_json(ws.validation_path).get('nodes', {}).get(node_id, {}).get('horizons', {})
 
     print()
     print(f"{node_id}  [{node['family']}]  {node['feature']}  params={node['params']}")
@@ -412,22 +454,31 @@ def cmd_read(ws: Workspace, node_id: str) -> None:
     print(f"  strongest cell: P={best['prob']:.1%} vs {best['base']:.1%} unconditional "
           f"at θ={best['theta']:+.0%}, +{best['horizon']}{ws.horizon_unit} "
           f"({best['dev']:+.1f}pp, run={best['run']}, n={best['bin_n']})")
-    if val:
-        for h, r in val.items():
-            print(f"  null {h:<5}    : {r.get('verdict')}  p={r.get('p_value')}  "
-                  f"real={r.get('real')} vs p95={r.get('null_p95')}")
+
+    vpath = ws.validation_path(node['family'], node_id)
+    if vpath.exists():
+        vr = val.load(vpath)
+        j  = int(np.flatnonzero(vr['horizons'] == best['horizon'])[0])
+        floor = 1.0 / (1.0 + vr['n_shifts'][j])
+        cp = vr['cell_p'][:, b, j]
+        tag = ' (at the floor)' if vr['peak_p'][j] <= floor + 1e-12 else ''
+        print(f"  null          : peak {vr['peak_real'][j]:.1f} vs p95 {vr['peak_p95'][j]:.1f}, "
+              f"p={vr['peak_p'][j]:.5f}{tag}   floor {floor:.2e}")
+        print(f"                  {int(np.nansum(cp <= 0.05))} of {int(np.isfinite(cp).sum())} "
+              f"cells in this bin are pointwise p<=0.05")
+    else:
+        print('  null          : not validated yet')
 
     avail = {int(x) for x in hz}
     show  = [h for h in (1, 2, 3, 5, 7, 10, 14, 21, 30) if h in avail]
     cols  = [int(np.flatnonzero(hz == h)[0]) for h in show]
+    dev   = (prob - baseline[:, None, :]) * 100.0
 
-    dev = (prob - baseline[:, None, :]) * 100.0
     print()
     header = ''.join(f"{'+' + str(h) + ws.horizon_unit:>8}" for h in show)
     print(f"  {'θ':>6}{header}")
     print('  ' + '-' * (6 + 8 * len(show)))
     shown = 0
-    # highest barrier first, matching the workbook
     for i in sorted(range(len(thetas)), key=lambda k: -thetas[k]):
         d = dev[i, b, cols]
         finite = d[np.isfinite(d)]
@@ -455,16 +506,14 @@ if __name__ == '__main__':
     parser.add_argument('--workspace', metavar='NAME', default='btc_daily_14days')
     parser.add_argument('--family', metavar='NAME', help='Restrict to one family')
     parser.add_argument('--rerun', action='store_true', help='Rebuild cubes that already exist')
-    parser.add_argument('--shifts', type=int, default=20000, metavar='N',
-                        help='Shuffles per --validate test (default 20000)')
-    parser.add_argument('--require', choices=['structure', 'nominal'], default='structure',
-                        help='Verdict a node must reach at --gate (default structure)')
+    parser.add_argument('--fdr', type=float, default=0.05, metavar='Q',
+                        help='Benjamini-Hochberg false-discovery rate for --gate (default 0.05)')
 
     g = parser.add_mutually_exclusive_group()
     g.add_argument('--cubes',    action='store_true', help='Measure every node: θ x bin x horizon (pre-A)')
     g.add_argument('--surfaces', action='store_true', help='Project cubes into Deliverable A workbooks')
-    g.add_argument('--validate', action='store_true', help='Null-test every surface')
-    g.add_argument('--gate',     action='store_true', help='Intersect the economic and null filters')
+    g.add_argument('--validate', action='store_true', help='Stage 3: null-test every cube, one artifact per node')
+    g.add_argument('--gate',     action='store_true', help='Correct across the sweep (BH) and intersect with the economic filter')
     g.add_argument('--status',   action='store_true', help='Inventory by family')
     g.add_argument('--read',     metavar='ID', help='Print a node surface summary')
 
@@ -476,9 +525,9 @@ if __name__ == '__main__':
     elif args.surfaces:
         cmd_surfaces(ws, args.family)
     elif args.validate:
-        cmd_validate(ws, args.family, n_shifts=args.shifts)
+        cmd_validate(ws, args.family, args.rerun)
     elif args.gate:
-        cmd_gate(ws, args.require)
+        cmd_gate(ws, args.fdr)
     elif args.status:
         cmd_status(ws)
     elif args.read:

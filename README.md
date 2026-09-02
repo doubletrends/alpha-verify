@@ -10,12 +10,17 @@
 > this level?** This measures that — every barrier level, every condition, on intraday
 > extremes, against a shuffled null.
 
-The pipeline measures once into a cube, then renders the deliverable out of it:
+Three stages, each producing one artifact per node:
 
 ```
-cubes/<family>/<node>.npz       the measurement   (θ x bin x horizon)
-surfaces/<family>/<node>.xlsx   the deliverable   (horizon slices, readable)
+cubes/<family>/<node>.npz        measure    P(touch θ in h | bin)
+surfaces/<family>/<node>.xlsx    render     the same values, readable
+validations/<family>/<node>.npz  falsify    an exact shuffled null
 ```
+
+Every node goes through all three, the `baseline` node included — its validation comes
+out degenerate by construction, and that is on purpose. A uniform pipeline carrying one
+meaningless file is worth more than a pipeline with a special case in it.
 
 The **cube** is a 3-D array per node — barrier level θ from −20% to +20% (41 levels,
 including 0), the feature's ten condition bins, and every horizon from +1 to +30 bars.
@@ -127,23 +132,59 @@ carrying nothing, so neither filter alone means anything:
   The adjacency is the point: an edge at exactly −7% and nowhere else is not a stop
   level, it is an artifact. A *band* of barrier levels moving together is both harder to
   produce by accident and the only shape you could act on.
-- **Statistical** — the surface's peak clears a null built by circularly shifting the
-  feature against price, Bonferroni-corrected across the sweep. Shifting the feature
-  (rather than the outcome) keeps the two forward-excursion series consistent with each
-  other and with the price path, preserves the feature's autocorrelation, and destroys
-  only its alignment with the future.
+- **Statistical** — the surface's peak clears a shuffled null, corrected across the
+  sweep. Shifting the feature (rather than the outcome) keeps the two forward-excursion
+  series consistent with each other and with the price path, preserves the feature's
+  autocorrelation, and destroys only its alignment with the future.
+
+### The null is exact, and its floor is real
+
+Writing `counts[θ, bin]` as a function of shift makes it a circular cross-correlation,
+so **one FFT yields every shift at once** — about 70× faster than resampling, and it
+returns the whole permutation distribution instead of a sample from it. All 30 horizons
+for a workspace take ~3 minutes.
+
+That exactness exposes something resampling hid. There are only *n* distinct circular
+shifts, so the finest obtainable p-value is `1/(n+1)` — about 2.6 × 10⁻⁴ on eleven years
+of daily bars. Drawing 20,000 random shifts from a group of 4,214 and reporting
+`p = 1/20001` claims a resolution the data cannot produce, overstating significance by
+roughly 5×.
+
+Because that floor sits **above** the Bonferroni threshold for a sweep this size, family-
+wise correction is structurally impossible here — nothing could ever clear it, however
+strong the signal:
+
+```
+p-value floor                         2.59e-04
+Bonferroni α over 1,980 tests         2.53e-05   below the floor, unusable
+```
+
+So the gate uses **Benjamini–Hochberg** instead, comparing the k-th smallest p-value
+against `k·q/m`. Tests sitting at the floor then clear collectively, and what is
+controlled is the share of false positives among discoveries — the right target for a
+screen of this size.
+
+Verdicts are assigned at `--gate`, never stored per node: a multiple-testing correction
+is a property of the collection, and a verdict baked into a node's artifact would go
+stale the moment another node joined the sweep.
 
 * * *
 
 ## Results
 
-| Workspace | Nodes | Cube | Economic | Significant | **Cleared both** |
-|---|--:|--:|--:|--:|--:|
-| `btc_daily_14days` | 65 | 65 | 56 | 44 | **30** |
-| `nasdaq_hourly_24hrs` | 33 | 33 | 30 | 28 | **23** |
+| Workspace | Nodes | Economic | BH discovery | **Cleared both** |
+|---|--:|--:|--:|--:|
+| `btc_daily_14days` | 66 | 57 | 52 | **51** |
+| `nasdaq_hourly_24hrs` | 34 | 31 | 30 | **29** |
 
-Against the null, BTC returns 68 of 240 tests clearing Bonferroni and 81 nominal against
-12 expected by chance; NASDAQ returns 72 of 132 clearing and 28 nominal against 6.6.
+Barrier-touch probability is strongly and widely predictable, which is not a surprise:
+41% of BTC's discoveries sit at the resolution floor, meaning the real surface is more
+extreme than *every* one of the 3,838 usable shifts.
+
+**Read the horizon distribution before getting excited.** Of the 51 cleared nodes, 36
+have their strongest cell at **h = 1**. At one bar ahead, "will price touch −2%" is
+close to asking "is volatility high right now", and volatility features answer that
+near-tautologically. It is real, it is significant, and it is mostly mechanical.
 
 **Barrier-touch probability is strongly predictable, and that is not a surprise.** What
 drives it is conditional *variance* — the size of the coming move — which is what
@@ -163,10 +204,10 @@ value: it tells you where to put a stop, and it does not tell you which way to b
 ```bash
 pip install -r requirements.txt
 
-python run.py --workspace btc_daily_14days --cubes              # measure   (pre-A)
-python run.py --workspace btc_daily_14days --surfaces           # render    (A)
-python run.py --workspace btc_daily_14days --validate           # null-test
-python run.py --workspace btc_daily_14days --gate               # intersect both filters
+python run.py --workspace btc_daily_14days --cubes              # 1. measure
+python run.py --workspace btc_daily_14days --surfaces           # 2. render
+python run.py --workspace btc_daily_14days --validate           # 3. falsify
+python run.py --workspace btc_daily_14days --gate               # correct + intersect
 python run.py --workspace btc_daily_14days --status             # the funnel
 python run.py --workspace btc_daily_14days --read bb_pct_20     # one node, in the terminal
 ```
@@ -175,13 +216,13 @@ python run.py --workspace btc_daily_14days --read bb_pct_20     # one node, in t
 |---|---|
 | `--cubes` | `cubes/<family>/<node>.npz` (**the measurement**), `evaluation.json` — builds `baseline` first |
 | `--surfaces` | `surfaces/<family>/<node>.xlsx` (**the deliverable**) — 10 tabs, renders only |
-| `--validate` | `validation.json` — p-values and verdicts |
-| `--gate` | `cleared.json` — nodes passing both filters |
+| `--validate` | `validations/<family>/<node>.npz` — per-cell and peak nulls, one per node |
+| `--gate` | `cleared.json` — BH across the sweep, intersected with the economic filter |
 | `--status` | *(terminal)* the funnel per family |
 | `--read <id>` | *(terminal)* the θ rows carrying a qualifying cell |
 
 `--family <name>` restricts any build; `--rerun` rebuilds existing cubes;
-`--shifts N` sets resampling depth; `--require nominal` loosens the gate.
+`--fdr Q` sets the Benjamini-Hochberg rate at `--gate` (default 0.05).
 
 * * *
 
@@ -252,8 +293,9 @@ data/
   features.py        ← FeatureRegistry: register() / compute()
   fetcher.py         ← SourceRegistry: register_source() / fetch()
 engine/
-  barrier.py         ← the cube, quantile bins, economic filter, shuffle null, npz io
-  writer.py          ← the xlsx deliverable (projection only)
+  barrier.py         ← the cube, quantile bins, economic filter, npz io
+  validate.py        ← exact FFT circular-shift null, Benjamini-Hochberg
+  writer.py          ← the xlsx deliverable (rendering only)
 tree/tree.py         ← node traversal over universe.json
 workspaces/<name>/
   universe.json      ← nodes + all asset config
@@ -296,6 +338,7 @@ at all. That is a data problem, not a code one.
 
 **Method**
 - Davison & Hinkley (1997), *Bootstrap Methods and Their Application*, CUP §4.2 — add-one permutation p-values and resampling resolution
+- Benjamini & Hochberg (1995), *Controlling the False Discovery Rate*, JRSS-B 57(1) — the correction the gate applies
 - Politis & Romano (1994), *The Stationary Bootstrap*, JASA 89(428) — resampling that preserves serial dependence
 - White (2000), *A Reality Check for Data Snooping*, Econometrica 68(5) — multiple testing over a searched universe of rules
 - López de Prado (2018), *Advances in Financial Machine Learning*, ch. 3 — barrier labelling of financial time series

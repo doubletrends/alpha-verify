@@ -1,7 +1,7 @@
 # Pipeline — Procedure
 
-One measurement, one deliverable. The measurement is a cube per node; the deliverable
-is a workbook projected out of it. Nothing else is produced.
+Three stages, one artifact per node at each: measure into a cube, render it as a
+workbook, falsify it against a shuffled null. Nothing else is produced.
 
 Pass `--workspace <name>` to every command.
 
@@ -56,9 +56,10 @@ P(touch θ in h) with nothing conditioned on. It is built first — it is the re
 every other node is judged against — and it flows through `--cubes` and `--surfaces`
 with no special case in the engine.
 
-`--validate` skips it: shuffling a constant changes nothing, so the null is vacuous, and
-excluding it keeps it out of the Bonferroni denominator where it would only make real
-tests harder to pass.
+`--validate` runs on it like everything else and produces a degenerate artifact —
+shuffling a constant cannot change the surface, so its peak deviation is exactly 0 and
+its p-value exactly 1. It is never a discovery, and keeping it in costs one file and
+removes a branch from the pipeline.
 
 Caveat worth knowing: the baseline covers every bar, while a long-warmup feature covers
 fewer, and the bars it loses are the oldest. For a 200-bar moving average that is ~5% of
@@ -118,29 +119,37 @@ and large |θ| at short horizons is touched almost never.
 
 ---
 
-## 3. Validate
+## 3. Falsify
 
 ```
-python run.py --workspace <name> --validate --shifts 20000
+python run.py --workspace <name> --validate
+python run.py --workspace <name> --validate --family volatility   # or one family
 ```
 
-A surface's headline is a maximum over 41 barrier levels × 10 bins. That is 400 noisy
-estimates, and the largest lands well into the tens of pp even on a feature carrying
-nothing — a bigger bias than any one-dimensional scan, because the search is
-two-dimensional. This builds the null of that same statistic by circularly shifting the
-feature against price, preserving the feature's autocorrelation and destroying only its
-alignment with the future.
+Writes `validations/<family>/<node>.npz`, one per node — the baseline included, whose
+artifact comes out degenerate because shuffling a constant cannot change anything. Per
+node artifacts also mean two runs never write the same path, which is what made a shared
+validation file untrustworthy.
 
-Runs on the horizons in `barrier_horizons`, not all 30 — adjacent horizons are nearly
-the same measurement, so testing every one would inflate the Bonferroni denominator
-without adding independent evidence.
+| | |
+|---|---|
+| `cell_real` | (θ, bin, h) signed deviation from the node's own sample rate |
+| `cell_p` | (θ, bin, h) **pointwise** p-value — for reading a surface, never a discovery |
+| `cell_p95` | (θ, bin, h) 95th percentile of each cell's own null |
+| `peak_real`, `peak_p`, `peak_p95` | (h,) the max over the surface — the statistic that accounts for the search |
+| `n_shifts` | (h,) usable shifts, so the p-value floor is `1/(n+1)` |
 
-Writes `validation.json`. Verdicts: `structure` (clears Bonferroni), `nominal` (clears
-α alone), `underpowered` (at the resolution floor — re-run with more shifts), `noise`.
-Narrowing with `--family` **merges** into the existing file, and the correction is taken
-over every test the merged file holds.
+**The null is exact.** `counts[θ, bin]` as a function of shift is a circular
+cross-correlation, so one FFT gives every shift at once — ~70× faster than resampling
+and it returns the whole permutation distribution. All 30 horizons cost ~3 min per
+workspace, so there is no reason to test a subset.
 
-Choose `--shifts` so the floor `1/(shifts+1)` sits below `0.05 / n_tests`.
+**Its floor is real.** Only *n* distinct shifts exist, so no p-value below `1/(n+1)`
+(~2.6e-4) is obtainable. Resampling 20,000 shifts from a group of 4,214 and reporting
+`p = 1/20001` overstates significance about 5×.
+
+**`cell_p` is pointwise.** With 12,300 cells, ~615 fall below 0.05 by chance. Use it to
+read where a surface is unusual; never as a criterion for finding something.
 
 ---
 
@@ -151,12 +160,28 @@ python run.py --workspace <name> --gate
 python run.py --workspace <name> --gate --require nominal   # looser
 ```
 
-Intersects the two filters and writes `cleared.json`.
+```
+python run.py --workspace <name> --gate --fdr 0.05
+```
 
-- **Economic** (from `--surfaces`): a cell deviates from the base rate by at least
+Corrects across the whole sweep, then intersects with the economic filter, and writes
+`cleared.json`.
+
+- **Economic** (from `--cubes`): a cell deviates from the baseline node by at least
   `min_dev` pp, in a bin holding at least `min_bin_n` observations, across at least
   `min_run` *adjacent* θ rows with the same sign.
-- **Statistical** (from `--validate`): the surface clears its shuffled null.
+- **Statistical** (from `--validate`): the node's peak p-value survives
+  Benjamini–Hochberg at `q`.
+
+**Why BH and not Bonferroni.** Bonferroni needs a p-value below `q/m`. With m in the
+hundreds that threshold falls *under* the `1/(n+1)` floor the exact null can physically
+reach, so nothing could ever clear it however strong the signal. BH compares the k-th
+smallest p-value against `k·q/m`, so tests at the floor clear collectively, and it
+controls the share of false positives among discoveries instead of the probability of
+any at all.
+
+Verdicts live here, not in the artifacts: a correction is a property of the collection,
+and a stored verdict would go stale the moment another node joined the sweep.
 
 Both are required. A large steady edge that fails its null is a shape found by
 searching. A significant edge concentrated in a single cell is real and useless — an
@@ -178,6 +203,11 @@ upper bound on the evidence, not a measure of it, and more so at long horizons.
 **The best cell of any search.** The null exists because the maximum of 400 noisy
 estimates is large by construction. A number without its verdict beside it is not a
 result.
+
+**Short horizons.** At h = 1, "will price touch −2%" is barely distinguishable from "is
+volatility high right now", so volatility features answer it near-tautologically. Most
+of what clears the gate peaks at h = 1. Real, significant, and mostly mechanical — look
+at where a node's edge sits before believing it means anything.
 
 **Bar resolution.** Daily OHLC records a session's high and low but not their order, so
 any question that depends on which came first is unanswerable at this bar size. That is
@@ -223,7 +253,7 @@ There is no `status` field — progress is read from disk.
 | `asset` | `{provider, ticker, interval}` |
 | `start_date` | history start |
 | `horizons` | `{min, max}` — the cube's horizon ladder |
-| `barrier_horizons` | horizons the null test runs on |
+
 | `theta` | `{min, max, step}` — the barrier ladder |
 | `n_bins` | condition bins per feature (quantile) |
 | `evaluate` | `{min_dev, min_bin_n, min_run}` — the economic filter |
@@ -243,5 +273,5 @@ and every row of that ladder would be empty.
 | `cubes/<family>/<node>.npz` | `--cubes` | **the measurement** — (θ × bin × h) probabilities |
 | `surfaces/<family>/<node>.xlsx` | `--surfaces` | **the deliverable** — 10 tabs, the cube made readable |
 | `evaluation.json` | `--cubes` | economic filter verdict per node |
-| `validation.json` | `--validate` | null-test p-values and verdicts |
-| `cleared.json` | `--gate` | nodes clearing both filters |
+| `validations/<family>/<node>.npz` | `--validate` | per-cell and peak nulls, one per node |
+| `cleared.json` | `--gate` | BH verdicts for every test, and what clears both filters |

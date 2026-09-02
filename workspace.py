@@ -99,9 +99,11 @@ class Workspace:
     def eval_path(self) -> Path:
         return self.dir / 'evaluation.json'
 
-    @property
-    def validation_path(self) -> Path:
-        return self.dir / 'validation.json'
+    def validation_path(self, family: str, node_id: str) -> Path:
+        return self.dir / 'validations' / family / f'{node_id}.npz'
+
+    def has_validation(self, family: str, node_id: str) -> bool:
+        return self.validation_path(family, node_id).exists()
 
     @property
     def baseline_cube(self) -> Path:
