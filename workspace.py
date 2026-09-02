@@ -16,6 +16,11 @@ ROOT = Path(__file__).resolve().parent
 
 from tree.tree import load_tree
 
+# The unconditional rate is an ordinary node whose feature is constant, so every bar
+# falls in a single bin. Naming it here rather than special-casing it in the engine is
+# what keeps the base rate on exactly the same path as every condition.
+BASELINE_NODE = 'baseline'
+
 
 class Workspace:
     def __init__(self, name: str):
@@ -29,7 +34,11 @@ class Workspace:
         interval = self.asset.get('interval', '1d')
         self.horizon_unit = 'h' if interval.endswith('h') else 'd'
 
-        # Horizons for the four sheets of Deliverable A.
+        # The cube measures every horizon in this ladder; the workbook renders only
+        # the few in `barrier_horizons`, which must be a subset of it.
+        hz = meta.get('horizons', {})
+        self.h_min = hz.get('min', 1)
+        self.h_max = hz.get('max', 30)
         self.barrier_horizons = meta.get('barrier_horizons', [3, 7, 14, 30])
 
         # Barrier levels. These have to be scaled to the asset and the horizon: a 10%
@@ -60,6 +69,10 @@ class Workspace:
         spec.loader.exec_module(mod)
 
     @property
+    def horizons(self) -> np.ndarray:
+        return np.arange(self.h_min, self.h_max + 1)
+
+    @property
     def thetas(self) -> np.ndarray:
         from engine import barrier
         return barrier.theta_levels(self.theta_min, self.theta_max, self.theta_step)
@@ -69,6 +82,12 @@ class Workspace:
     @property
     def tree_path(self) -> Path:
         return self.dir / 'universe.json'
+
+    def cube_path(self, family: str, node_id: str) -> Path:
+        return self.dir / 'cubes' / family / f'{node_id}.npz'
+
+    def has_cube(self, family: str, node_id: str) -> bool:
+        return self.cube_path(family, node_id).exists()
 
     def surface_path(self, family: str, node_id: str) -> Path:
         return self.dir / 'surfaces' / family / f'{node_id}.xlsx'
@@ -83,6 +102,10 @@ class Workspace:
     @property
     def validation_path(self) -> Path:
         return self.dir / 'validation.json'
+
+    @property
+    def baseline_cube(self) -> Path:
+        return self.cube_path('_base', BASELINE_NODE)
 
     @property
     def cleared_path(self) -> Path:

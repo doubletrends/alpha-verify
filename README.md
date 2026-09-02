@@ -10,35 +10,92 @@
 > this level?** This measures that — every barrier level, every condition, on intraday
 > extremes, against a shuffled null.
 
-The pipeline produces exactly one deliverable, per node:
+The pipeline measures once into a cube, then renders the deliverable out of it:
 
 ```
-surfaces/<family>/<node>.xlsx
+cubes/<family>/<node>.npz       the measurement   (θ x bin x horizon)
+surfaces/<family>/<node>.xlsx   the deliverable   (horizon slices, readable)
 ```
 
-Four sheets, one per horizon. **Rows** are barrier levels θ from −20% to +20%.
-**Columns** are the feature's condition bins. **Cells** are
+The **cube** is a 3-D array per node — barrier level θ from −20% to +20% (41 levels,
+including 0), the feature's ten condition bins, and every horizon from +1 to +30 bars.
+Each entry is the raw conditional probability:
 
 $$
-P\left(\text{price touches } \theta \text{ within } h \mid X_t \in \text{bin}\right)
+P\left(\text{price touches } \θ \text{ within } h \;\middle|\; X_t \in \text{bin}\right)
 $$
 
-with the event count beside each one, and the unconditional base rate in column B so
-every cell reads against the row it sits on.
+Nothing is subtracted. A cell reads on its own terms — *under this condition a −5% touch
+within 7 days happens 50% of the time* — with no base rate to carry in your head.
+
+**The base rate is a node.** `baseline` has a constant feature, so every bar falls in one
+bin and its single column *is* P(touch θ in h) unconditional. It flows through `--cubes`
+and `--surfaces` like any other node, with no special case anywhere in the engine, and
+the filters read it from there. It is built first, since it is the reference everything
+else is judged against.
 
 ```
-theta    base  |  x < 0.121  hits |  0.121..0.248 hits |  ...  |  x > 0.967  hits
-  n =   4,237  |        425       |          424       |       |        425
- -20%    4.6%  |       11.1%   47 |         3.8%    16 |       |       3.1%   13
- -10%   17.4%  |       27.1%  115 |        18.6%    79 |       |      13.6%   58
-  -5%   39.3%  |       50.1%  213 |        41.3%   175 |       |      33.6%  143
-  +5%   46.8%  |       52.2%  221 |        44.6%   189 |       |      56.5%  240
- +10%   22.5%  |       24.7%  105 |        20.3%    86 |       |      31.5%  134
- +20%    6.8%  |        7.3%   31 |         5.2%    22 |       |      14.6%   62
+  unconditional P(touch θ in h) — BTC daily, from cubes/_base/baseline.npz
+
+   θ      +1d     +3d     +7d    +14d    +30d
+    +20%     0.2%    1.5%    6.8%   16.3%   31.6%
+    +10%     2.3%    9.6%   22.5%   37.4%   56.2%
+     +5%    10.3%   28.1%   46.9%   62.2%   75.8%
+      0%    97.9%   98.8%   99.2%   99.3%   99.6%
+     -5%    10.2%   24.6%   39.5%   51.2%   62.3%
+    -10%     2.3%    8.4%   17.6%   28.7%   41.0%
+    -20%     0.2%    1.3%    4.8%    9.7%   19.7%
 ```
 
-*(`bb_pct_20`, +7d, BTC daily. Bottom decile — price pinned to the lower Bollinger band —
-lifts every downside barrier; the top decile lifts every upside one.)*
+BTC's upward drift is right there: +10% within 30 days is reached 56.2% of the time
+against 41.0% for −10%. Any conditional surface has to beat *that*, not a coin flip.
+
+One caveat the design inherits: the baseline is measured over every bar, while a node
+with a long warmup — a 200-bar moving average — is measured over fewer, and the bars it
+drops are the oldest and most volatile. For those features the comparison is very
+slightly against a different history.
+
+About 90 KB per node, and it carries the event counts too, so a follow-up question needs
+no recomputation.
+
+The full horizon ladder is where the *shape* of a signal lives. `bb_pct_20`'s bottom
+decile at θ = −5% runs +14.4 pp at h = 3, decays to +7.6 pp by h = 22, then curls back
+up — a profile no set of four sheets would reveal.
+
+The **workbook** is a faithful rendering of that cube, not a summary of it: **one tab
+per condition bin**, and each tab is that bin's entire θ × h face. Ten tabs × 41 θ × 30
+horizons is exactly the 12,300 values the cube holds — nothing is dropped.
+
+Rows run the way a price ladder reads, highest barrier at the top:
+
+```
+  bb_pct_20 — condition: bb_pct in x < 0.1213          (tab 1 of 10)
+
+  θ    +1d    +2d    +3d    +5d    +7d   +10d   +14d   +21d   +30d
+  n =      425    425    425    425    425    425    425    425    425
+   +20%   0.0%   1.2%   2.1%   3.5%   7.3%  10.4%  12.9%  20.0%  26.1%
+   +10%   5.2%   8.7%  13.9%  19.8%  24.7%  29.2%  36.0%  43.1%  49.7%
+    +5%  14.6%  26.1%  33.2%  45.2%  52.2%  60.2%  66.1%  71.1%  73.7%
+     0%  97.7%  98.6%  98.6%  99.3%  99.5%  99.5%  99.5%  99.8%  99.8%
+    -5%  22.6%  32.7%  38.8%  46.1%  50.1%  57.9%  60.9%  65.2%  72.9%
+   -10%   6.4%  12.5%  17.2%  23.8%  27.1%  31.5%  39.5%  46.8%  52.5%
+   -20%   0.5%   2.4%   4.9%   8.9%  11.1%  13.4%  16.0%  21.9%  27.8%
+```
+
+*(BTC daily, bottom decile — price pinned to the lower Bollinger band.)*
+
+Read it as a band that widens with horizon. The asymmetry is right there without any
+arithmetic: at +1d the **−5%** row is 22.6% against **+5%** at 14.6% — same condition,
+same bars, so this condition reaches down more readily than up. Flip to tab 10 and the
+band tilts the other way.
+
+θ = 0 sits shaded in the middle. It is near-degenerate by construction — it asks whether
+the high ever returned to the entry close — and it marks the boundary between the two
+questions: above it a cell asks whether the *high* reached that level, below it whether
+the *low* did.
+
+The colour scale is a fixed 0–100% on every tab, so flipping between them shows the band
+moving with the condition rather than each tab being rescaled to look alike.
 
 * * *
 
@@ -62,8 +119,7 @@ column has a known, equal sample behind it and each one is a condition you could
 out loud ("the feature is in its bottom tenth"). Equal-width bins put almost nothing in
 the tails, which is exactly where the interesting conditions live.
 
-**Two gates, both required.** A surface has ~40 barrier levels × 10 bins = 400 cells per
-horizon. The largest of 400 noisy estimates is well into the tens of pp even on a feature
+**Two gates, both required.** A cube has 41 barrier levels × 10 bins × 30 horizons. The largest of 400 noisy estimates is well into the tens of pp even on a feature
 carrying nothing, so neither filter alone means anything:
 
 - **Economic** — a cell deviates from its base rate by ≥ `min_dev` pp, in a bin with
@@ -81,7 +137,7 @@ carrying nothing, so neither filter alone means anything:
 
 ## Results
 
-| Workspace | Nodes | Surface | Economic | Significant | **Cleared both** |
+| Workspace | Nodes | Cube | Economic | Significant | **Cleared both** |
 |---|--:|--:|--:|--:|--:|
 | `btc_daily_14days` | 65 | 65 | 56 | 44 | **30** |
 | `nasdaq_hourly_24hrs` | 33 | 33 | 30 | 28 | **23** |
@@ -107,8 +163,9 @@ value: it tells you where to put a stop, and it does not tell you which way to b
 ```bash
 pip install -r requirements.txt
 
-python run.py --workspace btc_daily_14days --surfaces           # build every surface
-python run.py --workspace btc_daily_14days --validate           # null-test them
+python run.py --workspace btc_daily_14days --cubes              # measure   (pre-A)
+python run.py --workspace btc_daily_14days --surfaces           # render    (A)
+python run.py --workspace btc_daily_14days --validate           # null-test
 python run.py --workspace btc_daily_14days --gate               # intersect both filters
 python run.py --workspace btc_daily_14days --status             # the funnel
 python run.py --workspace btc_daily_14days --read bb_pct_20     # one node, in the terminal
@@ -116,13 +173,14 @@ python run.py --workspace btc_daily_14days --read bb_pct_20     # one node, in t
 
 | Command | Writes |
 |---|---|
-| `--surfaces` | `surfaces/<family>/<node>.xlsx` (**the deliverable**), `evaluation.json` |
+| `--cubes` | `cubes/<family>/<node>.npz` (**the measurement**), `evaluation.json` — builds `baseline` first |
+| `--surfaces` | `surfaces/<family>/<node>.xlsx` (**the deliverable**) — 10 tabs, renders only |
 | `--validate` | `validation.json` — p-values and verdicts |
 | `--gate` | `cleared.json` — nodes passing both filters |
 | `--status` | *(terminal)* the funnel per family |
 | `--read <id>` | *(terminal)* the θ rows carrying a qualifying cell |
 
-`--family <name>` restricts any build; `--rerun` rebuilds existing surfaces;
+`--family <name>` restricts any build; `--rerun` rebuilds existing cubes;
 `--shifts N` sets resampling depth; `--require nominal` loosens the gate.
 
 * * *
@@ -136,6 +194,7 @@ A workspace is one `universe.json`. No root code changes.
   "meta": {
     "asset": {"provider": "yfinance", "ticker": "BTC-USD", "interval": "1d"},
     "start_date": "2015-01-01",
+    "horizons": {"min": 1, "max": 30},
     "barrier_horizons": [3, 7, 14, 30],
     "theta":    {"min": -0.20, "max": 0.20, "step": 0.01},
     "n_bins":   10,
@@ -149,6 +208,10 @@ A workspace is one `universe.json`. No root code changes.
   }
 }
 ```
+
+`horizons` is the cube's full ladder; `barrier_horizons` is the subset the null
+test runs on — adjacent horizons are nearly the same measurement, so testing all
+thirty would inflate the Bonferroni denominator without adding independent evidence.
 
 **Scale θ to the asset and horizon.** BTC daily runs ±20% in 1% steps. NASDAQ hourly runs
 ±4% in 0.2% steps — a 20% move inside a trading day does not happen, and every row of
@@ -189,12 +252,14 @@ data/
   features.py        ← FeatureRegistry: register() / compute()
   fetcher.py         ← SourceRegistry: register_source() / fetch()
 engine/
-  barrier.py         ← touch surfaces, quantile bins, economic filter, shuffle null
-  writer.py          ← the xlsx deliverable
+  barrier.py         ← the cube, quantile bins, economic filter, shuffle null, npz io
+  writer.py          ← the xlsx deliverable (projection only)
 tree/tree.py         ← node traversal over universe.json
 workspaces/<name>/
   universe.json      ← nodes + all asset config
   plugin.py          ← (optional) custom features and sources
+  cubes/_base/baseline.npz         ← the unconditional reference, an ordinary node
+  cubes/<family>/<node>.npz        ← the measurement (θ x bin x horizon)
   surfaces/<family>/<node>.xlsx    ← the deliverable
   evaluation.json  validation.json  cleared.json
 ```

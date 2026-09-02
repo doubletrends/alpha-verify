@@ -1,9 +1,10 @@
 """
 Barrier-touch pipeline.
 
-            --surfaces   Deliverable A, one workbook per node: for each horizon, the
-                         probability that price touches each barrier level theta, given
-                         each condition bin.
+            --cubes      the measurement: per node, a (θ x bin x horizon) cube of
+                         P(touch θ in h | bin), saved as .npz.
+            --surfaces   Deliverable A: projects a few horizon slices of each cube into
+                         a workbook. Renders only; it never re-measures.
             --validate   null-test every node's surface.
             --gate       apply the economic filter and the null test together; write
                          the nodes that clear both.
@@ -14,6 +15,7 @@ steady enough to be worth anything; the statistical one asks whether it is there
 all. Either alone is a way to be confidently wrong.
 
 Usage:
+    python run.py --workspace btc_daily_14days --cubes
     python run.py --workspace btc_daily_14days --surfaces
     python run.py --workspace btc_daily_14days --validate --shifts 20000
     python run.py --workspace btc_daily_14days --gate
@@ -36,7 +38,7 @@ sys.path.insert(0, str(ROOT))
 from data import features, fetcher
 from engine import barrier, writer
 from tree.tree import load_tree, all_nodes, find_node, all_in_family
-from workspace import Workspace
+from workspace import Workspace, BASELINE_NODE
 
 
 def _loader(ws: Workspace):
@@ -69,45 +71,78 @@ def _h_num(label: str) -> int:
 
 # ── Deliverable A ─────────────────────────────────────────────────────────────
 
-def build_surface(ws: Workspace, node: dict, get_data, quiet: bool = False) -> dict:
-    """Compute and write one node's barrier workbook; return its economic evaluation."""
+def _baseline_surface(ws: Workspace) -> "np.ndarray | None":
+    """
+    The baseline node's probability surface, shaped (n_theta, n_horizons).
+
+    This is the unconditional P(touch θ in h). It is measured as an ordinary node,
+    so it arrives here the same way every condition does -- there is no separate base
+    array anywhere in the pipeline.
+    """
+    path = ws.baseline_cube
+    if not path.exists():
+        return None
+    return barrier.load_cube(path)['prob'][:, 0, :]
+
+
+def build_cube(ws: Workspace, node: dict, get_data, quiet: bool = False) -> dict:
+    """Measure one node across every horizon and barrier level; write the .npz."""
     data, feat = _node_feature(ws, node, get_data)
-    edges  = barrier.bin_edges(feat, ws.n_bins)
-    labels = barrier.bin_labels(edges, feat)
+    edges = barrier.bin_edges(feat, ws.n_bins)
+    cube  = barrier.touch_tensor(data, feat, ws.horizons, ws.thetas, edges)
 
-    surfaces = {f'+{h}{ws.horizon_unit}': barrier.touch_matrix(data, feat, h, ws.thetas, edges)
-                for h in ws.barrier_horizons}
-
-    writer.write_barrier_xlsx(surfaces, labels, ws.surface_path(node['family'], node['id']),
-                              node['id'], node['feature'], node['params'])
-    ev = barrier.evaluate(surfaces, ws.min_dev, ws.min_bin_n, ws.min_run)
+    barrier.save_cube(cube, ws.cube_path(node['family'], node['id']), {
+        'node': node['id'], 'family': node['family'],
+        'feature': node['feature'], 'params': node['params'],
+        'workspace': ws.dir.name,
+        'bin_labels': barrier.bin_labels(edges, feat),
+        'generated': datetime.now(timezone.utc).isoformat(),
+    })
+    baseline = _baseline_surface(ws)
+    if baseline is None:
+        return {'passed': False, 'best': None, 'per_horizon': {}}
+    ev = barrier.evaluate(cube, baseline, ws.min_dev, ws.min_bin_n, ws.min_run)
     if not quiet:
         b = ev['best']
-        note = (f"best {b['dev']:+5.1f}pp  theta={b['theta']:+.0%}  {b['horizon']:<5} "
-                f"bin {b['bin']}  n={b['bin_n']}  run={b['run']}") if b else 'no qualifying cell'
+        note = (f"best {b['dev']:+5.1f}pp  θ={b['theta']:+.0%}  "
+                f"+{b['horizon']}{ws.horizon_unit:<3} bin {b['bin']}  "
+                f"n={b['bin_n']}  run={b['run']}") if b else 'no qualifying cell'
         print(f"  {node['id']:<26} {note}")
     return ev
 
 
-def cmd_surfaces(ws: Workspace, family: str | None = None, rerun: bool = False) -> None:
+def cmd_cubes(ws: Workspace, family: str | None = None, rerun: bool = False) -> None:
     tree  = load_tree(ws.tree_path)
     nodes = all_in_family(tree, family) if family else all_nodes(tree)
     if not rerun:
-        nodes = [n for n in nodes if not ws.has_surface(n['family'], n['id'])]
+        nodes = [n for n in nodes if not ws.has_cube(n['family'], n['id'])]
     if not nodes:
-        print('Nothing to do (use --rerun to rebuild existing surfaces).')
+        print('Nothing to do (use --rerun to rebuild existing cubes).')
+        return
+
+    # The baseline is the reference every other node is judged against, so it is built
+    # first -- and rebuilt whenever anything else is, since a stale one would silently
+    # shift every comparison.
+    nodes = ([n for n in nodes if n['id'] == BASELINE_NODE]
+             + [n for n in nodes if n['id'] != BASELINE_NODE])
+    if not any(n['id'] == BASELINE_NODE for n in nodes) and not ws.baseline_cube.exists():
+        print(f"No baseline cube yet. Run --cubes without --family, or add a "
+              f"'{BASELINE_NODE}' node, before evaluating conditions.")
         return
 
     get_data = _loader(ws)
-    hz = ', '.join(f'+{h}{ws.horizon_unit}' for h in ws.barrier_horizons)
-    print(f"\n=== Deliverable A [{ws.dir.name}] — {len(nodes)} nodes ===")
-    print(f"  horizons {hz}   theta {ws.thetas[0]:+.0%}..{ws.thetas[-1]:+.0%} "
-          f"step {ws.theta_step:.0%}   {ws.n_bins} quantile bins   intraday high/low\n")
+    hz = ws.horizons
+    print(f"\n=== Cubes [{ws.dir.name}] - {len(nodes)} nodes ===")
+    print(f"  {len(ws.thetas)} θ x {ws.n_bins} bins x {len(hz)} horizons "
+          f"(+{hz[0]}{ws.horizon_unit}..+{hz[-1]}{ws.horizon_unit})   "
+          f"θ {ws.thetas[0]:+.0%}..{ws.thetas[-1]:+.0%} step {ws.theta_step:.0%}")
+    print(f"  value = P(touch θ in h | bin); intraday high/low")
+    print(f"  the '{BASELINE_NODE}' node is the unconditional reference, built first\n")
 
     evals, skipped = {}, {}
     for node in nodes:
         try:
-            evals[node['id']] = build_surface(ws, node, get_data)
+            evals[node['id']] = build_cube(ws, node, get_data)
         except Exception as e:
             skipped[node['id']] = str(e)
             print(f"  {node['id']:<26} [skip] {e}")
@@ -115,25 +150,68 @@ def cmd_surfaces(ws: Workspace, family: str | None = None, rerun: bool = False) 
     ws.write_json(ws.eval_path, {
         'workspace': ws.dir.name,
         'generated': datetime.now(timezone.utc).isoformat(),
-        'criteria': {'min_dev': ws.min_dev, 'min_bin_n': ws.min_bin_n, 'min_run': ws.min_run},
+        'criteria': {'min_dev': ws.min_dev, 'min_bin_n': ws.min_bin_n,
+                     'min_run': ws.min_run},
         'passed':  sorted(n for n, e in evals.items() if e['passed']),
-        'nodes':   {n: {'passed': e['passed'], 'best': e['best']} for n, e in evals.items()},
+        'nodes':   {n: {'passed': e['passed'], 'best': e['best']}
+                    for n, e in evals.items()},
         'skipped': skipped,
     })
     n_pass = sum(1 for e in evals.values() if e['passed'])
     print(f"\n  economic filter: {n_pass} / {len(evals)} pass "
-          f"(|dev| >= {ws.min_dev}pp across >= {ws.min_run} adjacent theta rows, bin n >= {ws.min_bin_n})")
+          f"(|dev| >= {ws.min_dev}pp across >= {ws.min_run} adjacent θ rows, "
+          f"bin n >= {ws.min_bin_n})")
     print(f"  wrote {ws.eval_path.relative_to(ROOT)}")
+
+
+# -- Deliverable A: a projection of the cube ----------------------------------
+
+def cmd_surfaces(ws: Workspace, family: str | None = None) -> None:
+    """
+    Render the workbook from the cube: one tab per condition bin, each holding that
+    bin's whole (θ x horizon) face.
+
+    Every value in the cube appears in the workbook, so this is a faithful view of the
+    measurement rather than a summary of it. No measurement happens here.
+    """
+    tree  = load_tree(ws.tree_path)
+    nodes = [n for n in (all_in_family(tree, family) if family else all_nodes(tree))
+             if ws.has_cube(n['family'], n['id'])]
+    if not nodes:
+        print('No cubes to project - run --cubes first.')
+        return
+
+    print(f"\n=== Deliverable A [{ws.dir.name}] - {len(nodes)} nodes ===")
+    print(f"  {ws.n_bins} tabs per node, one per condition bin; each tab is that bin's "
+          f"full θ x horizon face\n")
+    n_ok = 0
+    for node in nodes:
+        cube = barrier.load_cube(ws.cube_path(node['family'], node['id']))
+        try:
+            writer.write_barrier_xlsx(
+                cube, ws.surface_path(node['family'], node['id']),
+                node['id'], node['feature'], node['params'], ws.horizon_unit)
+        except PermissionError:
+            # Windows locks a workbook that is open in Excel. Skip it rather than
+            # abandoning the run -- the cube is already written, so re-running the
+            # projection once the file is closed costs nothing.
+            print(f"  {node['id']:<26} [locked] close it in Excel and re-run --surfaces")
+            continue
+        n_ok += 1
+    print(f"  wrote {n_ok} workbooks under {ws.dir.relative_to(ROOT)}/surfaces/")
 
 
 # ── Validation ────────────────────────────────────────────────────────────────
 
 def cmd_validate(ws: Workspace, family: str | None = None, n_shifts: int = 20000) -> None:
     tree  = load_tree(ws.tree_path)
+    # The baseline carries no condition, so shuffling its feature changes nothing and
+    # a null test on it is vacuous. Excluding it also keeps it out of the Bonferroni
+    # denominator, where it would only make every real test harder to pass.
     nodes = [n for n in (all_in_family(tree, family) if family else all_nodes(tree))
-             if ws.has_surface(n['family'], n['id'])]
+             if ws.has_cube(n['family'], n['id']) and n['id'] != BASELINE_NODE]
     if not nodes:
-        print('No surfaces to validate — run --surfaces first.')
+        print('No cubes to validate — run --surfaces first.')
         return
 
     get_data = _loader(ws)
@@ -168,7 +246,22 @@ def cmd_validate(ws: Workspace, family: str | None = None, n_shifts: int = 20000
         results[node['id']] = {'family': node['family'], 'horizons': per_h}
         print(f"  {node['id']:<26}{''.join(cells)}")
 
+    # Merge into any prior sweep, so validating one family never discards the rest.
+    # Bonferroni is then applied over every test the merged file holds -- narrowing
+    # --family must not quietly shrink the correction for a search already run wide.
+    prior = ws.read_json(ws.validation_path)
+    merged = prior.get('nodes', {}) if prior else {}
+    merged.update(results)
+    results = merged
+
     flat = [r for n in results.values() for r in n['horizons'].values()]
+    if len(flat) != n_tests:
+        for n in results.values():
+            for r in n['horizons'].values():
+                r['verdict'] = barrier.verdict(r['p_value'], n_tests=len(flat),
+                                               p_floor=r.get('p_floor', 0.0))
+        print(f"\n  (merged with earlier runs: Bonferroni now over {len(flat)} tests)")
+
     n_st = sum(1 for r in flat if r['verdict'] == 'structure')
     n_no = sum(1 for r in flat if r['verdict'] == 'nominal')
     print()
@@ -235,7 +328,7 @@ def cmd_gate(ws: Workspace, require: str = 'structure') -> None:
             b = s['best_cell']
             print(f"  {s['node']:<26}{s['family']:<13}{s['validated_horizon']:<9}"
                   f"{s['verdict']:<11}{s['p_value']:<10.5f}"
-                  f"{b['dev']:+.1f}pp @ theta={b['theta']:+.0%} bin {b['bin']} n={b['bin_n']}")
+                  f"{b['dev']:+.1f}pp @ θ={b['theta']:+.0%} bin {b['bin']} n={b['bin_n']}")
     else:
         print('  Nothing survives both gates. Round 2 has nothing to evaluate.')
 
@@ -259,72 +352,117 @@ def cmd_status(ws: Workspace) -> None:
     for n in all_nodes(tree):
         c = by_fam[n['family']]
         c[0] += 1
-        c[1] += bool(ws.has_surface(n['family'], n['id']))
+        c[1] += bool(ws.has_cube(n['family'], n['id']))
         c[2] += bool(ev.get(n['id'], {}).get('passed'))
         c[3] += any(r.get('verdict') in ('structure', 'nominal')
                     for r in val.get(n['id'], {}).get('horizons', {}).values())
         c[4] += n['id'] in surv
 
     print(f"\n=== Status [{ws.dir.name}] ===")
-    print(f"  theta {ws.thetas[0]:+.0%}..{ws.thetas[-1]:+.0%}   "
+    print(f"  θ {ws.thetas[0]:+.0%}..{ws.thetas[-1]:+.0%}   "
           f"horizons {', '.join(f'+{h}{ws.horizon_unit}' for h in ws.barrier_horizons)}   "
           f"{ws.n_bins} bins\n")
-    print(f"  {'family':<16}{'nodes':>7}{'surface':>9}{'econ':>7}{'signif':>8}{'cleared':>10}")
+    print(f"  {'family':<16}{'nodes':>7}{'cube':>7}{'econ':>7}{'signif':>8}{'cleared':>10}")
     print('  ' + '-' * 57)
     for fam in sorted(by_fam):
         c = by_fam[fam]
-        print(f"  {fam:<16}{c[0]:>7}{c[1]:>9}{c[2]:>7}{c[3]:>8}{c[4]:>10}")
+        print(f"  {fam:<16}{c[0]:>7}{c[1]:>7}{c[2]:>7}{c[3]:>8}{c[4]:>10}")
     tot = [sum(by_fam[f][i] for f in by_fam) for i in range(5)]
     print('  ' + '-' * 57)
-    print(f"  {'TOTAL':<16}{tot[0]:>7}{tot[1]:>9}{tot[2]:>7}{tot[3]:>8}{tot[4]:>10}")
+    print(f"  {'TOTAL':<16}{tot[0]:>7}{tot[1]:>7}{tot[2]:>7}{tot[3]:>8}{tot[4]:>10}")
 
 
 def cmd_read(ws: Workspace, node_id: str) -> None:
-    """Print the theta rows of a node's surface that carry a qualifying cell."""
+    """
+    Print one node's cube in the terminal: the θ rows carrying a qualifying cell,
+    for whichever bin is strongest.
+
+    Reads the stored cube rather than recomputing, so what prints is exactly what the
+    workbook shows.
+    """
     tree = load_tree(ws.tree_path)
     node = find_node(tree, node_id)
-    data, feat = _node_feature(ws, node, _loader(ws))
-    edges  = barrier.bin_edges(feat, ws.n_bins)
-    labels = barrier.bin_labels(edges, feat)
+    path = ws.cube_path(node['family'], node_id)
+    if not path.exists():
+        print(f"No cube for {node_id} - run --cubes first.")
+        return
+
+    cube   = barrier.load_cube(path)
+    prob   = cube['prob']
+    thetas = cube['thetas']
+    hz     = cube['horizons']
+    labels = cube['meta']['bin_labels']
     val    = ws.read_json(ws.validation_path).get('nodes', {}).get(node_id, {}).get('horizons', {})
 
-    print(f"\n{node_id}  [{node['family']}]  {node['feature']}  params={node['params']}")
-    for h in ws.barrier_horizons:
-        label = f'+{h}{ws.horizon_unit}'
-        s = barrier.touch_matrix(data, feat, h, ws.thetas, edges)
-        v = val.get(label, {})
-        tag = f"   [{v.get('verdict')}, p={v.get('p_value')}]" if v else ''
-        print(f"\n  {label}{tag}")
-        print(f"    {'theta':>7}{'base':>8}   " + ''.join(f'{l[:11]:>13}' for l in labels))
-        shown = 0
-        for i, th in enumerate(s['thetas']):
-            row = s['dev'][i]
-            finite = row[~np.isnan(row)]
-            if finite.size == 0 or np.max(np.abs(finite)) < ws.min_dev:
-                continue
-            cells = ''.join('            —' if np.isnan(x) else f'{x:>+13.1f}' for x in row)
-            print(f"    {th:>+7.0%}{s['base'][i]:>8.1%}   {cells}")
-            shown += 1
-        if not shown:
-            print(f"    no cell reaches {ws.min_dev}pp")
+    print()
+    print(f"{node_id}  [{node['family']}]  {node['feature']}  params={node['params']}")
+
+    baseline = _baseline_surface(ws)
+    if baseline is None:
+        print('  no baseline cube - run --cubes first')
+        return
+    ev   = barrier.evaluate(cube, baseline, ws.min_dev, ws.min_bin_n, ws.min_run)
+    best = ev['best']
+    if not best:
+        print(f"  no cell reaches {ws.min_dev}pp across {ws.min_run} adjacent θ rows")
+        return
+
+    b = best['bin']
+    print(f"  strongest bin : {b + 1} of {len(labels)}   ({labels[b]})")
+    print(f"  strongest cell: P={best['prob']:.1%} vs {best['base']:.1%} unconditional "
+          f"at θ={best['theta']:+.0%}, +{best['horizon']}{ws.horizon_unit} "
+          f"({best['dev']:+.1f}pp, run={best['run']}, n={best['bin_n']})")
+    if val:
+        for h, r in val.items():
+            print(f"  null {h:<5}    : {r.get('verdict')}  p={r.get('p_value')}  "
+                  f"real={r.get('real')} vs p95={r.get('null_p95')}")
+
+    avail = {int(x) for x in hz}
+    show  = [h for h in (1, 2, 3, 5, 7, 10, 14, 21, 30) if h in avail]
+    cols  = [int(np.flatnonzero(hz == h)[0]) for h in show]
+
+    dev = (prob - baseline[:, None, :]) * 100.0
+    print()
+    header = ''.join(f"{'+' + str(h) + ws.horizon_unit:>8}" for h in show)
+    print(f"  {'θ':>6}{header}")
+    print('  ' + '-' * (6 + 8 * len(show)))
+    shown = 0
+    # highest barrier first, matching the workbook
+    for i in sorted(range(len(thetas)), key=lambda k: -thetas[k]):
+        d = dev[i, b, cols]
+        finite = d[np.isfinite(d)]
+        if finite.size == 0 or np.max(np.abs(finite)) < ws.min_dev:
+            continue
+        cells = ''.join('       -' if not np.isfinite(v) else f'{v:>8.1%}'
+                        for v in prob[i, b, cols])
+        print(f"  {thetas[i]:>+6.0%}{cells}")
+        shown += 1
+    if not shown:
+        print(f"  no θ row deviates by {ws.min_dev}pp at these horizons")
+    print()
+    print(f"  values are P(touch θ | condition); rows shown are those deviating "
+          f"at least {ws.min_dev}pp")
+    print(f"  the workbook carries all {len(thetas)} θ levels, "
+          f"{len(hz)} horizons and {len(labels)} bins")
 
 
 # ── entry ─────────────────────────────────────────────────────────────────────
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
-        description='Barrier-touch pipeline: P(price reaches theta within h | condition), '
+        description='Barrier-touch pipeline: P(price reaches θ within h | condition), '
                     'then what that is worth as a trade.')
     parser.add_argument('--workspace', metavar='NAME', default='btc_daily_14days')
     parser.add_argument('--family', metavar='NAME', help='Restrict to one family')
-    parser.add_argument('--rerun', action='store_true', help='Rebuild surfaces that already exist')
+    parser.add_argument('--rerun', action='store_true', help='Rebuild cubes that already exist')
     parser.add_argument('--shifts', type=int, default=20000, metavar='N',
                         help='Shuffles per --validate test (default 20000)')
     parser.add_argument('--require', choices=['structure', 'nominal'], default='structure',
                         help='Verdict a node must reach at --gate (default structure)')
 
     g = parser.add_mutually_exclusive_group()
-    g.add_argument('--surfaces', action='store_true', help='Build Deliverable A')
+    g.add_argument('--cubes',    action='store_true', help='Measure every node: θ x bin x horizon (pre-A)')
+    g.add_argument('--surfaces', action='store_true', help='Project cubes into Deliverable A workbooks')
     g.add_argument('--validate', action='store_true', help='Null-test every surface')
     g.add_argument('--gate',     action='store_true', help='Intersect the economic and null filters')
     g.add_argument('--status',   action='store_true', help='Inventory by family')
@@ -333,8 +471,10 @@ if __name__ == '__main__':
     args = parser.parse_args()
     ws = Workspace(args.workspace)
 
-    if args.surfaces:
-        cmd_surfaces(ws, args.family, args.rerun)
+    if args.cubes:
+        cmd_cubes(ws, args.family, args.rerun)
+    elif args.surfaces:
+        cmd_surfaces(ws, args.family)
     elif args.validate:
         cmd_validate(ws, args.family, n_shifts=args.shifts)
     elif args.gate:

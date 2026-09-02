@@ -1,6 +1,7 @@
 # Pipeline — Procedure
 
-One deliverable: the barrier surface, per node. Nothing else is produced.
+One measurement, one deliverable. The measurement is a cube per node; the deliverable
+is a workbook projected out of it. Nothing else is produced.
 
 Pass `--workspace <name>` to every command.
 
@@ -23,25 +24,92 @@ before letting you believe any of it.
 python run.py --workspace <name> --status
 ```
 
-The columns are the funnel: how many nodes exist, how many have a surface, how many
-clear the economic filter, how many clear the null, how many survive both.
+The columns are the funnel: how many nodes exist, how many have a cube, how many clear
+the economic filter, how many clear the null, how many clear both.
 
 ---
 
-## 1. Build the surfaces
+## 1. Measure — the cube (pre-A)
+
+```
+python run.py --workspace <name> --cubes
+python run.py --workspace <name> --cubes --family volatility   # or one family
+```
+
+Writes `cubes/<family>/<node>.npz` — a 3-D array per node:
+
+| axis | contents |
+|---|---|
+| 0 | barrier level θ, −20% … +20%, ascending, **including 0** |
+| 1 | condition bin — the feature's deciles |
+| 2 | horizon h, +1 … +30 bars — **every** horizon, not a chosen few |
+
+The value is the raw conditional probability:
+
+```
+P(price touches θ within h | X in bin)
+```
+
+Nothing is subtracted. The unconditional rate is **its own node**: `baseline`, whose
+feature is constant, so every bar falls in a single bin and its one column is
+P(touch θ in h) with nothing conditioned on. It is built first — it is the reference
+every other node is judged against — and it flows through `--cubes` and `--surfaces`
+with no special case in the engine.
+
+`--validate` skips it: shuffling a constant changes nothing, so the null is vacuous, and
+excluding it keeps it out of the Bonferroni denominator where it would only make real
+tests harder to pass.
+
+Caveat worth knowing: the baseline covers every bar, while a long-warmup feature covers
+fewer, and the bars it loses are the oldest. For a 200-bar moving average that is ~5% of
+BTC's history and the most volatile part of it, so the comparison is very slightly
+against a different past.
+
+The file also carries `hits`, `bin_n`, `n_obs`, the three coordinate vectors and the bin
+edges, so anything derivable from the measurement can be derived without recomputing it.
+About 90 KB per node; loads in milliseconds.
+
+Also writes `evaluation.json` — the economic filter's verdict per node, scanned across
+the whole cube. `--rerun` rebuilds cubes that already exist.
+
+**Why this is its own step.** The full horizon ladder is where the shape of a signal
+lives: whether the edge decays or persists, whether it is a band of barrier levels or a
+single spike. Four sheets cannot show that. Measuring once into a cube also makes the
+workbook a *projection* rather than a second computation, so the two can never disagree.
+
+---
+
+## 2. Render — Deliverable A
 
 ```
 python run.py --workspace <name> --surfaces
-python run.py --workspace <name> --surfaces --family volatility   # or one family
 ```
 
-Writes `surfaces/<family>/<node>.xlsx` — four sheets, one per horizon. Rows are barrier
-levels θ, columns are the feature's quantile bins, cells are
-P(price touches θ within h | feature in bin) with the event count beside them. Column B
-is the unconditional base rate, so every cell reads against the row it sits on.
+Reads the cubes and writes `surfaces/<family>/<node>.xlsx` — **one tab per condition
+bin**, each holding that bin's entire θ × h face:
 
-Also writes `evaluation.json`, the economic filter's verdict per node.
-`--rerun` rebuilds surfaces that already exist.
+| | |
+|---|---|
+| rows | barrier level θ, **+20% at the top → −20% at the bottom** |
+| columns | horizon h, +1 … +30 |
+| cells | `P(touch θ in h │ condition)` — the raw probability |
+| n band | observations behind that bin at each horizon |
+
+Ten tabs × 41 θ × 30 horizons is every value the cube holds, so the workbook is a
+faithful view of the measurement rather than a summary of it.
+
+Rows run the way a price ladder reads: up the sheet is up in price, with θ = 0 shaded in
+the middle marking the boundary between the two questions — above it a cell asks whether
+the *high* reached that level, below it whether the *low* did.
+
+Read **across a row** to see the probability grow with horizon; read **down a column**
+to see the band of levels price is likely to reach. Compare the +θ and −θ rows at the
+same horizon and the condition's asymmetry is immediate, with no arithmetic.
+
+The colour scale is a fixed 0–100% on every tab, so flipping between tabs shows the band
+shifting with the condition instead of each tab being rescaled to look alike.
+
+This step renders only; it never re-measures.
 
 **Reading a sheet.** Negative θ asks whether the *low* reached it, positive θ whether
 the *high* did — both on intraday extremes, not closes, because a stop fills on the low.
@@ -50,27 +118,33 @@ and large |θ| at short horizons is touched almost never.
 
 ---
 
-## 2. Validate
+## 3. Validate
 
 ```
 python run.py --workspace <name> --validate --shifts 20000
 ```
 
-A surface's headline is a maximum over ~40 barrier levels × ~10 bins. That is 400 noisy
+A surface's headline is a maximum over 41 barrier levels × 10 bins. That is 400 noisy
 estimates, and the largest lands well into the tens of pp even on a feature carrying
 nothing — a bigger bias than any one-dimensional scan, because the search is
 two-dimensional. This builds the null of that same statistic by circularly shifting the
 feature against price, preserving the feature's autocorrelation and destroying only its
 alignment with the future.
 
+Runs on the horizons in `barrier_horizons`, not all 30 — adjacent horizons are nearly
+the same measurement, so testing every one would inflate the Bonferroni denominator
+without adding independent evidence.
+
 Writes `validation.json`. Verdicts: `structure` (clears Bonferroni), `nominal` (clears
 α alone), `underpowered` (at the resolution floor — re-run with more shifts), `noise`.
+Narrowing with `--family` **merges** into the existing file, and the correction is taken
+over every test the merged file holds.
 
 Choose `--shifts` so the floor `1/(shifts+1)` sits below `0.05 / n_tests`.
 
 ---
 
-## 3. The gate
+## 4. The gate
 
 ```
 python run.py --workspace <name> --gate
@@ -148,7 +222,8 @@ There is no `status` field — progress is read from disk.
 |---|---|
 | `asset` | `{provider, ticker, interval}` |
 | `start_date` | history start |
-| `barrier_horizons` | the four sheets of Deliverable A |
+| `horizons` | `{min, max}` — the cube's horizon ladder |
+| `barrier_horizons` | horizons the null test runs on |
 | `theta` | `{min, max, step}` — the barrier ladder |
 | `n_bins` | condition bins per feature (quantile) |
 | `evaluate` | `{min_dev, min_bin_n, min_run}` — the economic filter |
@@ -164,7 +239,9 @@ and every row of that ladder would be empty.
 | Path | Written by | Contents |
 |------|-----------|----------|
 | `universe.json` | you | nodes + asset config; never written by the pipeline |
-| `surfaces/<family>/<node>.xlsx` | `--surfaces` | **the deliverable** |
-| `evaluation.json` | `--surfaces` | economic filter verdict per node |
+| `cubes/_base/baseline.npz` | `--cubes` | the unconditional reference, built first |
+| `cubes/<family>/<node>.npz` | `--cubes` | **the measurement** — (θ × bin × h) probabilities |
+| `surfaces/<family>/<node>.xlsx` | `--surfaces` | **the deliverable** — 10 tabs, the cube made readable |
+| `evaluation.json` | `--cubes` | economic filter verdict per node |
 | `validation.json` | `--validate` | null-test p-values and verdicts |
 | `cleared.json` | `--gate` | nodes clearing both filters |
