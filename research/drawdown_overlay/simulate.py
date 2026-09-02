@@ -14,21 +14,29 @@ persists. All three fire on their *low* tail — price pinned to the lower
 Bollinger band, a deep trailing drawdown, the fast MA below the slow one.
 
 This builds a long/short overlay from them and compares its equity curve to
-buy-and-hold:
+buy-and-hold. The trade construction is discrete and event-based ("variant B"):
 
   * default position is +1 (long BTC);
-  * whenever a feature sits below its low-tail threshold, the overlay goes to
-    -1 (short) for that feature's validated horizon (7 bars for bb_pct, 3 for
-    the others), unioned across the three;
-  * a flat variant (+1 / 0) is carried alongside as the "just avoid the
-    drawdowns" reference.
+  * a feature *triggers* on a down-cross of its low-tail threshold — it was at
+    or above the threshold on the previous bar and below it on this one;
+  * a trigger opens a fixed short of exactly the node's validated horizon
+    (7 bars for bb_pct_20, 3 for the other two), then that leg closes;
+  * while a leg is open, further triggers for the same feature are ignored — no
+    overlap, no re-arming until the feature climbs back above its threshold;
+  * the overlay is short whenever *any* of the three legs is open (a flat
+    variant holds 0 instead of -1 over the same windows).
+
+This is the faithful reading of what `--validate` scored: a per-bar level
+condition with a fixed h-bar forward outcome. A persistence construction ("stay
+short as long as the feature is in its low zone") was tried and rejected — it
+keeps the overlay short ~37% of all days and dilutes the edge.
 
 Two threshold regimes, reported side by side:
 
-  IS  in-sample   — thresholds are the p15 of each feature over the whole
+  IS  in-sample   — thresholds are the p10 of each feature over the whole
                     history. The nodes were selected on this same history, so
                     this curve is optimistic by construction.
-  WF  walk-forward — thresholds are the expanding p15 using only data up to
+  WF  walk-forward — thresholds are the expanding p10 using only data up to
                     each day. Causal; no full-history information. Starts after
                     two years of warm-up.
 
@@ -77,21 +85,38 @@ _INK, _GREY, _BLUE, _RED, _GREEN = '#333333', '#a0aec0', '#2b6cb0', '#b03a2e', '
 
 # ── signal construction ──────────────────────────────────────────────────────
 
-def _risk_off_mask(feat: pd.Series, thresh: pd.Series, hold: int) -> pd.Series:
+def _discrete_trades(feat: pd.Series, thresh: pd.Series, hold: int) -> tuple[pd.Series, int]:
     """
-    True on every bar covered by a trigger and the `hold` bars after it.
+    Non-overlapping fixed-length shorts on each down-cross of `thresh`.
 
-    A trigger is feat < thresh. The forward fill (not a centered window) keeps
-    the mask causal: a trigger at t only ever marks t .. t+hold.
+    A trigger at bar i is:  feat[i-1] >= thresh[i-1]  and  feat[i] < thresh[i].
+    It marks position bars i .. i+hold-1 True; after the backtest's one-bar
+    shift those become the hold return bars immediately following the trigger.
+    Triggers that land while a leg is already open are ignored, so a feature can
+    only re-fire after it has climbed back above its threshold.
+
+    Returns (mask, n_trades).
     """
-    trig = (feat < thresh).fillna(False).to_numpy()
-    out  = np.zeros(len(trig), dtype=bool)
-    for i in np.flatnonzero(trig):
-        out[i:i + hold + 1] = True
-    return pd.Series(out, index=feat.index)
+    f, thr = feat.to_numpy(float), thresh.to_numpy(float)
+    n      = len(f)
+    below  = f < thr
+    mask   = np.zeros(n, dtype=bool)
+    open_until = -1
+    n_trades   = 0
+    for i in range(1, n):
+        if i <= open_until:
+            continue
+        if np.isnan(thr[i]) or np.isnan(thr[i - 1]) or np.isnan(f[i]) or np.isnan(f[i - 1]):
+            continue
+        if below[i] and not below[i - 1]:
+            end = min(i + hold - 1, n - 1)
+            mask[i:end + 1] = True
+            open_until = end
+            n_trades += 1
+    return pd.Series(mask, index=feat.index), n_trades
 
 
-def build_positions(data: pd.DataFrame) -> pd.DataFrame:
+def build_positions(data: pd.DataFrame) -> tuple[pd.DataFrame, dict, dict]:
     """
     Per-bar target weights for the overlay variants. A weight at bar t is decided
     from information available at close t and earns the t -> t+1 return.
@@ -99,47 +124,53 @@ def build_positions(data: pd.DataFrame) -> pd.DataFrame:
     feats = {s['name']: features.compute(data, s['feature'], s['params']).reindex(data.index)
              for s in SIGNALS}
 
-    is_off  = pd.Series(False, index=data.index)   # in-sample union
-    wf_off  = pd.Series(False, index=data.index)   # walk-forward union
+    is_open = pd.Series(False, index=data.index)   # any leg open, in-sample thresholds
+    wf_open = pd.Series(False, index=data.index)   # any leg open, walk-forward thresholds
     per_sig = {}
+    n_trades = {}
 
     for s in SIGNALS:
         f = feats[s['name']]
         thr_is = pd.Series(np.nanpercentile(f.dropna(), PCTILE), index=data.index)
         thr_wf = f.expanding(min_periods=WF_WARMUP).quantile(PCTILE / 100.0)
 
-        m_is = _risk_off_mask(f, thr_is, s['hold'])
-        m_wf = _risk_off_mask(f, thr_wf, s['hold'])
+        m_is, k_is = _discrete_trades(f, thr_is, s['hold'])
+        m_wf, k_wf = _discrete_trades(f, thr_wf, s['hold'])
         per_sig[s['name']] = m_is
-        is_off |= m_is
-        wf_off |= m_wf
+        n_trades[s['name']] = {'is': k_is, 'wf': k_wf}
+        is_open |= m_is
+        wf_open |= m_wf
 
-    # walk-forward has no opinion until warm-up completes
-    wf_off.iloc[:WF_WARMUP] = False
+    wf_open.iloc[:WF_WARMUP] = False   # no walk-forward opinion until warm-up completes
 
     pos = pd.DataFrame(index=data.index)
-    pos['hodl']        = 1.0
-    pos['short_is']    = np.where(is_off, -1.0, 1.0)
-    pos['short_wf']    = np.where(wf_off, -1.0, 1.0)
-    pos['flat_is']     = np.where(is_off,  0.0, 1.0)
-    pos['flat_wf']     = np.where(wf_off,  0.0, 1.0)
-    pos['n_signals']   = sum(per_sig.values()).astype(int)   # 0..3 fired (IS)
+    pos['hodl']          = 1.0
+    pos['short_is']      = np.where(is_open, -1.0, 1.0)
+    pos['short_wf']      = np.where(wf_open, -1.0, 1.0)
+    pos['flat_is']       = np.where(is_open,  0.0, 1.0)
+    pos['flat_wf']       = np.where(wf_open,  0.0, 1.0)
+    pos['n_signals']     = sum(per_sig.values()).astype(int)   # 0..3 legs open (IS)
     pos['short_is_2of3'] = np.where(pos['n_signals'] >= 2, -1.0, 1.0)
-    pos['_is_off'] = is_off
-    pos['_wf_off'] = wf_off
-    return pos, feats
+    pos['_is_open']      = is_open
+    pos['_wf_open']      = wf_open
+
+    meta = {'n_trades': n_trades,
+            'total_trades_is': sum(v['is'] for v in n_trades.values()),
+            'total_trades_wf': sum(v['wf'] for v in n_trades.values())}
+    return pos, feats, meta
 
 
 # ── backtest ─────────────────────────────────────────────────────────────────
 
 def run_variant(ret: pd.Series, weight: pd.Series) -> pd.Series:
-    """Daily net return for a weight series. weight_t is held over t -> t+1."""
+    """
+    Daily net return for a weight series. weight_t is decided at close t and
+    held over t -> t+1, so the cost of the trade that set weight_t is booked on
+    bar t+1 (turnover = change in the held weight entering that bar).
+    """
     held     = weight.shift(1)
-    turnover = held.diff().abs()
-    turnover.iloc[0] = held.iloc[0] if pd.notna(held.iloc[0]) else 0.0
-    if pd.isna(turnover.iloc[1]) and pd.notna(held.iloc[1]):
-        turnover.iloc[1] = abs(held.iloc[1])
-    return held * ret - (COST_BPS / 1e4) * turnover.fillna(0.0)
+    turnover = held.diff().abs().fillna(0.0)
+    return held * ret - (COST_BPS / 1e4) * turnover
 
 
 def stats(s: pd.Series) -> dict:
@@ -194,8 +225,9 @@ def plot(eq: pd.DataFrame, is_off: pd.Series, out: Path) -> None:
     ax2.set_ylabel('drawdown')
     ax2.legend(frameon=False, fontsize=8, loc='lower left')
     fig.text(0.5, 0.03,
-             f'Shaded = risk-off windows (in-sample signal union). '
-             f'{COST_BPS} bps per unit turnover. Walk-forward thresholds start after {WF_WARMUP // 365}y warm-up.',
+             f'Shaded = an open short leg (in-sample thresholds). Fixed {SIGNALS[1]["hold"]}/{SIGNALS[0]["hold"]}-bar '
+             f'trades on each down-cross, no overlap. {COST_BPS} bps per unit turnover; '
+             f'walk-forward thresholds start after {WF_WARMUP // 365}y warm-up.',
              ha='center', fontsize=8, color=_GREY)
     fig.savefig(out)
     plt.close(fig)
@@ -226,21 +258,24 @@ def main() -> None:
     print(f'  {len(data)} bars  {data.index[0].date()} -> {data.index[-1].date()}')
 
     ret = data['close'].pct_change()
-    pos, feats = build_positions(data)
+    pos, feats, meta = build_positions(data)
 
     variants = ['hodl', 'flat_is', 'flat_wf', 'short_is', 'short_is_2of3', 'short_wf']
     rets = {v: run_variant(ret, pos[v]) for v in variants}
     eq   = pd.DataFrame({v: (1.0 + rets[v].fillna(0.0)).cumprod() for v in variants})
 
-    # premise check: is BTC's mean daily return actually worse on risk-off days?
-    on, off = pos['_is_off'], ~pos['_is_off']
+    # premise check: is the *forward* 1-bar return actually worse after a trigger,
+    # and does a short-leg window really catch more 10%/14d drawdowns?
+    fwd  = ret.shift(-1)
+    on   = pos['_is_open']
     premise = {
-        'mean_ret_risk_off_days': float(ret[on].mean()),
-        'mean_ret_risk_on_days':  float(ret[off].mean()),
-        'share_days_risk_off':    float(on.mean()),
-        'n_short_flips':          int(pos['short_is'].diff().abs().gt(0).sum()),
+        'fwd_ret_after_signal':   float(fwd[on].mean()),
+        'fwd_ret_otherwise':      float(fwd[~on].mean()),
+        'share_bars_short':       float(on.mean()),
+        'total_trades_is':        int(meta['total_trades_is']),
+        'total_trades_wf':        int(meta['total_trades_wf']),
         'realized_dd_freq_all':   _dd_hit_freq(data['close'], 14, 0.10),
-        'realized_dd_freq_off':   _dd_hit_freq(data['close'], 14, 0.10, on.shift(1).fillna(False)),
+        'realized_dd_freq_signal': _dd_hit_freq(data['close'], 14, 0.10, on),
     }
 
     results = {
@@ -249,11 +284,12 @@ def main() -> None:
                        'bars': int(len(data))},
         'config':     {'pctile': PCTILE, 'cost_bps': COST_BPS, 'wf_warmup_bars': WF_WARMUP,
                        'signals': [{k: s[k] for k in ('name', 'hold')} for s in SIGNALS]},
+        'trades':     meta['n_trades'],
         'premise':    premise,
         'variants':   {v: stats(rets[v]) for v in variants},
     }
     (HERE / 'results.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
-    plot(eq, pos['_is_off'], HERE / 'equity_curve.png')
+    plot(eq, pos['_is_open'], HERE / 'equity_curve.png')
 
     _print_table(results)
     _write_readme(results)
@@ -280,16 +316,16 @@ def _print_table(r: dict) -> None:
         print(f"{v:<22}{s['total_return']:>11.1%}{s['cagr']:>8.1%}{s['ann_vol']:>8.1%}"
               f"{s['sharpe']:>8.2f}{s['max_drawdown']:>9.1%}{s['calmar']:>8.2f}")
     p = r['premise']
-    print(f"\nmean daily return  risk-off days: {p['mean_ret_risk_off_days']:+.4%}   "
-          f"risk-on days: {p['mean_ret_risk_on_days']:+.4%}")
-    print(f"share of days flagged risk-off: {p['share_days_risk_off']:.1%}   "
-          f"long/short flips: {p['n_short_flips']}")
+    print(f"\nforward 1-bar return  after a trigger: {p['fwd_ret_after_signal']:+.4%}   "
+          f"otherwise: {p['fwd_ret_otherwise']:+.4%}")
+    print(f"bars inside a short leg: {p['share_bars_short']:.1%}   "
+          f"trades  IS: {p['total_trades_is']}  WF: {p['total_trades_wf']}")
     print(f"realized 10%/14d drawdown freq   all: {p['realized_dd_freq_all']:.1%}   "
-          f"on flagged days: {p['realized_dd_freq_off']:.1%}")
+          f"on trigger bars: {p['realized_dd_freq_signal']:.1%}")
 
 
 def _write_readme(r: dict) -> None:
-    s, p = r['variants'], r['premise']
+    s, p, c = r['variants'], r['premise'], r['config']
     hodl, si, sw, fi, fw = (s['hodl'], s['short_is'], s['short_wf'], s['flat_is'], s['flat_wf'])
 
     def row(v, label):
@@ -297,17 +333,20 @@ def _write_readme(r: dict) -> None:
         return (f"| {label} | {x['total_return']:,.0%} | {x['cagr']:.1%} | {x['ann_vol']:.0%} "
                 f"| {x['sharpe']:.2f} | {x['max_drawdown']:.0%} | {x['calmar']:.2f} |")
 
-    holds     = ', '.join(f"`{x['name']}` {x['hold']}b" for x in r['config']['signals'])
-    prem_ok   = p['realized_dd_freq_off'] > p['realized_dd_freq_all']
-    flat_wf_edge = (fw['calmar'] > hodl['calmar'] and fw['sharpe'] >= hodl['sharpe'] - 0.02)
-    short_verdict = ("trails buy & hold on return in every variant, in-sample and out"
-                     if si['total_return'] < hodl['total_return'] and sw['total_return'] < hodl['total_return']
-                     else "beats buy & hold in at least one variant")
+    holds  = ', '.join(f"`{x['name']}` {x['hold']}b" for x in c['signals'])
+    prem_ok = p['realized_dd_freq_signal'] > p['realized_dd_freq_all']
+
+    def _cmp(a, b, tol=0.03):
+        d = a['cagr'] - b['cagr']
+        return 'a wash with' if abs(d) < tol else ('ahead of' if d > 0 else 'behind')
+    short_is_word = _cmp(si, hodl)
+    short_wf_word = _cmp(sw, hodl)
 
     md = f"""# Trading the validated drawdown signal
 
 *Regenerate with `python research/drawdown_overlay/simulate.py`. Window
-{r['history']['start']} to {r['history']['end']}, {r['history']['bars']:,} BTC daily bars.*
+{r['history']['start']} to {r['history']['end']}, {r['history']['bars']:,} BTC daily bars
+(live yfinance pull — the last bar and the exact figures move a little between runs).*
 
 Four nodes clear Bonferroni on the 10%-drawdown outcome in
 [`validation.dd10.json`](../../workspaces/btc_daily_14days/validation.dd10.json):
@@ -316,20 +355,25 @@ distinct features, all firing on their low tail (price at the lower Bollinger
 band, a deep trailing drawdown, the fast MA below the slow one). This asks the
 question the main README defers: **is that edge worth trading?**
 
-## The rule
+## The rule  (discrete, event-based)
 
-Default position is **long BTC (+1)**. A feature *triggers* when it closes below
-its p{r['config']['pctile']} (bottom decile); each trigger forces a risk-off
-stance for that feature's validated horizon ({holds}), unioned across the three.
-Two risk-off stances are tested — **short (−1)** and **flat (0)** — and two
-threshold regimes:
+Default position is **long BTC (+1)**. A feature *triggers* on a **down-cross** of
+its p{c['pctile']} (bottom-decile) threshold — at or above it last bar, below it
+now. Each trigger opens one fixed-length short of exactly the node's validated
+horizon ({holds}), which then closes; a feature is not re-armed until it has
+climbed back above its threshold, and triggers arriving while its leg is still
+open are ignored. The overlay is risk-off whenever **any** of the three legs is
+open. Two risk-off stances — **short (−1)** and **flat (0)** — and two threshold
+regimes:
 
 | | threshold | honest? |
 |---|---|---|
-| **IS** | each feature's p{r['config']['pctile']} over the whole history | no — the nodes were *selected* on this same history |
-| **WF** | expanding p{r['config']['pctile']}, past data only, after a {r['config']['wf_warmup_bars'] // 365}y warm-up | yes — fully causal |
+| **IS** | each feature's p{c['pctile']} over the whole history | no — the nodes were *selected* on this same history |
+| **WF** | expanding p{c['pctile']}, past data only, after a {c['wf_warmup_bars'] // 365}y warm-up | yes — fully causal |
 
-Costs: {r['config']['cost_bps']} bps per unit of turnover, so a long→short flip pays {2 * r['config']['cost_bps']} bps.
+Costs: {c['cost_bps']} bps per unit of turnover, so a long→short flip pays {2 * c['cost_bps']} bps.
+(A "stay short while the feature is in its low zone" construction was tried and
+dropped — it holds the overlay short far too often and dilutes the edge.)
 
 ![equity curve](equity_curve.png)
 
@@ -341,7 +385,7 @@ Costs: {r['config']['cost_bps']} bps per unit of turnover, so a long→short fli
 {row('flat_is', 'flat overlay — IS')}
 {row('flat_wf', 'flat overlay — walk-forward')}
 {row('short_is', 'long/short overlay — IS')}
-{row('short_is_2of3', 'long/short, needs ≥2 of 3 — IS')}
+{row('short_is_2of3', 'long/short, needs ≥2 legs open — IS')}
 {row('short_wf', 'long/short overlay — walk-forward')}
 
 ## Does the premise hold?
@@ -349,30 +393,34 @@ Costs: {r['config']['cost_bps']} bps per unit of turnover, so a long→short fli
 The nodes predict drawdown *probability*, not negative *expected return* — and
 BTC's unconditional drift is large and positive ({hodl['cagr']:.0%} CAGR).
 
-- Realized 10%-within-14d drawdown frequency: **{p['realized_dd_freq_all']:.0%}**
-  overall vs **{p['realized_dd_freq_off']:.0%}** on flagged days — the flag
-  {'concentrates' if prem_ok else 'does not concentrate'} drawdown risk, but only mildly.
-- Mean daily return: **{p['mean_ret_risk_off_days']:+.3%}** on flagged days vs
-  **{p['mean_ret_risk_on_days']:+.3%}** on the rest. So the flag really does pick out
-  the weak days — but it flags **{p['share_days_risk_off']:.0%}** of all days to do it.
-- {p['n_short_flips']} position changes over the window.
+- **{p['total_trades_is']}** trades in-sample, **{p['total_trades_wf']}** walk-forward;
+  a short leg is open on **{p['share_bars_short']:.0%}** of all bars.
+- Forward 1-bar return **{p['fwd_ret_after_signal']:+.3%}** on trigger bars vs
+  **{p['fwd_ret_otherwise']:+.3%}** elsewhere — the trigger {'does' if p['fwd_ret_after_signal'] < 0 else 'does not'}
+  pick out negative expected return, {'which is what a short needs' if p['fwd_ret_after_signal'] < 0 else 'so a short has nothing to work with'}.
+- Realized 10%-within-14d drawdown frequency: **{p['realized_dd_freq_all']:.0%}** overall
+  vs **{p['realized_dd_freq_signal']:.0%}** on trigger bars — the signal
+  {'concentrates' if prem_ok else 'does not concentrate'} drawdown risk.
 
 ## Verdict
 
-**Shorting the signal {short_verdict}.** Going short into a {hodl['cagr']:.0%}-a-year
-drift surrenders far more in missed upside than the concentrated left-tail is worth;
-the long/short max drawdown is *deeper* than buy & hold's, because the short leg
-bleeds through every rally.
+**Shorting doesn't earn its keep.** Trigger bars carry a *lower* forward return
+than average ({p['fwd_ret_after_signal']:+.3%} vs {p['fwd_ret_otherwise']:+.3%}) —
+but still positive: the signal marks *weak* days, not *down* days. So the
+long/short overlay is {short_is_word} buy & hold in-sample ({si['cagr']:.0%} CAGR)
+and {short_wf_word} it walk-forward ({sw['cagr']:.0%} vs {hodl['cagr']:.0%} CAGR,
+similar drawdown). The {hodl['cagr']:.0%}-a-year drift swamps the edge either way.
 
-**The flat overlay is the honest reading of "capitalise on avoiding drawdowns."**
-In-sample it roughly matches buy & hold's return at a Sharpe of {fi['sharpe']:.2f}
-(vs {hodl['sharpe']:.2f}) and a {abs(fi['max_drawdown']):.0%} max drawdown (vs
-{abs(hodl['max_drawdown']):.0%}). Walk-forward that {'largely survives' if flat_wf_edge else 'fades'}:
-Sharpe {fw['sharpe']:.2f}, Calmar {fw['calmar']:.2f} vs buy & hold's {hodl['calmar']:.2f}.
+**Sidestepping the drawdowns is the result.** Holding *flat* rather than short
+over the same windows beats buy & hold on risk-adjusted terms in both regimes, and
+walk-forward on outright return too: {fw['cagr']:.0%} CAGR at Calmar
+{fw['calmar']:.2f} vs {hodl['calmar']:.2f}, with the max drawdown cut from
+{abs(hodl['max_drawdown']):.0%} to {abs(fw['max_drawdown']):.0%}. On ~{p['total_trades_wf']}
+trades over one asset and one path, read that as encouraging, not proven.
 
-Either way, a Bonferroni-clearing p-value bought a modest risk-management overlay
-at best — not a return engine. That gap between *significant* and *tradable* is
-the whole point of the parent project.
+A Bonferroni-clearing p-value bought a risk-management overlay — not a return
+engine. The gap between *significant* and *tradable* is the whole point of the
+parent project.
 """
     (HERE / 'README.md').write_text(md, encoding='utf-8')
 

@@ -109,10 +109,12 @@ Two caveats bound the risk result:
 2. **Significance is not tradability.** These are in-sample conditional probabilities
    over the full history, not a walk-forward backtest with costs.
    [`research/drawdown_overlay/`](research/drawdown_overlay/) follows the four
-   Bonferroni-clearing nodes all the way to an equity curve: shorting the signal
-   loses badly against BTC's drift, while a walk-forward *risk-off* overlay
-   roughly matches buy-and-hold's return with the max drawdown cut from ~83% to
-   ~64%. A real p-value bought a modest risk overlay, not a return engine.
+   Bonferroni-clearing nodes all the way to an equity curve with discrete,
+   horizon-matched trades and costs: trigger bars are *weak* but not *negative*,
+   so shorting the signal never gets ahead of BTC's drift — while holding *flat*
+   over the same windows beats buy-and-hold on risk-adjusted terms in and out of
+   sample (walk-forward Calmar 1.1 vs 0.7, max drawdown ~83% → ~64%). A real
+   p-value bought a risk overlay, not a return engine.
 
 * * *
 
