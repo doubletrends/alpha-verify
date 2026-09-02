@@ -9,39 +9,31 @@ MIN_N = 20
 def _outcome_series(
     data:           pd.DataFrame,
     h:              int,
-    outcome:        str = 'up',
+    outcome:        str = 'drawdown',
     outcome_params: dict | None = None,
 ) -> pd.Series:
     """
     Return 1.0/0.0/NaN: did the outcome event occur within h bars of t?
 
     NaN for bars whose outcome is not yet realized (the trailing h rows, plus any
-    warmup the outcome itself requires). Delegates to the outcome registry; the
-    default 'up' reproduces the original P(close[t+h] > close[t]).
+    warmup the outcome itself requires). Delegates to the outcome registry.
     """
     return outcomes.compute(data, outcome, h, outcome_params)
-
-
-# Retained under its original name: the directional special case.
-def _price_up(close: pd.Series, h: int) -> pd.Series:
-    shifted = close.shift(-h)
-    return (shifted > close).where(shifted.notna())
 
 
 def compute_base_rate(
     data:           pd.DataFrame,
     horizons:       list[int],
     horizon_unit:   str = 'd',
-    outcome:        str = 'up',
+    outcome:        str = 'drawdown',
     outcome_params: dict | None = None,
 ) -> pd.DataFrame:
     """
     Unconditional rate P(outcome within h bars) for each horizon h.
 
-    Returns a DataFrame indexed by horizon label (e.g. '+7d'), columns ['n', 'win_rate'].
-    win_rate is in percent and is the base rate of whatever outcome is configured —
-    the column name is kept for backward compatibility with existing xlsx readers.
-    Rows where n < MIN_N are NaN.
+    Returns a DataFrame indexed by horizon label (e.g. '+7d'), columns ['n', 'base_rate'].
+    base_rate is in percent — the unconditional probability of the configured barrier
+    being touched within h bars. Rows where n < MIN_N are NaN.
     """
     rows = []
     for h in horizons:
@@ -49,7 +41,7 @@ def compute_base_rate(
         valid = ev.notna()
         n     = int(valid.sum())
         p     = float(ev[valid].mean() * 100) if n >= MIN_N else np.nan
-        rows.append({'n': n, 'win_rate': p})
+        rows.append({'n': n, 'base_rate': p})
     return pd.DataFrame(rows, index=pd.Index([f'+{h}{horizon_unit}' for h in horizons], name='horizon'))
 
 
@@ -81,7 +73,7 @@ def compute_matrix(
     horizons:       list[int],
     data:           pd.DataFrame,
     horizon_unit:   str = 'd',
-    outcome:        str = 'up',
+    outcome:        str = 'drawdown',
     outcome_params: dict | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """

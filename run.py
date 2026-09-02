@@ -1,18 +1,19 @@
 """Agent run entry point.
 
+Every command runs against one barrier — the outcome declared in the workspace's
+universe.json, or overridden with --outcome / --threshold. All output is scoped by
+that barrier's event label (dd10, run10, ...), so two barriers never collide.
+
 Usage:
     python run.py --workspace btc_daily_14days --family rsi
     python run.py --workspace btc_daily_14days --node rsi_14
     python run.py --workspace btc_daily_14days --next
-    python run.py --workspace btc_daily_14days --list
     python run.py --workspace btc_daily_14days --status
     python run.py --workspace btc_daily_14days --read rsi_14
-    python run.py --workspace btc_daily_14days --regen
-    python run.py --workspace btc_daily_14days --regen --family rsi
-    python run.py --workspace btc_daily_14days --regen --node rsi_14
     python run.py --workspace btc_daily_14days --probe
-    python run.py --workspace btc_daily_14days --probe --families vol,rsi
-    python run.py --workspace btc_daily_14days --findings
+    python run.py --workspace btc_daily_14days --skew
+    python run.py --workspace btc_daily_14days --outcome runup --family rsi
+    python run.py --workspace btc_daily_14days --validate
 """
 
 import argparse
@@ -35,12 +36,8 @@ from engine import writer
 from engine import combiner as cmb
 from engine import outcomes
 from engine import validate as val
-from engine import harrv
 from engine import charts
-from tree.tree import (
-    load_tree, save_tree, all_nodes, find_node,
-    pending_in_family, all_in_family, next_pending,
-)
+from tree.tree import load_tree, all_nodes, find_node, all_in_family
 from workspace import Workspace
 
 
@@ -53,15 +50,27 @@ def _tested_by_family(
     ws: Workspace,
     families_filter: list[str] | None = None,
 ) -> dict[str, list[dict]]:
-    """Return tested nodes grouped by family, optionally filtered to a subset of families."""
+    """
+    Tested nodes grouped by family, for the workspace's current event.
+
+    'Tested' means the node's xlsx exists under this event's directory — status is
+    read from disk, not from universe.json, so each barrier tracks its own progress.
+    """
     tree     = load_tree(ws.tree_path)
     by_family: dict[str, list[dict]] = defaultdict(list)
     for node in all_nodes(tree):
-        if node.get('status') == 'tested':
+        if ws.is_tested(node['family'], node['id']):
             by_family[node['family']].append(node)
     if families_filter:
         by_family = {f: ns for f, ns in by_family.items() if f in families_filter}
     return by_family
+
+
+def _nodes_todo(ws: Workspace, family: str | None = None) -> list[dict]:
+    """Nodes not yet tested and not previously skipped, for the current event."""
+    tree  = load_tree(ws.tree_path)
+    nodes = all_in_family(tree, family) if family else all_nodes(tree)
+    return [n for n in nodes if ws.node_status(n['family'], n['id']) == 'pending']
 
 
 def _select_best_nodes(
@@ -134,8 +143,7 @@ def run_node(ws: Workspace, node_id: str, regen: bool = False) -> None:
     if n_valid < ws.min_obs:
         print(f'Only {n_valid} valid observations — skipping.')
         if not regen:
-            node['status'] = 'skipped'
-            save_tree(tree, ws.tree_path)
+            ws.record_skip(family, node_id, f'only {n_valid} valid observations (min {ws.min_obs})')
         return
 
     lo         = float(np.nanpercentile(feat.dropna(), 2))
@@ -143,10 +151,24 @@ def run_node(ws: Workspace, node_id: str, regen: bool = False) -> None:
     thresholds = np.linspace(lo, hi, ws.n_thresholds)
     print(f'Feature p2→p98: [{lo:.4g}, {hi:.4g}]')
 
-    base_rate        = engine.compute_base_rate(
+    base_rate = engine.compute_base_rate(
         data, ws.horizons, horizon_unit=ws.horizon_unit,
         outcome=ws.outcome, outcome_params=ws.outcome_params,
     )
+
+    # A barrier that almost never gets touched cannot be measured by conditional
+    # counting: every threshold slice holds a handful of events and each deviation
+    # is noise. θ has to be scaled to the asset and horizon, so fail loudly rather
+    # than emit a surface that looks real. (10% over 14 BTC days is a 21.7% event;
+    # the same 10% over 24 NASDAQ hours is a 0.4% one.)
+    p0 = float(base_rate['base_rate'].dropna().max() or 0.0) / 100.0
+    if p0 < outcomes.MIN_BASE_RATE:
+        msg = (f'base rate {p0:.2%} < {outcomes.MIN_BASE_RATE:.0%} — barrier too rare '
+               f'to measure at this threshold')
+        print(f'{msg}. Lower --threshold for this workspace.')
+        if not regen:
+            ws.record_skip(family, node_id, msg)
+        return
     p_below, p_above = engine.compute_matrix(
         feat, thresholds, ws.horizons, data, horizon_unit=ws.horizon_unit,
         outcome=ws.outcome, outcome_params=ws.outcome_params,
@@ -155,15 +177,16 @@ def run_node(ws: Workspace, node_id: str, regen: bool = False) -> None:
     writer.write_xlsx(
         p_below, p_above, base_rate, out_path, node_id,
         event=ws.event, title=ws.outcome_spec['title'], expr=ws.outcome_expr,
+        sign=ws.outcome_sign,
     )
 
-    br   = {row: round(float(base_rate.loc[row, 'win_rate']), 2) for row in base_rate.index}
+    br   = {row: round(float(base_rate.loc[row, 'base_rate']), 2) for row in base_rate.index}
     spot = '  '.join(f'{h}={br[h]:.1f}%' for h in ws.display_horizons if h in br)
     print(f'Base rate P({ws.outcome_expr}): {spot}')
 
-    if not regen and not ws.is_default_outcome:
-        print('Non-default outcome — file written, node status left unchanged.')
-    elif not regen:
+    if not regen:
+        # The node ran, so clear any stale skip recorded for this event.
+        ws.clear_skip(family, node_id)
         log_entry = {
             'node_id':      node_id,
             'family':       family,
@@ -173,87 +196,88 @@ def run_node(ws: Workspace, node_id: str, regen: bool = False) -> None:
             'derived_from': node.get('derived_from'),
             'timestamp':    datetime.now(timezone.utc).isoformat(),
             'matrix_path':  str(out_path.relative_to(ROOT)),
+            'outcome':      ws.outcome,
+            'event':        ws.event,
             'n_obs':        n_valid,
             'horizons':     ws.horizons,
             'n_thresholds': ws.n_thresholds,
             'base_rate':    br,
         }
-        for log_path in (ws.family_log(family), ws.log):
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(log_path, 'a', encoding='utf-8') as f:
-                f.write(json.dumps(log_entry) + '\n')
-
-        node['status'] = 'tested'
-        save_tree(tree, ws.tree_path)
+        log_path = ws.family_log(family)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(log_path, 'a', encoding='utf-8') as f:
+            f.write(json.dumps(log_entry) + '\n')
 
     print(f"\nDone → {out_path.relative_to(ROOT)}")
 
 
 # ── CLI commands ──────────────────────────────────────────────────────────────
 
-def cmd_family(ws: Workspace, family_name: str) -> None:
+def cmd_family(ws: Workspace, family_name: str, rerun: bool = False) -> None:
     tree = load_tree(ws.tree_path)
 
-    # Node status ('pending' / 'tested') tracks the default outcome only, so under
-    # any other outcome every node reads as already tested and there would be
-    # nothing pending to run. Target the whole family instead.
-    if ws.is_default_outcome:
-        todo, label = pending_in_family(tree, family_name), 'pending node'
+    if rerun:
+        todo, label = all_in_family(tree, family_name), 'node'
     else:
-        todo, label = all_in_family(tree, family_name), f"node under outcome '{ws.outcome}'"
+        todo, label = _nodes_todo(ws, family_name), 'pending node'
 
     if not todo:
         families = sorted({n['family'] for n in all_nodes(tree)})
-        print(f"No {label}s in family '{family_name}'.")
-        print(f"Available families: {', '.join(families)}")
+        if all_in_family(tree, family_name):
+            print(f"No {label}s in family '{family_name}' for event '{ws.event}' "
+                  f"(all tested or skipped). Use --rerun to run them anyway.")
+        else:
+            print(f"No family '{family_name}'. Available: {', '.join(families)}")
         return
 
-    print(f"Running {len(todo)} {label}(s) in family '{family_name}'...")
+    print(f"Running {len(todo)} {label}(s) in family '{family_name}' for event '{ws.event}'...")
     for node in todo:
         run_node(ws, node['id'])
 
 
 def cmd_next(ws: Workspace) -> None:
-    if not ws.is_default_outcome:
-        print(f"--next tracks status for the default outcome only; under '{ws.outcome}' "
-              f"use --family or --node.")
+    todo = _nodes_todo(ws)
+    if not todo:
+        print(f"All nodes tested or skipped for event '{ws.event}'.")
         return
-    tree = load_tree(ws.tree_path)
-    node = next_pending(tree)
-    if node is None:
-        print('All nodes tested or skipped.')
-        return
-    run_node(ws, node['id'])
+    run_node(ws, todo[0]['id'])
 
 
 def cmd_list(ws: Workspace) -> None:
-    tree   = load_tree(ws.tree_path)
     by_fam = defaultdict(list)
-    for n in all_nodes(tree):
-        if n.get('status') == 'pending':
-            by_fam[n['family']].append(n['id'])
+    for n in _nodes_todo(ws):
+        by_fam[n['family']].append(n['id'])
     if not by_fam:
-        print('No pending nodes.')
+        print(f"No pending nodes for event '{ws.event}'.")
         return
-    print(f"\nPending nodes by family:")
+    print(f"\nPending nodes by family  [event: {ws.event}]:")
     for fam in sorted(by_fam):
-        ids = ', '.join(by_fam[fam])
-        print(f"  {fam:<20s}  {ids}")
+        print(f"  {fam:<20s}  {', '.join(by_fam[fam])}")
 
 
 def cmd_status(ws: Workspace) -> None:
+    """Progress for the current event, read off the filesystem."""
     tree   = load_tree(ws.tree_path)
     by_fam = defaultdict(lambda: {'pending': 0, 'tested': 0, 'skipped': 0})
     for n in all_nodes(tree):
-        by_fam[n['family']][n.get('status', 'pending')] += 1
-    print(f"\n{'family':<20s}  {'pending':>7}  {'tested':>6}  {'skipped':>7}")
-    print('-' * 46)
+        by_fam[n['family']][ws.node_status(n['family'], n['id'])] += 1
+
+    print(f"\n=== Status [{ws.dir.name}] — event '{ws.event}': P({ws.outcome_expr}) ===")
+    print(f"\n  {'family':<18}  {'pending':>7}  {'tested':>6}  {'skipped':>7}")
+    print('  ' + '-' * 44)
     for fam in sorted(by_fam):
         c = by_fam[fam]
         print(f"  {fam:<18s}  {c['pending']:>7}  {c['tested']:>6}  {c['skipped']:>7}")
     totals = {k: sum(by_fam[f][k] for f in by_fam) for k in ('pending', 'tested', 'skipped')}
-    print('-' * 46)
+    print('  ' + '-' * 44)
     print(f"  {'TOTAL':<18s}  {totals['pending']:>7}  {totals['tested']:>6}  {totals['skipped']:>7}")
+
+    skips = [(fam, nid, r) for fam in sorted(by_fam)
+             for nid, r in ws.load_skips(fam).items()]
+    if skips:
+        print()
+        for fam, nid, reason in skips:
+            print(f"  skipped: {nid:<24} ({fam}) — {reason}")
 
 
 def _significant_rows(wb, read_h: list[str], min_n: int, min_dev: float):
@@ -322,12 +346,12 @@ def cmd_probe(ws: Workspace, families_filter: list[str] | None = None) -> None:
         ohlcv_data, ws.horizons, horizon_unit=ws.horizon_unit,
         outcome=ws.outcome, outcome_params=ws.outcome_params,
     )
-    br_series  = base_rate['win_rate']
+    br_series  = base_rate['base_rate']
 
     key_h  = ws.key_horizons
 
     print(f"\n=== Signal Probe [{ws.dir.name}] — {date.today()} ===")
-    print(f"\nOne node per family, auto-selected by peak |{ws.pivot_horizon}| edge (n≥30 slices):\n")
+    print(f"\n  One node per family, auto-selected by peak |{ws.pivot_horizon}| edge (n≥30 slices):\n")
     _h_hdrs = ''.join(f'{h:>8}' for h in key_h)
     _h_seps = ''.join('--------' for _ in key_h)
     print(f"  {'family':<18}  {'node':<26}  {'current x':>11}  {'n':>6}  {'weight':>6}  {_h_hdrs}")
@@ -374,7 +398,7 @@ def cmd_probe(ws: Workspace, families_filter: list[str] | None = None) -> None:
     result = cmb.combine(contributions, br_series, horizons=key_h, weights=weights)
 
     n_sig = len(contributions)
-    print(f"\nNaive Bayes combination [{n_sig} signals, one per family]:\n")
+    print(f"\n  Naive Bayes combination [{n_sig} signals, one per family]:\n")
     print(f"  {'horizon':<8}  {'base rate':>10}  {'combined':>10}  {'edge':>10}")
     print(f"  {'-'*8}  {'-'*10}  {'-'*10}  {'-'*10}")
     for h in key_h:
@@ -388,91 +412,6 @@ def cmd_probe(ws: Workspace, families_filter: list[str] | None = None) -> None:
     print()
 
 
-
-
-def cmd_volforecast(
-    ws:       Workspace,
-    horizons: list[int] | None = None,
-    iv_source: str = 'dvol',
-) -> None:
-    """
-    Forecast realized volatility and benchmark it against naive persistence and IV.
-
-    Three questions, in order of how much they matter:
-      1. Does HAR beat carrying today's RV forward?   (is the model doing anything)
-      2. Does HAR beat the option market's own IV?    (is it competitive)
-      3. Does HAR add anything *to* IV?               (is there a trade in it)
-
-    The third is the one that decides tradeability, and it is answered by the
-    encompassing regression rather than by any single-model score.
-    """
-    horizons = horizons or [5, 14, 30]
-    get_data = _make_loader(ws)
-
-    sources = ['ohlcv']
-    try:
-        data = get_data(['ohlcv', iv_source])
-        if iv_source in data.columns and data[iv_source].notna().any():
-            sources = ['ohlcv', iv_source]
-        else:
-            data = get_data(['ohlcv'])
-    except Exception as e:
-        print(f"  [no IV] source '{iv_source}' unavailable ({e}); comparing HAR vs RV only.")
-        data = get_data(['ohlcv'])
-
-    data = data.dropna(subset=['close'])
-    ret  = harrv.log_returns(data['close'])
-    iv   = data[iv_source] if iv_source in data.columns else None
-
-    print(f"\n=== Volatility forecast [{ws.dir.name}] ===")
-    print(f"  price history : {data.index[0].date()} -> {data.index[-1].date()}  ({len(data)} bars)")
-    if iv is not None:
-        ivv = iv.dropna()
-        print(f"  implied vol   : {iv_source}, {ivv.index[0].date()} -> {ivv.index[-1].date()} "
-              f"({len(ivv)} obs, mean {ivv.mean():.1f})")
-    print(f"  annualization : {harrv.ANNUALIZE:g} bars/year")
-
-    results = {}
-    for h in horizons:
-        preds = harrv.walk_forward(ret, h, iv=iv)
-        if preds.empty:
-            print(f"\n  h={h}: not enough history.")
-            continue
-        s = harrv.score(preds)
-        results[h] = (preds, s)
-
-        note = '' if h >= harrv.MIN_HONEST_H else '   [too short for daily-close RV]'
-        print(f"\n  --- h = {h} bars ---  n={int(s['n'].iloc[0])}{note}")
-        print(f"    {'model':<10}{'QLIKE':>9}{'R2 log':>9}{'R2 level':>10}{'RMSE':>9}{'bias':>9}")
-        print(f"    {'-'*10}{'-'*9}{'-'*9}{'-'*10}{'-'*9}{'-'*9}")
-        for m in s.index:
-            r = s.loc[m]
-            print(f"    {m:<10}{r['qlike']:>9.4f}{r['r2_log']:>+9.3f}{r['r2_level']:>+10.3f}"
-                  f"{r['rmse']:>9.2f}{r['bias']:>+9.2f}")
-
-        enc = harrv.encompassing(preds)
-        if enc:
-            print(f"    encompassing (log RV on both forecasts):")
-            print(f"      beta_har={enc['beta_har']:+.3f}   beta_iv={enc['beta_iv']:+.3f}")
-            print(f"      R2 both={enc['r2']:.3f}   HAR alone={enc['r2_har_only']:.3f}   "
-                  f"IV alone={enc['r2_iv_only']:.3f}")
-            gain = enc['r2'] - enc['r2_iv_only']
-            verdict = ('HAR adds nothing to IV' if gain < 0.01
-                       else f'HAR adds {gain:+.3f} R2 over IV alone')
-            print(f"      -> {verdict}")
-
-    if not results:
-        return
-
-    if iv is not None:
-        print(f"\n  Variance risk premium (IV minus subsequent realized vol):")
-        for h, (preds, s) in results.items():
-            if 'iv' in s.index:
-                print(f"    h={h:>2}: {s.loc['iv', 'bias']:+.2f} vol points "
-                      f"(IV mean {s.loc['iv', 'mean_fc']:.1f})")
-        print('    A positive premium is why an accurate forecast is not automatically a trade:')
-        print('    buying volatility pays this away before the forecast has a chance to be right.')
-    print()
 
 
 def cmd_validate(
@@ -552,8 +491,7 @@ def cmd_validate(
     # time never discards the rest. Bonferroni is then applied over every test in
     # the merged file — narrowing --families must not quietly shrink the correction
     # for a search that was already run wide.
-    name = 'validation.json' if ws.is_default_outcome else f'validation.{ws.event}.json'
-    path = ws.dir / name
+    path = ws.validation_path
 
     merged = {}
     if path.exists():
@@ -610,6 +548,131 @@ def cmd_validate(
     print(f"Wrote {path.relative_to(ROOT)}")
 
 
+def cmd_skew(ws: Workspace, families_filter: list[str] | None = None) -> None:
+    """
+    Measure both barriers on identical bars and report the asymmetry.
+
+    A condition that raises P(touch -theta) might be picking out genuine downside
+    risk, or might simply be picking out volatility -- in which case it raises
+    P(touch +theta) by just as much and carries no directional information at all.
+    Counting one barrier alone cannot tell those apart. This runs the same feature,
+    the same bars and the same thresholds against both and prints the difference.
+
+    The baseline is itself asymmetric -- BTC touches +10% more often than -10%
+    simply because it drifts up -- so the skew reported is a deviation-vs-deviation
+    comparison, each barrier already net of its own base rate.
+    """
+    mirror = ws.mirror_outcome
+    if mirror is None:
+        print(f"Outcome '{ws.outcome}' has no mirror barrier; --skew needs a pair.")
+        return
+
+    tree     = load_tree(ws.tree_path)
+    get_data = _make_loader(ws)
+    nodes    = [n for n in all_nodes(tree)
+                if not families_filter or n['family'] in families_filter]
+    if not nodes:
+        print('No nodes selected.')
+        return
+
+    read_h = ws.display_horizons
+    down, up_ = (ws.outcome, mirror) if ws.outcome_sign < 0 else (mirror, ws.outcome)
+    d_params = dict(ws.outcome_params)
+    u_params = dict(ws.outcome_params)
+
+    print()
+    print(f"=== Barrier skew [{ws.dir.name}] ===")
+    print(f"  down : P({outcomes.describe(down, d_params)})")
+    print(f"  up   : P({outcomes.describe(up_, u_params)})")
+    print(f"  skew = (down deviation) - (up deviation), both in pp from their own base rate.")
+    print(f"  positive skew = the condition tilts downside beyond what it does to upside.")
+    print()
+
+    hdr = ''.join(f'{h:>26}' for h in read_h)
+    print(f"  {'node':<26}  {'family':<12}{hdr}")
+    print(f"  {'-'*26}  {'-'*12}{''.join('-'*26 for _ in read_h)}")
+
+    rows = []
+    for node in nodes:
+        fam = node['family']
+        try:
+            data = get_data(node['data'])
+            feat = features.compute(data, node['feature'], node['params']).reindex(data.index)
+            valid = feat.dropna()
+            if valid.empty:
+                raise ValueError('no valid feature values')
+            lo, hi = np.nanpercentile(valid, 2), np.nanpercentile(valid, 98)
+            thresholds = np.linspace(float(lo), float(hi), ws.n_thresholds)
+        except Exception as e:
+            print(f"  {node['id']:<26}  {fam:<12}  [skip] {e}")
+            continue
+
+        cells, per_h = [], {}
+        for h in read_h:
+            h_n = _h_num(h)
+            ev_d = outcomes.compute(data, down, h_n, d_params)
+            ev_u = outcomes.compute(data, up_,  h_n, u_params)
+            # Peak deviation for each barrier, over the same bins on the same bars.
+            pk_d, x_d = _peak_dev_at(feat, ev_d, thresholds)
+            pk_u, _   = _peak_dev_at(feat, ev_u, thresholds, at_bin=x_d)
+            if pk_d is None:
+                cells.append(f"{'--':>26}")
+                continue
+            skew = pk_d - pk_u
+            per_h[h] = {'down_dev': round(pk_d, 2), 'up_dev': round(pk_u, 2),
+                        'skew': round(skew, 2)}
+            cells.append(f"{pk_d:>+7.1f}/{pk_u:>+6.1f} -> {skew:>+6.1f}")
+        if per_h:
+            rows.append((node['id'], fam, per_h))
+        print(f"  {node['id']:<26}  {fam:<12}{''.join(cells)}")
+
+    print()
+    print('  columns: down dev / up dev -> skew, all in pp, at the bin where |down dev| peaks')
+    print()
+
+    pivot = read_h[len(read_h) // 2]
+    ranked = sorted((r for r in rows if pivot in r[2]),
+                    key=lambda r: -abs(r[2][pivot]['skew']))[:8]
+    if ranked:
+        print(f"  Strongest asymmetry at {pivot}:")
+        for nid, fam, per_h in ranked:
+            rec = per_h[pivot]
+            kind = ('downside-specific' if rec['skew'] > 5 else
+                    'upside-specific'   if rec['skew'] < -5 else
+                    'symmetric (volatility, not direction)')
+            print(f"    {nid:<26} {fam:<12} skew {rec['skew']:>+6.1f}pp   {kind}")
+        print()
+
+
+def _peak_dev_at(feature, outcome, thresholds, at_bin=None):
+    """
+    Peak |deviation from base rate| across threshold bins, in pp.
+
+    Returns (deviation, bin_index). When at_bin is given, the deviation is read at
+    that bin instead of at its own peak -- which is what makes the two barriers
+    comparable: both are evaluated on the *same* slice of feature space.
+    """
+    aligned = pd.concat([feature.rename('x'), outcome.rename('y')], axis=1).dropna()
+    if len(aligned) < 100:
+        return None, None
+    x = aligned['x'].to_numpy(dtype=float)
+    y = aligned['y'].to_numpy(dtype=float)
+    idx    = np.searchsorted(thresholds, x)
+    n_bins = len(thresholds) + 1
+    counts = np.bincount(idx, minlength=n_bins)
+    sums   = np.bincount(idx, weights=y, minlength=n_bins)
+    ok     = counts >= 30
+    if not ok.any():
+        return None, None
+    rates = np.full(n_bins, np.nan)
+    rates[ok] = sums[ok] / counts[ok]
+    devs = (rates - y.mean()) * 100.0
+    if at_bin is not None:
+        return (float(devs[at_bin]) if not np.isnan(devs[at_bin]) else 0.0), at_bin
+    b = int(np.nanargmax(np.abs(devs)))
+    return float(devs[b]), b
+
+
 def cmd_backtest(ws: Workspace, families_filter: list[str] | None = None) -> None:
     by_family = _tested_by_family(ws, families_filter)
     best      = _select_best_nodes(ws, by_family)
@@ -621,7 +684,7 @@ def cmd_backtest(ws: Workspace, families_filter: list[str] | None = None) -> Non
         ohlcv_data, ws.horizons, horizon_unit=ws.horizon_unit,
         outcome=ws.outcome, outcome_params=ws.outcome_params,
     )
-    br_series  = base_rate['win_rate']
+    br_series  = base_rate['base_rate']
 
     selected: list[dict]               = []
     feat_map:  dict[str, pd.Series]    = {}
@@ -646,7 +709,12 @@ def cmd_backtest(ws: Workspace, families_filter: list[str] | None = None) -> Non
         print('No nodes loaded.')
         return
 
-    close    = ohlcv_data['close']
+    close  = ohlcv_data['close']
+    # Realizations come from the configured barrier. This used to be hard-coded to
+    # close[t+h] > close[t], which silently scored every non-directional outcome
+    # against the wrong event.
+    events = {h: outcomes.compute(ohlcv_data, ws.outcome, h, ws.outcome_params)
+              for h in ws.horizons}
     min_date = close.index[250]
     max_date = close.index[-(ws.horizons[-1] + 1)]
     sample_dates = []
@@ -677,13 +745,13 @@ def cmd_backtest(ws: Workspace, families_filter: list[str] | None = None) -> Non
             continue
 
         result = cmb.combine(contribs, br_series, horizons=key_h)
-        p0     = close.iloc[pos]
         row    = {'date': dt}
         for h in ws.horizons:
             h_lbl = f'+{h}{u}'
             row[f'edge_{h}{u}']   = float(result.loc[h_lbl, 'edge']) if h_lbl in result.index else np.nan
-            fp = pos + h
-            row[f'actual_{h}{u}'] = (1 if close.iloc[fp] > p0 else 0) if fp < len(close) else np.nan
+            row[f'prob_{h}{u}']   = float(result.loc[h_lbl, 'combined']) if h_lbl in result.index else np.nan
+            ev = events[h]
+            row[f'actual_{h}{u}'] = float(ev.loc[dt]) if dt in ev.index and pd.notna(ev.loc[dt]) else np.nan
         results.append(row)
 
     df = pd.DataFrame(results)
@@ -691,37 +759,58 @@ def cmd_backtest(ws: Workspace, families_filter: list[str] | None = None) -> Non
     print(f"\n=== Backtest [{ws.dir.name}] — {ws.sample_freq} sampling, N={len(df)}, {len(selected)} signals ===")
     print(f"  Nodes: {', '.join(n['id'] for n in selected)}\n")
 
-    pvt      = ws.pivot_horizon
-    pvt_n    = _h_num(pvt)
-    pvt_col  = f'edge_{pvt_n}{u}'
-    last_h   = ws.horizons[-1]
-    disp_h   = ws.display_horizons
-    br_vals  = {h: float(br_series.loc[h]) if h in br_series.index else 50.0 for h in disp_h}
+    pvt   = ws.pivot_horizon
+    pvt_n = _h_num(pvt)
+    disp_h = ws.display_horizons
 
-    bins   = [-200, -10, -5,  0,  5, 10, 200]
-    labels = ['< -10pp', '-10 to -5', '-5 to 0', '0 to +5', '+5 to +10', '> +10pp']
-    df['bucket'] = pd.cut(df[pvt_col], bins=bins, labels=labels)
+    # Calibration, not accuracy. The combiner emits a probability that a barrier is
+    # touched; the honest question is whether that number is *right* — when it says
+    # 40%, does the barrier get touched 40% of the time? "Directional accuracy"
+    # (was the sign correct) is meaningless for a touch event, and against a base
+    # rate far from 50% it also flatters a model that only ever predicts the
+    # majority class.
+    print(f"  Calibration — predicted P(touch) vs realized frequency:\n")
+    edges  = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+    h_hdr  = ''.join(f'{h:>18}' for h in disp_h)
+    print(f"  {'predicted':<14}  {h_hdr}")
+    print(f"  {'-'*14}  {''.join('-'*18 for _ in disp_h)}")
 
-    h_hdr = ''.join(f'{h:>8}' for h in disp_h)
-    h_sep = ''.join('--------' for _ in disp_h)
-    print(f"  Bucketed by {pvt} model edge  (pp = deviation from base rate, + means model correct):\n")
-    print(f"  {'bucket':<14}  {'N':>4}  {'avg edge':>10}  {h_hdr}")
-    print(f"  {'-'*14}  {'-'*4}  {'-'*10}  {h_sep}")
-    for lbl in labels:
-        sub = df[df['bucket'] == lbl]
-        if len(sub) == 0:
-            continue
-        avg_edge  = sub[pvt_col].mean()
-        direction = 1 if avg_edge >= 0 else -1
-        vals_str  = ''
+    briers = {}
+    for lo, hi in zip(edges[:-1], edges[1:]):
+        cells, any_row = [], False
         for h in disp_h:
-            h_n  = _h_num(h)
-            col  = f'actual_{h_n}{u}'
-            br_v = br_vals[h]
-            v    = sub[col].dropna().mean()
-            dd   = f"{direction * (v * 100 - br_v):+.1f}pp" if pd.notna(v) else '   n/a'
-            vals_str += f'  {dd:>8}'
-        print(f"  {lbl:<14}  {len(sub):>4}  {avg_edge:>+9.1f}pp{vals_str}")
+            h_n = _h_num(h)
+            sub = df.dropna(subset=[f'prob_{h_n}{u}', f'actual_{h_n}{u}'])
+            sub = sub[(sub[f'prob_{h_n}{u}'] >= lo) & (sub[f'prob_{h_n}{u}'] < hi)]
+            if len(sub) < 5:
+                cells.append(f"{'—':>18}")
+                continue
+            any_row = True
+            realized = sub[f'actual_{h_n}{u}'].mean() * 100
+            cells.append(f"{realized:>10.0f}% (n={len(sub):>3})")
+        if any_row:
+            print(f"  {f'{lo}-{hi}%':<14}  {''.join(cells)}")
+
+    # Brier score against the base rate: does conditioning beat just quoting p0?
+    print(f"\n  Brier score (lower is better) — model vs always-quote-the-base-rate:\n")
+    print(f"  {'horizon':<8}  {'base rate':>10}  {'model':>8}  {'base':>8}  {'skill':>8}  {'N':>5}")
+    print(f"  {'-'*8}  {'-'*10}  {'-'*8}  {'-'*8}  {'-'*8}  {'-'*5}")
+    for h in disp_h:
+        h_n = _h_num(h)
+        sub = df.dropna(subset=[f'prob_{h_n}{u}', f'actual_{h_n}{u}'])
+        if sub.empty:
+            continue
+        br_v   = float(br_series.loc[h]) if h in br_series.index else np.nan
+        actual = sub[f'actual_{h_n}{u}']
+        model  = ((sub[f'prob_{h_n}{u}'] / 100.0 - actual) ** 2).mean()
+        basel  = ((br_v / 100.0 - actual) ** 2).mean()
+        # Brier skill score: >0 means conditioning on the features beat the base rate.
+        skill  = (1 - model / basel) if basel > 0 else np.nan
+        briers[h] = skill
+        print(f"  {h:<8}  {br_v:>9.1f}%  {model:>8.4f}  {basel:>8.4f}  {skill:>+8.3f}  {len(sub):>5}")
+
+    if briers and all(v <= 0 for v in briers.values() if pd.notna(v)):
+        print("\n  * No horizon beats the base rate. The combined signal adds nothing here.")
 
     # today's estimate
     t_contribs: list = []
@@ -735,32 +824,17 @@ def cmd_backtest(ws: Workspace, families_filter: list[str] | None = None) -> Non
         devs_h = devs[[c for c in devs.index if c.startswith('+')]]
         t_contribs.append((node['id'], devs_h))
         t_weights[node['id']] = cmb.shrink_weight(n_val)
-    today_result = cmb.combine(t_contribs, br_series, horizons=key_h, weights=t_weights)
 
-    print(f"\n  Directional accuracy vs today's model estimate:")
-    print(f"  {'horizon':<8}  {'hist. acc':>14}  {'today edge':>11}  {'today P(up)':>12}")
-    print(f"  {'-'*8}  {'-'*14}  {'-'*11}  {'-'*12}")
-    for h in ws.horizons:
-        h_lbl  = f'+{h}{u}'
-        sub    = df.dropna(subset=[f'actual_{h}{u}', f'edge_{h}{u}'])
-        pred   = sub[f'edge_{h}{u}'] > 0
-        actual = sub[f'actual_{h}{u}'].astype(bool)
-        n_cor  = (pred == actual).sum()
-        acc    = (pred == actual).mean() * 100
-        if h_lbl in today_result.index:
-            edge_s = f"{float(today_result.loc[h_lbl, 'edge']):+.1f}pp"
-            comb_s = f"{float(today_result.loc[h_lbl, 'combined']):.1f}%"
-        else:
-            edge_s, comb_s = 'n/a', 'n/a'
-        print(f"  {h_lbl:<8}  {acc:>9.0f}% ({n_cor}/{len(sub)})  {edge_s:>11}  {comb_s:>12}")
-
-    print(f"\n  5 most bullish + 5 most bearish model calls (by {pvt} edge):\n")
-    print(f"  {'date':<12}  {f'edge {pvt}':>9}  {f'{pvt} actual':>11}  {f'+{last_h}{u} actual':>12}")
-    print(f"  {'-'*12}  {'-'*9}  {'-'*11}  {'-'*12}")
-    for _, row in pd.concat([df.nlargest(5, pvt_col), df.nsmallest(5, pvt_col)]).iterrows():
-        a_pvt  = ('up'   if row[f'actual_{pvt_n}{u}']  == 1 else 'DOWN') if pd.notna(row[f'actual_{pvt_n}{u}'])  else 'n/a'
-        a_last = ('up'   if row[f'actual_{last_h}{u}'] == 1 else 'DOWN') if pd.notna(row[f'actual_{last_h}{u}']) else 'n/a'
-        print(f"  {str(row['date'].date()):<12}  {row[pvt_col]:>+8.1f}pp  {a_pvt:>11}  {a_last:>12}")
+    if t_contribs:
+        today = cmb.combine(t_contribs, br_series, horizons=key_h, weights=t_weights)
+        print(f"\n  Today's estimate — P({ws.outcome_expr}):\n")
+        print(f"  {'horizon':<8}  {'base rate':>10}  {'combined':>10}  {'edge':>10}")
+        print(f"  {'-'*8}  {'-'*10}  {'-'*10}  {'-'*10}")
+        for h in disp_h:
+            if h not in today.index:
+                continue
+            print(f"  {h:<8}  {float(today.loc[h, 'base_rate']):>9.1f}%  "
+                  f"{float(today.loc[h, 'combined']):>9.1f}%  {float(today.loc[h, 'edge']):>+10.1f}pp")
     print()
 
 
@@ -805,8 +879,7 @@ def _load_validation(ws: Workspace) -> dict:
     which is itself meaningful — findings then report 'unvalidated' rather than
     claiming an edge no null test has seen.
     """
-    name = 'validation.json' if ws.is_default_outcome else f'validation.{ws.event}.json'
-    path = ws.dir / name
+    path = ws.validation_path
     if not path.exists():
         return {}
     try:
@@ -856,8 +929,7 @@ def cmd_findings(ws: Workspace) -> None:
 
     # Load existing findings to preserve hand-written notes. Like validation, the
     # file is per-outcome so a drawdown sweep never overwrites the directional one.
-    findings_path = (ws.dir / 'findings.json' if ws.is_default_outcome
-                     else ws.dir / f'findings.{ws.event}.json')
+    findings_path = ws.findings_path
     existing: dict = {}
     if findings_path.exists():
         with open(findings_path, encoding='utf-8') as f:
@@ -925,19 +997,22 @@ def cmd_findings(ws: Workspace) -> None:
 # ── entry ─────────────────────────────────────────────────────────────────────
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Winrate matrix research pipeline')
-    parser.add_argument('--workspace', metavar='NAME', default='btc_daily_14days', help='Workspace name (default: btc_daily_14days)')
-    parser.add_argument('--regen',    action='store_true', help='Regenerate xlsx without changing status')
+    parser = argparse.ArgumentParser(
+        description='Barrier-touch probability pipeline: P(price touches ±theta within h bars | condition)')
+    parser.add_argument('--workspace', metavar='NAME', default='btc_daily_14days',
+                        help='Workspace name (default: btc_daily_14days)')
+    parser.add_argument('--regen',    action='store_true', help='Regenerate xlsx for already-tested nodes')
+    parser.add_argument('--rerun',    action='store_true', help='With --family, run every node, not just pending ones')
     parser.add_argument('--family',   metavar='NAME',      help='Target family')
     parser.add_argument('--node',     metavar='ID',        help='Target node')
-    parser.add_argument('--families', metavar='FAM,...',   help='Comma-separated families for --probe/--backtest/--validate')
+    parser.add_argument('--families', metavar='FAM,...',   help='Comma-separated families for --probe/--backtest/--validate/--skew')
     parser.add_argument('--outcome',  metavar='NAME',
-                        help='Outcome to measure instead of the workspace default: '
+                        help='Barrier to measure instead of the workspace default: '
                              + ', '.join(outcomes.available()))
     parser.add_argument('--threshold', type=float, metavar='FRAC',
-                        help='Threshold for the drawdown/runup outcomes, as a fraction (default 0.10)')
-    parser.add_argument('--vol-horizons', metavar='H,...', default='5,14,30',
-                        help='Forecast horizons in bars for --volforecast (default 5,14,30)')
+                        help='Barrier size as a fraction of price, e.g. 0.10. Scale it to the '
+                             'asset and horizon: 10%% over 14 BTC days is a 21.7%% event, over '
+                             '24 NASDAQ hours a 0.4%% one.')
     parser.add_argument('--shifts',   type=int, default=val.DEFAULT_SHIFTS, metavar='N',
                         help='Circular shifts per --validate test (default %d)' % val.DEFAULT_SHIFTS)
 
@@ -946,12 +1021,13 @@ if __name__ == '__main__':
     group.add_argument('--list',     action='store_true', help='List pending nodes by family')
     group.add_argument('--status',   action='store_true', help='Show status table by family')
     group.add_argument('--read',     metavar='ID',        help='Print matrix summary for a node')
-    group.add_argument('--probe',    action='store_true', help='Combined P(up) probe across all families')
-    group.add_argument('--backtest', action='store_true', help='Backtest probe signal on historical sample dates')
-    group.add_argument('--findings', action='store_true', help='Generate findings.json for the workspace')
-    group.add_argument('--validate', action='store_true', help='Shuffle-null test every tested node; writes validation.json')
-    group.add_argument('--volforecast', action='store_true',
-                       help='HAR-RV vs naive RV vs implied vol on the workspace asset')
+    group.add_argument('--probe',    action='store_true', help='Combined touch-probability probe across all families')
+    group.add_argument('--skew',     action='store_true',
+                       help='Compare both barriers on the same bars: does a condition tilt '
+                            'downside specifically, or just raise both?')
+    group.add_argument('--backtest', action='store_true', help='Calibration of the combined probability on historical sample dates')
+    group.add_argument('--findings', action='store_true', help='Generate findings.<event>.json for the workspace')
+    group.add_argument('--validate', action='store_true', help='Shuffle-null test every tested node; writes validation.<event>.json')
     group.add_argument('--charts', action='store_true',
                        help='Regenerate README figures into assets/ from committed data (ignores --workspace)')
 
@@ -962,7 +1038,7 @@ if __name__ == '__main__':
         charts.render_all()
         sys.exit(0)
 
-    ws   = Workspace(args.workspace)
+    ws = Workspace(args.workspace)
 
     if args.outcome or args.threshold is not None:
         name   = args.outcome or ws.outcome
@@ -980,15 +1056,14 @@ if __name__ == '__main__':
         cmd_read(ws, args.read)
     elif args.probe:
         cmd_probe(ws, fam_filter)
+    elif args.skew:
+        cmd_skew(ws, fam_filter)
     elif args.backtest:
         cmd_backtest(ws, fam_filter)
     elif args.findings:
         cmd_findings(ws)
     elif args.validate:
         cmd_validate(ws, fam_filter, n_shifts=args.shifts)
-    elif args.volforecast:
-        hs = [int(x) for x in args.vol_horizons.split(',') if x.strip()]
-        cmd_volforecast(ws, hs)
     elif args.regen:
         cmd_regen(ws, args.family, args.node)
     elif args.next:
@@ -998,7 +1073,7 @@ if __name__ == '__main__':
     elif args.status:
         cmd_status(ws)
     elif args.family:
-        cmd_family(ws, args.family)
+        cmd_family(ws, args.family, rerun=args.rerun)
     elif args.node:
         run_node(ws, args.node)
     else:

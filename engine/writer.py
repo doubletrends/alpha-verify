@@ -7,20 +7,24 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 _DEV_FMT  = '+0.0"pp";-0.0"pp";"0pp"'
-_SCALE_LO = -20
-_SCALE_HI = +20
 
-SHEET_PDF   = 'P(up | X ≈ x) - P(up)'
-SHEET_ABOVE = 'P(up | X > x) - P(up)'
-SHEET_BELOW = 'P(up | X < x) - P(up)'
+# A deviation is bounded by the base rate it is measured against: at a 21.7% base
+# rate the surface cannot go below -21.7pp, but has 78pp of headroom above. A fixed
+# ±20pp scale (calibrated when every outcome was a ~50% coin flip) therefore saturates
+# one side and wastes the other. The scale is derived from the base rate instead.
+_SCALE_MIN  = 8.0    # floor, so a very rare event still gets a readable spread
+_SCALE_FRAC = 0.75   # of the distance to the nearer bound
 
-# Sheet names carry the event symbol so two outcomes never collide in one workbook,
-# while the default 'up' reproduces the historical names exactly — existing node
-# xlsx files keep loading unchanged.
+_RED   = 'C00000'
+_WHITE = 'FFFFFF'
+_GREEN = '00B050'
+
+# Sheet names carry the event symbol so two barriers (or two thresholds) never
+# collide in one workbook. Readers match on the comparison mark, not the full name.
 _MARKS = {'pdf': '≈', 'above': '>', 'below': '<'}
 
 
-def sheet_names(event: str = 'up') -> dict[str, str]:
+def sheet_names(event: str = 'dd') -> dict[str, str]:
     """The three sheet names for an event symbol, keyed 'pdf' / 'above' / 'below'."""
     return {k: f'P({event} | X {m} x) - P({event})' for k, m in _MARKS.items()}
 
@@ -73,7 +77,7 @@ def _subtract_base(df: pd.DataFrame, base_rate: pd.DataFrame) -> pd.DataFrame:
     for col in df.columns:
         if col == 'n':
             continue
-        result[col] = df[col] - base_rate.loc[col, 'win_rate']
+        result[col] = df[col] - base_rate.loc[col, 'base_rate']
     return result
 
 
@@ -117,7 +121,7 @@ def _local_function(p_above: pd.DataFrame, base_rate: pd.DataFrame) -> pd.DataFr
             v_lo = p_above.iloc[i + 1][col]
             if pd.notna(v_hi) and pd.notna(v_lo):
                 wins_slice = n_hi * v_hi / 100.0 - n_lo * v_lo / 100.0
-                row[col]   = wins_slice / n_slice * 100.0 - base_rate.loc[col, 'win_rate']
+                row[col]   = wins_slice / n_slice * 100.0 - base_rate.loc[col, 'base_rate']
             else:
                 row[col]   = np.nan
 
@@ -128,12 +132,39 @@ def _local_function(p_above: pd.DataFrame, base_rate: pd.DataFrame) -> pd.DataFr
     return result[['n'] + horizon_cols]
 
 
-def _color_scale(ws, n_rows: int, n_horizons: int, data_row: int) -> None:
+def _scale_limit(base_rate: pd.DataFrame) -> float:
+    """
+    Symmetric ±limit for the colour scale, derived from the base rate.
+
+    A conditional rate lives in [0, 100], so a deviation from a base rate p0 is
+    bounded by [-p0, 100-p0]. The scale is set to a fraction of the *nearer* bound
+    so neither tail saturates immediately, with a floor for very rare events.
+    """
+    rates = base_rate['base_rate'].dropna()
+    if rates.empty:
+        return 20.0
+    p0    = float(rates.mean())
+    room  = min(p0, 100.0 - p0)
+    return max(_SCALE_MIN, round(room * _SCALE_FRAC, 1))
+
+
+def _color_scale(ws, n_rows: int, n_horizons: int, data_row: int,
+                 limit: float = 20.0, sign: int = -1) -> None:
+    """
+    Colour a deviation surface so that red always means "worse".
+
+    `sign` comes from the outcome registry: -1 when more of the event is bad news
+    (a drawdown barrier being touched more often), +1 when it is good news (a runup).
+    Without this the drawdown surfaces render backwards — elevated crash risk in
+    green — because the original scale hard-coded the directional convention where
+    a higher probability was always favourable.
+    """
     rng = f'{get_column_letter(3)}{data_row}:{get_column_letter(2 + n_horizons)}{data_row - 1 + n_rows}'
+    lo_color, hi_color = (_GREEN, _RED) if sign < 0 else (_RED, _GREEN)
     ws.conditional_formatting.add(rng, ColorScaleRule(
-        start_type='num', start_value=_SCALE_LO, start_color='C00000',
-        mid_type='num',   mid_value=0,           mid_color='FFFFFF',
-        end_type='num',   end_value=_SCALE_HI,   end_color='00B050',
+        start_type='num', start_value=-limit, start_color=lo_color,
+        mid_type='num',   mid_value=0,        mid_color=_WHITE,
+        end_type='num',   end_value=+limit,   end_color=hi_color,
     ))
 
 
@@ -165,9 +196,10 @@ def write_xlsx(
     base_rate: pd.DataFrame,
     path:      Path,
     node_id:   str,
-    event:     str = 'up',
-    title:     str = 'Winrate',
-    expr:      str = 'price_h0+h > price_h0',
+    event:     str = 'dd10',
+    title:     str = 'Drawdown Risk',
+    expr:      str = 'min(price_h0+1..h) / price_h0 - 1 < -0.1',
+    sign:      int = -1,
 ) -> None:
     label     = _feature_label(node_id)
     sheets    = sheet_names(event)
@@ -175,6 +207,7 @@ def write_xlsx(
     dev_above = _subtract_base(p_above, base_rate)
     dev_below = _subtract_base(p_below, base_rate)
     fn_df     = _local_function(p_above, base_rate)
+    limit     = _scale_limit(base_rate)
 
     n_cdf        = len(dev_above)
     n_pdf        = len(fn_df)
@@ -198,7 +231,7 @@ def write_xlsx(
             merge_end=merge_end,
         )
         _format_cells(wb[SHEET_PDF], n_pdf, n_horizons, data_row=_DATA_ROW)
-        _color_scale( wb[SHEET_PDF], n_pdf, n_horizons, data_row=_DATA_ROW)
+        _color_scale( wb[SHEET_PDF], n_pdf, n_horizons, data_row=_DATA_ROW, limit=limit, sign=sign)
 
         _write_headers(wb[SHEET_ABOVE],
             f'Conditional {title} on {label} — Cumulative Distribution Function (CDF)',
@@ -207,7 +240,7 @@ def write_xlsx(
             merge_end=merge_end,
         )
         _format_cells(wb[SHEET_ABOVE], n_cdf, n_horizons, data_row=_DATA_ROW)
-        _color_scale( wb[SHEET_ABOVE], n_cdf, n_horizons, data_row=_DATA_ROW)
+        _color_scale( wb[SHEET_ABOVE], n_cdf, n_horizons, data_row=_DATA_ROW, limit=limit, sign=sign)
 
         _write_headers(wb[SHEET_BELOW],
             f'Conditional {title} on {label} — Cumulative Distribution Function (CDF)',
@@ -216,6 +249,6 @@ def write_xlsx(
             merge_end=merge_end,
         )
         _format_cells(wb[SHEET_BELOW], n_cdf, n_horizons, data_row=_DATA_ROW)
-        _color_scale( wb[SHEET_BELOW], n_cdf, n_horizons, data_row=_DATA_ROW)
+        _color_scale( wb[SHEET_BELOW], n_cdf, n_horizons, data_row=_DATA_ROW, limit=limit, sign=sign)
 
     print(f'Saved -> {path}')
