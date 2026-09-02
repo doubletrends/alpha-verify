@@ -11,12 +11,22 @@ def register_source(name: str, fn: Callable) -> None:
     _registry[name] = fn
 
 
+# Fetches are memoized for the life of the process. A full sweep runs one node at a
+# time over the same handful of source sets, and without this a 65-node family means
+# 65 identical downloads -- slow, and enough to get rate-limited.
+_cache: dict[tuple, pd.DataFrame] = {}
+
+
 def fetch(sources: list[str], start: str, asset: dict) -> pd.DataFrame:
+    key = (tuple(sources), start, asset.get('ticker'), asset.get('interval'))
+    if key in _cache:
+        return _cache[key].copy()
     frames = [_registry[s](start=start, asset=asset) for s in sources]
     out = frames[0]
     for f in frames[1:]:
         out = out.join(f.reindex(out.index, method='ffill'), how='left')
-    return out
+    _cache[key] = out
+    return out.copy()
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────

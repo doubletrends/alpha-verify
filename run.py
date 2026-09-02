@@ -631,6 +631,26 @@ def cmd_skew(ws: Workspace, families_filter: list[str] | None = None) -> None:
     print()
 
     pivot = read_h[len(read_h) // 2]
+
+    # Capture the pivot-horizon slice so --charts can redraw the skew panel offline.
+    if rows and not families_filter:
+        capture = {
+            'workspace': ws.dir.name,
+            'horizon':   pivot,
+            'down':      outcomes.event_label(down, d_params),
+            'up':        outcomes.event_label(up_, u_params),
+            'generated': datetime.now(timezone.utc).isoformat(),
+            'horizons':  read_h,
+            'nodes':     [{'node': nid, 'family': fam, **per_h[pivot],
+                           'by_horizon': per_h}
+                          for nid, fam, per_h in rows if pivot in per_h],
+        }
+        cap_path = ROOT / 'assets' / 'skew_scores.json'
+        cap_path.parent.mkdir(parents=True, exist_ok=True)
+        cap_path.write_text(json.dumps(capture, indent=2), encoding='utf-8')
+        print(f'  wrote {cap_path.relative_to(ROOT)}')
+        print()
+
     ranked = sorted((r for r in rows if pivot in r[2]),
                     key=lambda r: -abs(r[2][pivot]['skew']))[:8]
     if ranked:
@@ -887,7 +907,7 @@ def _load_validation(ws: Workspace) -> dict:
             raw = json.load(f)
     except (json.JSONDecodeError, OSError):
         return {}
-    if raw.get('outcome', {}).get('name', 'up') != ws.outcome:
+    if raw.get('outcome', {}).get('name') != ws.outcome:
         return {}
     return {nid: rec.get('horizons', {}) for nid, rec in raw.get('nodes', {}).items()}
 

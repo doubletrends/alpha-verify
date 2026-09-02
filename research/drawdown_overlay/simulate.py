@@ -1,17 +1,27 @@
 """
 Does the one validated signal actually pay?
 
-Four BTC nodes clear Bonferroni on the 10%-drawdown outcome in
+Five tests clear Bonferroni on the -10% barrier in
 `workspaces/btc_daily_14days/validation.dd10.json`:
 
     bb_pct_20      +3d   p = 3e-5   (floor)
     bb_pct_20      +7d   p = 3e-5   (floor)
     drawdown_7     +3d   p = 3e-5   (floor)
-    ma_cross_7_21  +3d   p = 1.3e-4
+    ma_cross_7_21  +3d   p = 1.5e-4
+    ma_ratio_7     +3d   p = 1.8e-4
 
-Three distinct features; the horizon is how long the elevated drawdown risk
-persists. All three fire on their *low* tail — price pinned to the lower
-Bollinger band, a deep trailing drawdown, the fast MA below the slow one.
+Four distinct features; the horizon is how long the elevated touch risk
+persists. All four fire on their *low* tail — price pinned to the lower
+Bollinger band, a deep trailing drawdown, the fast MA below the slow one, price
+below its own 7-day average.
+
+Worth carrying forward from `--skew`: these are not all the same kind of signal.
+Measured against the mirror barrier on identical bars at +3d, bb_pct_20 is
++27.8pp downside against +1.7pp upside — genuinely asymmetric — while
+ma_cross_7_21 is +19.8 against +21.3, i.e. it raises the upside barrier slightly
+*more* than the downside one. It clears Bonferroni as a drawdown predictor and
+still carries no directional information; it is detecting volatility. That is a
+reason to expect a short overlay built on these to underperform a flat one.
 
 This builds a long/short overlay from them and compares its equity curve to
 buy-and-hold. The trade construction is discrete and event-based ("variant B"):
@@ -23,7 +33,7 @@ buy-and-hold. The trade construction is discrete and event-based ("variant B"):
     (7 bars for bb_pct_20, 3 for the other two), then that leg closes;
   * while a leg is open, further triggers for the same feature are ignored — no
     overlap, no re-arming until the feature climbs back above its threshold;
-  * the overlay is short whenever *any* of the three legs is open (a flat
+  * the overlay is short whenever *any* leg is open (a flat
     variant holds 0 instead of -1 over the same windows).
 
 This is the faithful reading of what `--validate` scored: a per-bar level
@@ -73,6 +83,7 @@ SIGNALS = [
     {'name': 'bb_pct_20',     'feature': 'bb_pct',   'params': {'period': 20},          'hold': 7},
     {'name': 'drawdown_7',    'feature': 'drawdown', 'params': {'period': 7},           'hold': 3},
     {'name': 'ma_cross_7_21', 'feature': 'ma_cross', 'params': {'fast': 7, 'slow': 21}, 'hold': 3},
+    {'name': 'ma_ratio_7',    'feature': 'ma_ratio', 'params': {'period': 7},           'hold': 3},
 ]
 
 PCTILE     = 10       # low-tail trigger: feature below its p10 (bottom decile)
@@ -150,7 +161,7 @@ def build_positions(data: pd.DataFrame) -> tuple[pd.DataFrame, dict, dict]:
     pos['flat_is']       = np.where(is_open,  0.0, 1.0)
     pos['flat_wf']       = np.where(wf_open,  0.0, 1.0)
     pos['n_signals']     = sum(per_sig.values()).astype(int)   # 0..3 legs open (IS)
-    pos['short_is_2of3'] = np.where(pos['n_signals'] >= 2, -1.0, 1.0)
+    pos['short_is_2plus'] = np.where(pos['n_signals'] >= 2, -1.0, 1.0)
     pos['_is_open']      = is_open
     pos['_wf_open']      = wf_open
 
@@ -260,7 +271,7 @@ def main() -> None:
     ret = data['close'].pct_change()
     pos, feats, meta = build_positions(data)
 
-    variants = ['hodl', 'flat_is', 'flat_wf', 'short_is', 'short_is_2of3', 'short_wf']
+    variants = ['hodl', 'flat_is', 'flat_wf', 'short_is', 'short_is_2plus', 'short_wf']
     rets = {v: run_variant(ret, pos[v]) for v in variants}
     eq   = pd.DataFrame({v: (1.0 + rets[v].fillna(0.0)).cumprod() for v in variants})
 
@@ -342,18 +353,19 @@ def _write_readme(r: dict) -> None:
     short_is_word = _cmp(si, hodl)
     short_wf_word = _cmp(sw, hodl)
 
-    md = f"""# Trading the validated drawdown signal
+    md = f"""# Trading the validated downside-barrier signal
 
 *Regenerate with `python research/drawdown_overlay/simulate.py`. Window
 {r['history']['start']} to {r['history']['end']}, {r['history']['bars']:,} BTC daily bars
 (live yfinance pull — the last bar and the exact figures move a little between runs).*
 
-Four nodes clear Bonferroni on the 10%-drawdown outcome in
+Five tests clear Bonferroni on the −10% barrier in
 [`validation.dd10.json`](../../workspaces/btc_daily_14days/validation.dd10.json):
-`bb_pct_20` at +3d and +7d, `drawdown_7` at +3d, `ma_cross_7_21` at +3d — three
-distinct features, all firing on their low tail (price at the lower Bollinger
-band, a deep trailing drawdown, the fast MA below the slow one). This asks the
-question the main README defers: **is that edge worth trading?**
+`bb_pct_20` at +3d and +7d, `drawdown_7`, `ma_cross_7_21` and `ma_ratio_7` at +3d
+— four distinct features, all firing on their low tail (price at the lower
+Bollinger band, a deep trailing drawdown, the fast MA below the slow one, price
+below its own 7-day average). This asks the question the main README defers:
+**is that edge worth trading?**
 
 ## The rule  (discrete, event-based)
 
@@ -362,8 +374,7 @@ its p{c['pctile']} (bottom-decile) threshold — at or above it last bar, below 
 now. Each trigger opens one fixed-length short of exactly the node's validated
 horizon ({holds}), which then closes; a feature is not re-armed until it has
 climbed back above its threshold, and triggers arriving while its leg is still
-open are ignored. The overlay is risk-off whenever **any** of the three legs is
-open. Two risk-off stances — **short (−1)** and **flat (0)** — and two threshold
+open are ignored. The overlay is risk-off whenever **any** leg is open. Two risk-off stances — **short (−1)** and **flat (0)** — and two threshold
 regimes:
 
 | | threshold | honest? |
@@ -385,7 +396,7 @@ dropped — it holds the overlay short far too often and dilutes the edge.)
 {row('flat_is', 'flat overlay — IS')}
 {row('flat_wf', 'flat overlay — walk-forward')}
 {row('short_is', 'long/short overlay — IS')}
-{row('short_is_2of3', 'long/short, needs ≥2 legs open — IS')}
+{row('short_is_2plus', 'long/short, needs ≥2 legs open — IS')}
 {row('short_wf', 'long/short overlay — walk-forward')}
 
 ## Does the premise hold?

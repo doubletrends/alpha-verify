@@ -1,0 +1,1574 @@
+{
+  "workspace": "btc_daily_14days",
+  "horizon": "+7d",
+  "down": "dd10",
+  "up": "run10",
+  "generated": "2026-09-02T13:20:58.478622+00:00",
+  "horizons": [
+    "+3d",
+    "+7d",
+    "+14d"
+  ],
+  "nodes": [
+    {
+      "node": "rsi_7",
+      "family": "rsi",
+      "down_dev": 13.4,
+      "up_dev": 2.2,
+      "skew": 11.2,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 15.58,
+          "up_dev": -4.4,
+          "skew": 19.97
+        },
+        "+7d": {
+          "down_dev": 13.4,
+          "up_dev": 2.2,
+          "skew": 11.2
+        },
+        "+14d": {
+          "down_dev": 12.05,
+          "up_dev": -8.7,
+          "skew": 20.75
+        }
+      }
+    },
+    {
+      "node": "rsi_14",
+      "family": "rsi",
+      "down_dev": -8.99,
+      "up_dev": 9.81,
+      "skew": -18.8,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 4.58,
+          "up_dev": 11.92,
+          "skew": -7.34
+        },
+        "+7d": {
+          "down_dev": -8.99,
+          "up_dev": 9.81,
+          "skew": -18.8
+        },
+        "+14d": {
+          "down_dev": -10.5,
+          "up_dev": 18.1,
+          "skew": -28.6
+        }
+      }
+    },
+    {
+      "node": "rsi_21",
+      "family": "rsi",
+      "down_dev": 9.74,
+      "up_dev": -5.68,
+      "skew": 15.42,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 7.64,
+          "up_dev": -0.69,
+          "skew": 8.33
+        },
+        "+7d": {
+          "down_dev": 9.74,
+          "up_dev": -5.68,
+          "skew": 15.42
+        },
+        "+14d": {
+          "down_dev": -13.31,
+          "up_dev": 19.23,
+          "skew": -32.54
+        }
+      }
+    },
+    {
+      "node": "rsi_10",
+      "family": "rsi",
+      "down_dev": 7.43,
+      "up_dev": -2.64,
+      "skew": 10.07,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 8.6,
+          "up_dev": -1.56,
+          "skew": 10.16
+        },
+        "+7d": {
+          "down_dev": 7.43,
+          "up_dev": -2.64,
+          "skew": 10.07
+        },
+        "+14d": {
+          "down_dev": 9.88,
+          "up_dev": -0.55,
+          "skew": 10.43
+        }
+      }
+    },
+    {
+      "node": "rsi_18",
+      "family": "rsi",
+      "down_dev": 12.32,
+      "up_dev": -9.35,
+      "skew": 21.67,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 10.7,
+          "up_dev": -0.29,
+          "skew": 10.99
+        },
+        "+7d": {
+          "down_dev": 12.32,
+          "up_dev": -9.35,
+          "skew": 21.67
+        },
+        "+14d": {
+          "down_dev": 16.32,
+          "up_dev": -7.39,
+          "skew": 23.71
+        }
+      }
+    },
+    {
+      "node": "rsi_divergence_7_14",
+      "family": "rsi",
+      "down_dev": -8.89,
+      "up_dev": -11.87,
+      "skew": 2.97,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 4.97,
+          "up_dev": -2.32,
+          "skew": 7.3
+        },
+        "+7d": {
+          "down_dev": -8.89,
+          "up_dev": -11.87,
+          "skew": 2.97
+        },
+        "+14d": {
+          "down_dev": 10.99,
+          "up_dev": -4.87,
+          "skew": 15.87
+        }
+      }
+    },
+    {
+      "node": "wr_7",
+      "family": "williams_r",
+      "down_dev": 8.67,
+      "up_dev": 1.46,
+      "skew": 7.21,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 7.85,
+          "up_dev": 4.67,
+          "skew": 3.18
+        },
+        "+7d": {
+          "down_dev": 8.67,
+          "up_dev": 1.46,
+          "skew": 7.21
+        },
+        "+14d": {
+          "down_dev": 9.83,
+          "up_dev": -1.66,
+          "skew": 11.49
+        }
+      }
+    },
+    {
+      "node": "wr_14",
+      "family": "williams_r",
+      "down_dev": 8.98,
+      "up_dev": -4.27,
+      "skew": 13.25,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 6.87,
+          "up_dev": 0.84,
+          "skew": 6.03
+        },
+        "+7d": {
+          "down_dev": 8.98,
+          "up_dev": -4.27,
+          "skew": 13.25
+        },
+        "+14d": {
+          "down_dev": 11.51,
+          "up_dev": -3.68,
+          "skew": 15.19
+        }
+      }
+    },
+    {
+      "node": "wr_21",
+      "family": "williams_r",
+      "down_dev": 9.04,
+      "up_dev": 2.98,
+      "skew": 6.07,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 4.55,
+          "up_dev": 6.01,
+          "skew": -1.45
+        },
+        "+7d": {
+          "down_dev": 9.04,
+          "up_dev": 2.98,
+          "skew": 6.07
+        },
+        "+14d": {
+          "down_dev": 13.82,
+          "up_dev": -1.22,
+          "skew": 15.04
+        }
+      }
+    },
+    {
+      "node": "wr_spread_7_14",
+      "family": "williams_r",
+      "down_dev": 17.89,
+      "up_dev": 1.66,
+      "skew": 16.22,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": -4.85,
+          "up_dev": -3.74,
+          "skew": -1.11
+        },
+        "+7d": {
+          "down_dev": 17.89,
+          "up_dev": 1.66,
+          "skew": 16.22
+        },
+        "+14d": {
+          "down_dev": 16.06,
+          "up_dev": -9.42,
+          "skew": 25.48
+        }
+      }
+    },
+    {
+      "node": "roc_3",
+      "family": "roc",
+      "down_dev": 12.14,
+      "up_dev": 11.92,
+      "skew": 0.23,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 11.28,
+          "up_dev": -2.92,
+          "skew": 14.21
+        },
+        "+7d": {
+          "down_dev": 12.14,
+          "up_dev": 11.92,
+          "skew": 0.23
+        },
+        "+14d": {
+          "down_dev": 13.26,
+          "up_dev": 23.93,
+          "skew": -10.66
+        }
+      }
+    },
+    {
+      "node": "roc_5",
+      "family": "roc",
+      "down_dev": 16.95,
+      "up_dev": 1.7,
+      "skew": 15.25,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 15.06,
+          "up_dev": -0.8,
+          "skew": 15.87
+        },
+        "+7d": {
+          "down_dev": 16.95,
+          "up_dev": 1.7,
+          "skew": 15.25
+        },
+        "+14d": {
+          "down_dev": 18.42,
+          "up_dev": -2.65,
+          "skew": 21.07
+        }
+      }
+    },
+    {
+      "node": "roc_7",
+      "family": "roc",
+      "down_dev": 16.83,
+      "up_dev": 10.76,
+      "skew": 6.07,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 10.18,
+          "up_dev": 22.11,
+          "skew": -11.93
+        },
+        "+7d": {
+          "down_dev": 16.83,
+          "up_dev": 10.76,
+          "skew": 6.07
+        },
+        "+14d": {
+          "down_dev": 16.83,
+          "up_dev": 21.59,
+          "skew": -4.77
+        }
+      }
+    },
+    {
+      "node": "roc_14",
+      "family": "roc",
+      "down_dev": 17.29,
+      "up_dev": 28.74,
+      "skew": -11.45,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 12.8,
+          "up_dev": 16.58,
+          "skew": -3.79
+        },
+        "+7d": {
+          "down_dev": 17.29,
+          "up_dev": 28.74,
+          "skew": -11.45
+        },
+        "+14d": {
+          "down_dev": 17.38,
+          "up_dev": 30.45,
+          "skew": -13.07
+        }
+      }
+    },
+    {
+      "node": "roc_spread_5_14",
+      "family": "roc",
+      "down_dev": 12.59,
+      "up_dev": 28.74,
+      "skew": -16.15,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 11.62,
+          "up_dev": 17.76,
+          "skew": -6.14
+        },
+        "+7d": {
+          "down_dev": 12.59,
+          "up_dev": 28.74,
+          "skew": -16.15
+        },
+        "+14d": {
+          "down_dev": 15.03,
+          "up_dev": 29.28,
+          "skew": -14.25
+        }
+      }
+    },
+    {
+      "node": "stoch_14",
+      "family": "stoch",
+      "down_dev": 8.98,
+      "up_dev": -4.27,
+      "skew": 13.25,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 6.87,
+          "up_dev": 0.84,
+          "skew": 6.03
+        },
+        "+7d": {
+          "down_dev": 8.98,
+          "up_dev": -4.27,
+          "skew": 13.25
+        },
+        "+14d": {
+          "down_dev": 11.51,
+          "up_dev": -3.68,
+          "skew": 15.19
+        }
+      }
+    },
+    {
+      "node": "stoch_7",
+      "family": "stoch",
+      "down_dev": 8.67,
+      "up_dev": 1.46,
+      "skew": 7.21,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 7.85,
+          "up_dev": 4.67,
+          "skew": 3.18
+        },
+        "+7d": {
+          "down_dev": 8.67,
+          "up_dev": 1.46,
+          "skew": 7.21
+        },
+        "+14d": {
+          "down_dev": 9.83,
+          "up_dev": -1.66,
+          "skew": 11.49
+        }
+      }
+    },
+    {
+      "node": "stoch_d_14",
+      "family": "stoch",
+      "down_dev": -8.38,
+      "up_dev": -5.21,
+      "skew": -3.17,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 4.56,
+          "up_dev": 5.99,
+          "skew": -1.43
+        },
+        "+7d": {
+          "down_dev": -8.38,
+          "up_dev": -5.21,
+          "skew": -3.17
+        },
+        "+14d": {
+          "down_dev": 8.15,
+          "up_dev": -7.88,
+          "skew": 16.04
+        }
+      }
+    },
+    {
+      "node": "macd_12_26",
+      "family": "macd",
+      "down_dev": 31.87,
+      "up_dev": 20.07,
+      "skew": 11.81,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 22.93,
+          "up_dev": 18.61,
+          "skew": 4.32
+        },
+        "+7d": {
+          "down_dev": 31.87,
+          "up_dev": 20.07,
+          "skew": 11.81
+        },
+        "+14d": {
+          "down_dev": 31.81,
+          "up_dev": 19.3,
+          "skew": 12.52
+        }
+      }
+    },
+    {
+      "node": "macd_9_21",
+      "family": "macd",
+      "down_dev": 33.04,
+      "up_dev": 20.07,
+      "skew": 12.97,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 24.09,
+          "up_dev": 22.1,
+          "skew": 2.0
+        },
+        "+7d": {
+          "down_dev": 33.04,
+          "up_dev": 20.07,
+          "skew": 12.97
+        },
+        "+14d": {
+          "down_dev": 34.14,
+          "up_dev": 19.3,
+          "skew": 14.84
+        }
+      }
+    },
+    {
+      "node": "macd_histogram_12_26",
+      "family": "macd",
+      "down_dev": 9.78,
+      "up_dev": 31.7,
+      "skew": -21.92,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 11.3,
+          "up_dev": 26.75,
+          "skew": -15.45
+        },
+        "+7d": {
+          "down_dev": 9.78,
+          "up_dev": 31.7,
+          "skew": -21.92
+        },
+        "+14d": {
+          "down_dev": 13.21,
+          "up_dev": 28.6,
+          "skew": -15.39
+        }
+      }
+    },
+    {
+      "node": "ma_ratio_7",
+      "family": "ma",
+      "down_dev": 26.45,
+      "up_dev": 1.05,
+      "skew": 25.4,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 20.87,
+          "up_dev": 5.95,
+          "skew": 14.92
+        },
+        "+7d": {
+          "down_dev": 26.45,
+          "up_dev": 1.05,
+          "skew": 25.4
+        },
+        "+14d": {
+          "down_dev": 20.37,
+          "up_dev": -2.86,
+          "skew": 23.23
+        }
+      }
+    },
+    {
+      "node": "ma_ratio_14",
+      "family": "ma",
+      "down_dev": 21.89,
+      "up_dev": 3.66,
+      "skew": 18.22,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 13.15,
+          "up_dev": -0.97,
+          "skew": 14.12
+        },
+        "+7d": {
+          "down_dev": 21.89,
+          "up_dev": 3.66,
+          "skew": 18.22
+        },
+        "+14d": {
+          "down_dev": 14.56,
+          "up_dev": 0.08,
+          "skew": 14.48
+        }
+      }
+    },
+    {
+      "node": "ma_ratio_21",
+      "family": "ma",
+      "down_dev": 17.28,
+      "up_dev": 26.5,
+      "skew": -9.23,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 11.61,
+          "up_dev": 21.3,
+          "skew": -9.69
+        },
+        "+7d": {
+          "down_dev": 17.28,
+          "up_dev": 26.5,
+          "skew": -9.23
+        },
+        "+14d": {
+          "down_dev": 20.88,
+          "up_dev": 30.55,
+          "skew": -9.67
+        }
+      }
+    },
+    {
+      "node": "ma_ratio_50",
+      "family": "ma",
+      "down_dev": 29.05,
+      "up_dev": 20.73,
+      "skew": 8.32,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 17.51,
+          "up_dev": 19.0,
+          "skew": -1.49
+        },
+        "+7d": {
+          "down_dev": 29.05,
+          "up_dev": 20.73,
+          "skew": 8.32
+        },
+        "+14d": {
+          "down_dev": 32.59,
+          "up_dev": 20.22,
+          "skew": 12.38
+        }
+      }
+    },
+    {
+      "node": "ma_ratio_100",
+      "family": "ma",
+      "down_dev": 33.21,
+      "up_dev": 29.48,
+      "skew": 3.73,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 22.55,
+          "up_dev": 22.84,
+          "skew": -0.29
+        },
+        "+7d": {
+          "down_dev": 33.21,
+          "up_dev": 29.48,
+          "skew": 3.73
+        },
+        "+14d": {
+          "down_dev": 37.01,
+          "up_dev": 27.86,
+          "skew": 9.15
+        }
+      }
+    },
+    {
+      "node": "ma_ratio_200",
+      "family": "ma",
+      "down_dev": 29.16,
+      "up_dev": 29.15,
+      "skew": 0.02,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 21.88,
+          "up_dev": 20.98,
+          "skew": 0.9
+        },
+        "+7d": {
+          "down_dev": 29.16,
+          "up_dev": 29.15,
+          "skew": 0.02
+        },
+        "+14d": {
+          "down_dev": 39.15,
+          "up_dev": 24.3,
+          "skew": 14.85
+        }
+      }
+    },
+    {
+      "node": "ma_cross_7_21",
+      "family": "ma",
+      "down_dev": 21.98,
+      "up_dev": 26.5,
+      "skew": -4.52,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 19.85,
+          "up_dev": 21.3,
+          "skew": -1.45
+        },
+        "+7d": {
+          "down_dev": 21.98,
+          "up_dev": 26.5,
+          "skew": -4.52
+        },
+        "+14d": {
+          "down_dev": 24.41,
+          "up_dev": 28.2,
+          "skew": -3.78
+        }
+      }
+    },
+    {
+      "node": "ma_cross_14_50",
+      "family": "ma",
+      "down_dev": 24.35,
+      "up_dev": 27.79,
+      "skew": -3.45,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 17.88,
+          "up_dev": -0.07,
+          "skew": 17.95
+        },
+        "+7d": {
+          "down_dev": 24.35,
+          "up_dev": 27.79,
+          "skew": -3.45
+        },
+        "+14d": {
+          "down_dev": 26.71,
+          "up_dev": 30.81,
+          "skew": -4.09
+        }
+      }
+    },
+    {
+      "node": "ma_cross_50_200",
+      "family": "ma",
+      "down_dev": 41.75,
+      "up_dev": -4.9,
+      "skew": 46.65,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 24.32,
+          "up_dev": 12.44,
+          "skew": 11.87
+        },
+        "+7d": {
+          "down_dev": 41.75,
+          "up_dev": -4.9,
+          "skew": 46.65
+        },
+        "+14d": {
+          "down_dev": 45.74,
+          "up_dev": -4.78,
+          "skew": 50.52
+        }
+      }
+    },
+    {
+      "node": "ma_ratio_30",
+      "family": "ma",
+      "down_dev": 23.23,
+      "up_dev": 21.85,
+      "skew": 1.37,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 15.18,
+          "up_dev": 22.51,
+          "skew": -7.33
+        },
+        "+7d": {
+          "down_dev": 23.23,
+          "up_dev": 21.85,
+          "skew": 1.37
+        },
+        "+14d": {
+          "down_dev": 27.99,
+          "up_dev": 24.69,
+          "skew": 3.3
+        }
+      }
+    },
+    {
+      "node": "realized_vol_7",
+      "family": "volatility",
+      "down_dev": 23.76,
+      "up_dev": -8.31,
+      "skew": 32.07,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 15.43,
+          "up_dev": -1.4,
+          "skew": 16.84
+        },
+        "+7d": {
+          "down_dev": 23.76,
+          "up_dev": -8.31,
+          "skew": 32.07
+        },
+        "+14d": {
+          "down_dev": 19.19,
+          "up_dev": 3.29,
+          "skew": 15.9
+        }
+      }
+    },
+    {
+      "node": "realized_vol_14",
+      "family": "volatility",
+      "down_dev": 16.77,
+      "up_dev": 6.13,
+      "skew": 10.64,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 10.4,
+          "up_dev": -1.86,
+          "skew": 12.27
+        },
+        "+7d": {
+          "down_dev": 16.77,
+          "up_dev": 6.13,
+          "skew": 10.64
+        },
+        "+14d": {
+          "down_dev": 14.12,
+          "up_dev": 10.32,
+          "skew": 3.79
+        }
+      }
+    },
+    {
+      "node": "realized_vol_21",
+      "family": "volatility",
+      "down_dev": 20.8,
+      "up_dev": 27.7,
+      "skew": -6.9,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 15.14,
+          "up_dev": 16.59,
+          "skew": -1.45
+        },
+        "+7d": {
+          "down_dev": 20.8,
+          "up_dev": 27.7,
+          "skew": -6.9
+        },
+        "+14d": {
+          "down_dev": 20.88,
+          "up_dev": 28.21,
+          "skew": -7.33
+        }
+      }
+    },
+    {
+      "node": "realized_vol_30",
+      "family": "volatility",
+      "down_dev": 24.6,
+      "up_dev": 28.52,
+      "skew": -3.92,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 11.84,
+          "up_dev": 6.43,
+          "skew": 5.41
+        },
+        "+7d": {
+          "down_dev": 24.6,
+          "up_dev": 28.52,
+          "skew": -3.92
+        },
+        "+14d": {
+          "down_dev": 28.57,
+          "up_dev": 18.22,
+          "skew": 10.36
+        }
+      }
+    },
+    {
+      "node": "atr_14",
+      "family": "volatility",
+      "down_dev": 22.0,
+      "up_dev": 22.84,
+      "skew": -0.84,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 13.01,
+          "up_dev": 3.74,
+          "skew": 9.26
+        },
+        "+7d": {
+          "down_dev": 22.0,
+          "up_dev": 22.84,
+          "skew": -0.84
+        },
+        "+14d": {
+          "down_dev": 24.45,
+          "up_dev": 26.91,
+          "skew": -2.46
+        }
+      }
+    },
+    {
+      "node": "bb_pct_14",
+      "family": "volatility",
+      "down_dev": 12.89,
+      "up_dev": 6.66,
+      "skew": 6.22,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 7.85,
+          "up_dev": -2.21,
+          "skew": 10.06
+        },
+        "+7d": {
+          "down_dev": 12.89,
+          "up_dev": 6.66,
+          "skew": 6.22
+        },
+        "+14d": {
+          "down_dev": 11.56,
+          "up_dev": -3.92,
+          "skew": 15.48
+        }
+      }
+    },
+    {
+      "node": "bb_pct_20",
+      "family": "volatility",
+      "down_dev": 29.17,
+      "up_dev": 1.34,
+      "skew": 27.83,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 27.75,
+          "up_dev": 1.74,
+          "skew": 26.01
+        },
+        "+7d": {
+          "down_dev": 29.17,
+          "up_dev": 1.34,
+          "skew": 27.83
+        },
+        "+14d": {
+          "down_dev": 26.36,
+          "up_dev": 0.79,
+          "skew": 25.57
+        }
+      }
+    },
+    {
+      "node": "bb_width_20",
+      "family": "volatility",
+      "down_dev": 28.49,
+      "up_dev": 9.9,
+      "skew": 18.59,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 20.14,
+          "up_dev": 8.67,
+          "skew": 11.47
+        },
+        "+7d": {
+          "down_dev": 28.49,
+          "up_dev": 9.9,
+          "skew": 18.59
+        },
+        "+14d": {
+          "down_dev": 28.53,
+          "up_dev": 21.3,
+          "skew": 7.23
+        }
+      }
+    },
+    {
+      "node": "vol_ratio_7_21",
+      "family": "volatility",
+      "down_dev": -9.78,
+      "up_dev": 4.17,
+      "skew": -13.96,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 7.64,
+          "up_dev": 8.06,
+          "skew": -0.42
+        },
+        "+7d": {
+          "down_dev": -9.78,
+          "up_dev": 4.17,
+          "skew": -13.96
+        },
+        "+14d": {
+          "down_dev": -14.42,
+          "up_dev": 2.33,
+          "skew": -16.75
+        }
+      }
+    },
+    {
+      "node": "volume_ratio_7",
+      "family": "volume",
+      "down_dev": -9.88,
+      "up_dev": -6.4,
+      "skew": -3.48,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": -4.22,
+          "up_dev": 0.24,
+          "skew": -4.45
+        },
+        "+7d": {
+          "down_dev": -9.88,
+          "up_dev": -6.4,
+          "skew": -3.48
+        },
+        "+14d": {
+          "down_dev": -10.85,
+          "up_dev": -3.32,
+          "skew": -7.53
+        }
+      }
+    },
+    {
+      "node": "volume_ratio_14",
+      "family": "volume",
+      "down_dev": -8.54,
+      "up_dev": -1.67,
+      "skew": -6.87,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 6.91,
+          "up_dev": 7.15,
+          "skew": -0.23
+        },
+        "+7d": {
+          "down_dev": -8.54,
+          "up_dev": -1.67,
+          "skew": -6.87
+        },
+        "+14d": {
+          "down_dev": -10.72,
+          "up_dev": -4.54,
+          "skew": -6.19
+        }
+      }
+    },
+    {
+      "node": "volume_ratio_30",
+      "family": "volume",
+      "down_dev": -10.92,
+      "up_dev": -2.05,
+      "skew": -8.86,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 5.77,
+          "up_dev": 10.75,
+          "skew": -4.98
+        },
+        "+7d": {
+          "down_dev": -10.92,
+          "up_dev": -2.05,
+          "skew": -8.86
+        },
+        "+14d": {
+          "down_dev": 15.79,
+          "up_dev": 3.11,
+          "skew": 12.68
+        }
+      }
+    },
+    {
+      "node": "drawdown_7",
+      "family": "drawdown",
+      "down_dev": 21.07,
+      "up_dev": -1.64,
+      "skew": 22.71,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 25.62,
+          "up_dev": 1.38,
+          "skew": 24.24
+        },
+        "+7d": {
+          "down_dev": 21.07,
+          "up_dev": -1.64,
+          "skew": 22.71
+        },
+        "+14d": {
+          "down_dev": 25.66,
+          "up_dev": -12.44,
+          "skew": 38.1
+        }
+      }
+    },
+    {
+      "node": "drawdown_14",
+      "family": "drawdown",
+      "down_dev": 21.22,
+      "up_dev": 2.88,
+      "skew": 18.34,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 19.39,
+          "up_dev": 2.12,
+          "skew": 17.27
+        },
+        "+7d": {
+          "down_dev": 21.22,
+          "up_dev": 2.88,
+          "skew": 18.34
+        },
+        "+14d": {
+          "down_dev": 14.43,
+          "up_dev": -6.92,
+          "skew": 21.35
+        }
+      }
+    },
+    {
+      "node": "drawdown_30",
+      "family": "drawdown",
+      "down_dev": 6.76,
+      "up_dev": 23.03,
+      "skew": -16.27,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 9.46,
+          "up_dev": 7.38,
+          "skew": 2.08
+        },
+        "+7d": {
+          "down_dev": 6.76,
+          "up_dev": 23.03,
+          "skew": -16.27
+        },
+        "+14d": {
+          "down_dev": 19.28,
+          "up_dev": -5.03,
+          "skew": 24.31
+        }
+      }
+    },
+    {
+      "node": "drawdown_60",
+      "family": "drawdown",
+      "down_dev": 22.22,
+      "up_dev": -8.59,
+      "skew": 30.81,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 13.89,
+          "up_dev": 8.77,
+          "skew": 5.12
+        },
+        "+7d": {
+          "down_dev": 22.22,
+          "up_dev": -8.59,
+          "skew": 30.81
+        },
+        "+14d": {
+          "down_dev": 28.42,
+          "up_dev": -9.16,
+          "skew": 37.59
+        }
+      }
+    },
+    {
+      "node": "drawdown_90",
+      "family": "drawdown",
+      "down_dev": 22.19,
+      "up_dev": 1.91,
+      "skew": 20.29,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 15.18,
+          "up_dev": 7.38,
+          "skew": 7.8
+        },
+        "+7d": {
+          "down_dev": 22.19,
+          "up_dev": 1.91,
+          "skew": 20.29
+        },
+        "+14d": {
+          "down_dev": 29.91,
+          "up_dev": -8.73,
+          "skew": 38.64
+        }
+      }
+    },
+    {
+      "node": "drawdown_120",
+      "family": "drawdown",
+      "down_dev": 22.4,
+      "up_dev": 0.74,
+      "skew": 21.66,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 10.66,
+          "up_dev": 5.11,
+          "skew": 5.55
+        },
+        "+7d": {
+          "down_dev": 22.4,
+          "up_dev": 0.74,
+          "skew": 21.66
+        },
+        "+14d": {
+          "down_dev": 32.02,
+          "up_dev": -9.38,
+          "skew": 41.4
+        }
+      }
+    },
+    {
+      "node": "drawdown_recovery_7_90",
+      "family": "drawdown",
+      "down_dev": 17.73,
+      "up_dev": 4.71,
+      "skew": 13.02,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 11.4,
+          "up_dev": 9.31,
+          "skew": 2.09
+        },
+        "+7d": {
+          "down_dev": 17.73,
+          "up_dev": 4.71,
+          "skew": 13.02
+        },
+        "+14d": {
+          "down_dev": 27.13,
+          "up_dev": 17.06,
+          "skew": 10.07
+        }
+      }
+    },
+    {
+      "node": "dxy_ret_1",
+      "family": "dxy",
+      "down_dev": 7.73,
+      "up_dev": -4.03,
+      "skew": 11.76,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 7.01,
+          "up_dev": 3.47,
+          "skew": 3.54
+        },
+        "+7d": {
+          "down_dev": 7.73,
+          "up_dev": -4.03,
+          "skew": 11.76
+        },
+        "+14d": {
+          "down_dev": 11.69,
+          "up_dev": -4.61,
+          "skew": 16.3
+        }
+      }
+    },
+    {
+      "node": "dxy_ret_5",
+      "family": "dxy",
+      "down_dev": 12.16,
+      "up_dev": 1.46,
+      "skew": 10.7,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 8.7,
+          "up_dev": 11.22,
+          "skew": -2.52
+        },
+        "+7d": {
+          "down_dev": 12.16,
+          "up_dev": 1.46,
+          "skew": 10.7
+        },
+        "+14d": {
+          "down_dev": -6.67,
+          "up_dev": -2.1,
+          "skew": -4.57
+        }
+      }
+    },
+    {
+      "node": "dxy_ret_10",
+      "family": "dxy",
+      "down_dev": 7.84,
+      "up_dev": 5.01,
+      "skew": 2.84,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 8.44,
+          "up_dev": 3.03,
+          "skew": 5.4
+        },
+        "+7d": {
+          "down_dev": 7.84,
+          "up_dev": 5.01,
+          "skew": 2.84
+        },
+        "+14d": {
+          "down_dev": -10.5,
+          "up_dev": 1.0,
+          "skew": -11.5
+        }
+      }
+    },
+    {
+      "node": "dxy_ret_20",
+      "family": "dxy",
+      "down_dev": 17.62,
+      "up_dev": -1.52,
+      "skew": 19.14,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 10.14,
+          "up_dev": 5.56,
+          "skew": 4.58
+        },
+        "+7d": {
+          "down_dev": 17.62,
+          "up_dev": -1.52,
+          "skew": 19.14
+        },
+        "+14d": {
+          "down_dev": 15.43,
+          "up_dev": -0.84,
+          "skew": 16.26
+        }
+      }
+    },
+    {
+      "node": "dxy_ma_ratio_20",
+      "family": "dxy",
+      "down_dev": 14.92,
+      "up_dev": 1.8,
+      "skew": 13.13,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 6.91,
+          "up_dev": 0.12,
+          "skew": 6.78
+        },
+        "+7d": {
+          "down_dev": 14.92,
+          "up_dev": 1.8,
+          "skew": 13.13
+        },
+        "+14d": {
+          "down_dev": 12.65,
+          "up_dev": -8.27,
+          "skew": 20.92
+        }
+      }
+    },
+    {
+      "node": "dxy_ma_ratio_10",
+      "family": "dxy",
+      "down_dev": 11.08,
+      "up_dev": 3.77,
+      "skew": 7.31,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 4.84,
+          "up_dev": 0.35,
+          "skew": 4.49
+        },
+        "+7d": {
+          "down_dev": 11.08,
+          "up_dev": 3.77,
+          "skew": 7.31
+        },
+        "+14d": {
+          "down_dev": -11.97,
+          "up_dev": 1.42,
+          "skew": -13.38
+        }
+      }
+    },
+    {
+      "node": "dxy_ma_ratio_50",
+      "family": "dxy",
+      "down_dev": 12.58,
+      "up_dev": -2.8,
+      "skew": 15.38,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 6.92,
+          "up_dev": -1.01,
+          "skew": 7.93
+        },
+        "+7d": {
+          "down_dev": 12.58,
+          "up_dev": -2.8,
+          "skew": 15.38
+        },
+        "+14d": {
+          "down_dev": 13.77,
+          "up_dev": -6.83,
+          "skew": 20.59
+        }
+      }
+    },
+    {
+      "node": "mvrv",
+      "family": "on_chain",
+      "down_dev": 24.9,
+      "up_dev": 22.39,
+      "skew": 2.5,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 11.3,
+          "up_dev": 13.96,
+          "skew": -2.66
+        },
+        "+7d": {
+          "down_dev": 24.9,
+          "up_dev": 22.39,
+          "skew": 2.5
+        },
+        "+14d": {
+          "down_dev": 29.49,
+          "up_dev": 16.97,
+          "skew": 12.52
+        }
+      }
+    },
+    {
+      "node": "hash_rate_ma_ratio_30",
+      "family": "on_chain",
+      "down_dev": 13.47,
+      "up_dev": -1.12,
+      "skew": 14.59,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 10.07,
+          "up_dev": -0.52,
+          "skew": 10.59
+        },
+        "+7d": {
+          "down_dev": 13.47,
+          "up_dev": -1.12,
+          "skew": 14.59
+        },
+        "+14d": {
+          "down_dev": 19.2,
+          "up_dev": -3.65,
+          "skew": 22.86
+        }
+      }
+    },
+    {
+      "node": "adr_act_ma_ratio_30",
+      "family": "on_chain",
+      "down_dev": 14.99,
+      "up_dev": 4.21,
+      "skew": 10.79,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 10.47,
+          "up_dev": 3.69,
+          "skew": 6.79
+        },
+        "+7d": {
+          "down_dev": 14.99,
+          "up_dev": 4.21,
+          "skew": 10.79
+        },
+        "+14d": {
+          "down_dev": 19.75,
+          "up_dev": -0.01,
+          "skew": 19.77
+        }
+      }
+    },
+    {
+      "node": "adr_act_ma_ratio_7",
+      "family": "on_chain",
+      "down_dev": 13.2,
+      "up_dev": -11.03,
+      "skew": 24.23,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 6.89,
+          "up_dev": -1.58,
+          "skew": 8.47
+        },
+        "+7d": {
+          "down_dev": 13.2,
+          "up_dev": -11.03,
+          "skew": 24.23
+        },
+        "+14d": {
+          "down_dev": 11.16,
+          "up_dev": -15.52,
+          "skew": 26.69
+        }
+      }
+    },
+    {
+      "node": "hash_rate_ma_ratio_90",
+      "family": "on_chain",
+      "down_dev": 14.99,
+      "up_dev": 2.74,
+      "skew": 12.25,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 12.83,
+          "up_dev": 13.68,
+          "skew": -0.86
+        },
+        "+7d": {
+          "down_dev": 14.99,
+          "up_dev": 2.74,
+          "skew": 12.25
+        },
+        "+14d": {
+          "down_dev": 24.32,
+          "up_dev": 8.0,
+          "skew": 16.32
+        }
+      }
+    },
+    {
+      "node": "days_since_halving",
+      "family": "cycle",
+      "down_dev": 21.02,
+      "up_dev": -3.41,
+      "skew": 24.43,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 9.21,
+          "up_dev": 3.67,
+          "skew": 5.54
+        },
+        "+7d": {
+          "down_dev": 21.02,
+          "up_dev": -3.41,
+          "skew": 24.43
+        },
+        "+14d": {
+          "down_dev": 32.93,
+          "up_dev": -13.43,
+          "skew": 46.36
+        }
+      }
+    },
+    {
+      "node": "cycle_phase",
+      "family": "cycle",
+      "down_dev": 22.9,
+      "up_dev": -8.44,
+      "skew": 31.34,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 9.81,
+          "up_dev": 2.89,
+          "skew": 6.92
+        },
+        "+7d": {
+          "down_dev": 22.9,
+          "up_dev": -8.44,
+          "skew": 31.34
+        },
+        "+14d": {
+          "down_dev": 36.07,
+          "up_dev": -11.44,
+          "skew": 47.51
+        }
+      }
+    },
+    {
+      "node": "days_to_halving",
+      "family": "cycle",
+      "down_dev": 21.72,
+      "up_dev": -3.03,
+      "skew": 24.74,
+      "by_horizon": {
+        "+3d": {
+          "down_dev": 12.38,
+          "up_dev": 1.36,
+          "skew": 11.02
+        },
+        "+7d": {
+          "down_dev": 21.72,
+          "up_dev": -3.03,
+          "skew": 24.74
+        },
+        "+14d": {
+          "down_dev": 31.1,
+          "up_dev": -4.09,
+          "skew": 35.19
+        }
+      }
+    }
+  ]
+}

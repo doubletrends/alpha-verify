@@ -1,16 +1,16 @@
 ![Python](https://img.shields.io/badge/Python-v3.12-3776AB?logo=python&logoColor=white)
 ![NumPy](https://img.shields.io/badge/NumPy-v2.0-013243?logo=numpy&logoColor=white)
 ![pandas](https://img.shields.io/badge/pandas-v2.2-150458?logo=pandas&logoColor=white)
-![SciPy](https://img.shields.io/badge/SciPy-v1.13-8CAAE6?logo=scipy&logoColor=white)
 ![Matplotlib](https://img.shields.io/badge/Matplotlib-v3.8-11557C?logo=python&logoColor=white)
 
-# Empirical Winning-Condition Testing on Any Financial Asset
+# Empirical Barrier-Touch Testing on Any Financial Asset
 
-> Most trading indicators are *asserted*, never measured. This measures them. Point it
-> at market **direction** and almost nothing beats a coin flip. Point the same machine
-> at **crash risk** and real, mechanical structure shows up.
+> "Where will price be on Friday?" is the wrong question. A stop, a liquidation, an
+> option and a margin call all respond to something else: **did price ever reach this
+> level?** This measures that — both barriers, on the same bars, against a shuffled
+> null. Doing both at once turns out to matter more than doing either one well.
 
-![Every signal, plotted against the noise it has to beat](assets/peak_vs_null.png)
+![Every condition, against the noise it has to beat](assets/peak_vs_null.png)
 
 You declare a universe of **conditions** — each a feature $X$ (RSI, moving-average
 deviation, realized volatility, on-chain valuation, time-of-day, …) paired with a
@@ -18,141 +18,167 @@ forward horizon $h$ — and an agent drives the pipeline through every one again
 history, unattended. For each condition it counts
 
 $$
-P\left(\text{outcome} \mid X_t \in \text{condition}\right) - P\left(\text{outcome}\right)
+P\left(\text{touch} \mid X_t \in \text{condition}\right) - P\left(\text{touch}\right)
 $$
 
-the deviation of the conditional probability from its unconditional base rate. There
-is no fitted model and no forecast in the machine-learning sense — only conditional
-counting over the historical record, run in batch across hundreds of feature-and-parameter
-combinations, with **every headline number falsified against a shuffled null**.
+the deviation of the conditional touch probability from its unconditional base rate.
+There is no fitted model and no forecast in the machine-learning sense — only
+conditional counting over the historical record, run in batch across hundreds of
+feature-and-parameter combinations, with **every headline number falsified against a
+shuffled null**.
 
 * * *
 
 ## What makes this different
 
-- **Indicators become measurements, not rules.** An indicator is taken as a raw
-  feature, history is sliced by its value, and the edge is reported as a deviation
-  from the base rate at each horizon — a number, with a sample size, not a backtested
-  strategy with a curve to overfit.
+- **First passage, not endpoints.** The event is $\min(P_{t+1..t+h})/P_t - 1 < -\theta$
+  (or its mirror above $+\theta$) — price *touching* a level at any point in the window.
+  A spike that round-trips counts; a close-to-close test would miss it entirely.
+- **Two barriers, always.** The same features are measured against $-\theta$ and
+  $+\theta$ on identical bars. This is the whole point: a condition that raises the
+  downside touch probability might be finding real downside risk, or might just be
+  finding **volatility** — in which case it raises the upside barrier by exactly as
+  much. Counting one barrier cannot tell those apart. Counting both can.
 - **Falsification is built in.** A node's headline is a *maximum* over ~30 threshold
   bins, which is biased upward even for a feature that carries nothing. `--validate`
   builds the null distribution of that exact statistic by circularly shifting the
   outcome against the feature, then reads the real value as a quantile of it and
   corrects for the size of the search.
-- **The outcome is pluggable.** The same conditional-counting machinery answers
-  "does price rise?", "does it fall 10% first?", or "does realized volatility spike?"
-  — swap one registry entry, keep every feature.
 - **Batch, unattended, reproducible.** Add a `universe.json`, walk away, come back to
-  65 surfaces and a structured verdict per family. `python run.py --charts` regenerates
-  every figure in this README from files already in the repo, no data fetch.
+  196 surfaces and a structured verdict per family. `python run.py --charts`
+  regenerates every figure in this README from files already in the repo, no data fetch.
 
 * * *
 
 ## Results at a glance
 
 Everything below is reported **against the null**, not against a fixed threshold. For
-this universe the null median of a node's peak statistic is ~10 pp at +3d and ~17 pp
-at +14d — the same magnitude as most "edges" a naive read would report.
+BTC the null median of a node's peak statistic is ~10 pp at +3d and ~17 pp at +14d —
+the same magnitude as most "edges" a naive read would report.
 
-### Direction is not predictable — in either market
+### Both barriers carry structure — and the upside carries more
 
-| Workspace | Tests | `structure` (clears Bonferroni) | `nominal` (p < 0.05) | Expected by chance |
-|-----------|-------|---------------------------------|----------------------|--------------------|
-| `btc_daily_14days` | 195 | **0** | 14 | 9.8 |
-| `nasdaq_hourly_24hrs` | 132 | **0** | 5 | 6.6 |
+| Workspace | Barrier | Base rate | Tests | `structure` (clears Bonferroni) | `nominal` (p<0.05) | Expected by chance |
+|-----------|---------|-----------|-------|-------------------|--------------------|--------------------|
+| `btc_daily_14days` | −10% within 14d | 21.7% | 195 | **5** | 57 | 9.8 |
+| `btc_daily_14days` | +10% within 14d | 31.9% | 195 | **15** | 92 | 9.8 |
+| `nasdaq_hourly_24hrs` | −2% within 24h | 26.6% | 132 | **3** | 32 | 6.6 |
+| `nasdaq_hourly_24hrs` | +2% within 24h | 25.7% | 132 | **15** | 62 | 6.6 |
 
-Nothing survives correction in either. Bitcoin's 14 nominal hits against 9.8 expected
-is the excess a search this wide produces from noise alone; the NASDAQ scan returns
-*fewer* nominal hits than chance would give. The former headline signals — deep on-chain
-undervaluation (MVRV), the halving cycle — sit **below their own null's 95th percentile**
-once you account for how slowly they move.
+![Same features, same machinery — only the barrier changes](assets/nominal_hits.png)
 
-![Same features, same machinery — only the question changes](assets/nominal_hits.png)
+That the *upside* barrier shows three to five times as much structure as the downside —
+**on both assets independently** — is not the intuitive result, and taken alone it would
+be easy to misread as "these features predict rallies." They don't. The two-barrier view
+says what is actually going on.
 
-### The same features carry real information about crash risk
+The NASDAQ sweep gives the game away on its own: of the 15 tests clearing Bonferroni on
+the +2% barrier, the qualifying nodes are `vix_level`, `realized_vol_12`,
+`realized_vol_24`, `roc_6`, `roc_12`, `macd_12_26` and `time_of_day`. The best
+predictors of touching a barrier are *literally volatility measures* and the intraday
+volatility smile. Nothing here is forecasting direction; it is forecasting the size of
+the move, and a bigger move touches both barriers.
 
-Re-aim the identical 65 nodes at `--outcome drawdown --threshold 0.10` (a 10%
-peak-to-trough loss from $t$ within $h$ bars), same history, same 39,000 shifts, same
-$\alpha = 2.56 \times 10^{-4}$, and the picture inverts: **4 nodes clear Bonferroni
-outright and 58 reach nominal significance** — a 5.9× excess over chance, with
-p-values three to four orders of magnitude smaller than anything on the direction side.
+### The finding: most of it is volatility, not direction
 
-![One node's conditional-probability surface](assets/winrate_surface.png)
+![Real asymmetry, or just volatility?](assets/barrier_skew.png)
+
+`--skew` evaluates both barriers at the *same slice of feature space* on the *same
+bars*, so the two deviations are directly comparable. Running it over the five BTC
+tests that clear Bonferroni on the downside barrier:
+
+| Node | Horizon | P(touch −10%) dev | P(touch +10%) dev | Skew | Reading |
+|------|---------|------------------:|------------------:|-----:|---------|
+| `bb_pct_20` | +7d | +29.2 pp | +1.3 pp | **+27.8** | genuinely downside |
+| `bb_pct_20` | +3d | +27.8 pp | +1.7 pp | **+26.0** | genuinely downside |
+| `drawdown_7` | +3d | +25.6 pp | +1.4 pp | **+24.2** | genuinely downside |
+| `ma_ratio_7` | +3d | +20.9 pp | +5.9 pp | +14.9 | mostly downside |
+| `ma_cross_7_21` | +3d | +19.8 pp | +21.3 pp | **−1.5** | **symmetric — volatility, not direction** |
+
+`ma_cross_7_21` clears Bonferroni as a downside-touch predictor with $p = 1.5\times10^{-4}$
+and *still carries no directional information whatsoever* — it moves the upside barrier
+slightly more than the downside one. It is a volatility detector wearing a crash
+detector's clothes. A single-barrier pipeline would have reported it as a validated
+crash signal, and would have been wrong in a way no amount of additional significance
+testing could catch.
+
+The same correction applies to the headline signal:
+
+![Overextension precedes downside touches, monotonically](assets/drawdown_monotone.png)
+
+Price more than ~130% above its 200-day moving average precedes a −10% touch within
+14 days at **+39 pp over a 21.7% base rate** ($n = 82$), rising monotonically at every
+threshold beneath it. Real, and large. But the same condition raises the *+10%* touch
+probability by +24 pp — so roughly three-fifths of that "crash signal" is simply
+"a big move is coming." At +7d the two are **+29.2 vs +29.1** — a skew of exactly
+zero. Overextension predicts *magnitude*; only a fraction of it predicts *sign*.
+
+![One node's conditional-probability surface](assets/touch_surface.png)
 
 Every feature produces a surface like this. The readable band here is price pinned to
-the lower Bollinger — elevated 10% drawdown risk across every horizon — against a pale
-(within-noise) background everywhere else.
+the lower Bollinger band — elevated −10% touch risk across every horizon — against a
+pale (within-noise) background everywhere else. `bb_pct_20` is the one signal in the
+set that is *both* significant and genuinely asymmetric.
 
-![Overextension precedes drawdowns, monotonically](assets/drawdown_monotone.png)
+### Reading it together
 
-The strongest single condition is monotone and large: price more than ~130% above its
-200-day moving average precedes a 10% drawdown within 14 days at **+39 pp over a 21.7%
-base rate** ($n = 82$), rising at every threshold beneath it. What carries the drawdown
-signal is volatility position, recent drawdown itself, and trend structure —
-volatility clustering and the leverage effect, both well documented, neither
-arbitraged away.
+Volatility clustering and the leverage effect are well documented and not arbitraged
+away, and that is most of what shows up here. What the scan finds is overwhelmingly
+**conditional variance, not conditional mean** — which is the expected shape, since the
+mean is the most competed-away quantity in a liquid market. The contribution of the
+two-barrier design is that it *measures* the difference instead of assuming it.
 
-### Reading the two together
+Two caveats bound the result:
 
-The same features, machinery and history carry **no usable information about whether
-price rises**, and **substantial information about whether it falls hard**. That is the
-expected shape, not a surprise: direction is the most competed-away quantity in a
-liquid market, while tail risk is driven by mechanisms that persist precisely because
-they are not arbitrageable in the same way.
-
-Two caveats bound the risk result:
-
-1. **The null is conservative here.** Circular shifting preserves each series'
+1. **The null is conservative.** Circular shifting preserves each series'
    autocorrelation but not the joint regime structure; where both series share a slow
-   regime component — as they do for crash risk — this inflates the null, so the
-   drawdown result is if anything understated. A block bootstrap would tighten it.
+   regime component — as they do for touch events — this inflates the null, so these
+   results are if anything understated. A block bootstrap would tighten them.
 2. **Significance is not tradability.** These are in-sample conditional probabilities
    over the full history, not a walk-forward backtest with costs.
-   [`research/drawdown_overlay/`](research/drawdown_overlay/) follows the four
+   [`research/drawdown_overlay/`](research/drawdown_overlay/) follows the
    Bonferroni-clearing nodes all the way to an equity curve with discrete,
-   horizon-matched trades and costs: trigger bars are *weak* but not *negative*,
-   so shorting the signal never gets ahead of BTC's drift — while holding *flat*
-   over the same windows beats buy-and-hold on risk-adjusted terms in and out of
-   sample (walk-forward Calmar 1.1 vs 0.7, max drawdown ~83% → ~64%). A real
+   horizon-matched trades and costs. The skew table above predicts what it finds:
+   trigger bars are *weak* but not *negative* (forward 1-bar return +0.024% vs +0.244%
+   elsewhere), so shorting the signal never gets ahead of BTC's drift — while holding
+   **flat** over the same windows beats buy-and-hold on risk-adjusted terms in and out
+   of sample (walk-forward Calmar 1.08 vs 0.72, max drawdown −83% → −66%). A real
    p-value bought a risk overlay, not a return engine.
-
-* * *
-
-## Extension — forecasting realized volatility
-
-The conditional-winrate engine measures *probabilities of events*. A separate module
-(`engine/harrv.py`, `--volforecast`) applies the same "beat an honest benchmark or
-it's nothing" discipline to a *level* forecast: next-$h$-bar realized volatility.
-
-![HAR-RV vs naive persistence vs implied vol](assets/volforecast.png)
-
-Three forecasters compete on the same target: **HAR-RV** (Corsi 2009, fit in logs
-with a Jensen correction, walk-forward with an embargo), **naive** persistence of
-trailing RV, and the **option market's own** implied vol (Deribit DVOL). Scoring is
-QLIKE — the loss that stays consistent when the target is a noisy proxy (Patton 2011)
-— alongside out-of-sample $R^2$. HAR-RV clears the naive baseline comfortably at every
-horizon, roughly ties implied vol, and an encompassing regression shows implied vol
-absorbs it ($\beta_{\mathrm{HAR}} \approx 0$): accurate, but not a trade once the
-variance risk premium is paid away. Same lesson as the direction scan, on a different
-question.
 
 * * *
 
 ## Try it on your own asset
 
-A workspace is one asset + one sampling interval + its feature universe. Adding one
-requires **no changes to root code**.
+A workspace is one asset + one sampling interval + one barrier + its feature universe.
+Adding one requires **no changes to root code**.
 
 ```bash
 pip install -r requirements.txt
 
-# 1. drop in workspaces/<name>/universe.json  (asset, horizons, feature families)
-python run.py --workspace <name> --status         # inventory
+# 1. drop in workspaces/<name>/universe.json  (asset, horizons, barrier, feature families)
+python run.py --workspace <name> --status          # inventory, for the declared barrier
 python run.py --workspace <name> --family rsi      # compute a family of surfaces
 python run.py --workspace <name> --read rsi_14     # inspect one
 python run.py --workspace <name> --validate        # shuffle-null every tested node
+python run.py --workspace <name> --skew            # both barriers, same bars
 python run.py --workspace <name> --findings        # structured verdict per family
+
+# the mirror barrier writes to its own directories and never collides
+python run.py --workspace <name> --outcome runup --family rsi
 ```
+
+**Scale $\theta$ to the asset and horizon.** A 10% barrier over 14 BTC days is a 21.7%
+event; the same 10% over 24 NASDAQ hours is a **0.4%** one, which cannot be measured at
+all. $\theta$ is declared per workspace in `universe.json`, and the pipeline refuses to
+write a surface below a 5% base rate rather than emit something that looks real:
+
+| θ | BTC daily, +14d | | NASDAQ hourly, +24h | |
+|---|---|---|---|---|
+| | P(touch −θ) | P(touch +θ) | P(touch −θ) | P(touch +θ) |
+| 1% | 71.2% | 79.9% | 46.6% | 55.0% |
+| **2%** | 61.8% | 73.6% | **26.6%** | **25.7%** |
+| 5% | 41.3% | 53.7% | 3.1% | 3.6% |
+| **10%** | **21.7%** | **31.9%** | 0.4% | 0.3% |
 
 A **cross-asset feature** (any OHLCV series) is registered in `data/features.py`:
 
@@ -163,9 +189,8 @@ def _my_feature(close: pd.Series, period: int) -> pd.Series:
 register('my_feature', lambda d, p: _my_feature(d['close'], p['period']))
 ```
 
-A **workspace-specific feature or data source** (on-chain metric, options IV, custom
-API) goes in `workspaces/<name>/plugin.py`, imported automatically when the workspace
-loads:
+A **workspace-specific feature or data source** (on-chain metric, custom API) goes in
+`workspaces/<name>/plugin.py`, imported automatically when the workspace loads:
 
 ```python
 from data import features, fetcher
@@ -176,7 +201,7 @@ def _my_source(start: str, asset: dict) -> pd.DataFrame:   # DatetimeIndex-ed fr
 fetcher.register_source('my_source', _my_source)
 ```
 
-Outcomes are a registry too — `outcomes.register(...)` at import time aims the whole
+Barriers are a registry too — `outcomes.register(...)` at import time aims the whole
 pipeline at a different event with no root edits.
 
 * * *
@@ -185,10 +210,17 @@ pipeline at a different event with no root edits.
 
 ### 1. Base rate
 
-For a horizon $h$ (in bars), the outcome at time $t$ is an indicator such as
-$\mathbb{1}[\text{close}_{t+h} > \text{close}_t]$. The unconditional **base rate** is
-its historical mean $p_0(h)$. Rows with $n < 20$ are undefined; the last $h$ bars of
-every horizon's sample have no realized outcome and are dropped.
+For a horizon $h$ (in bars), the outcome at time $t$ is an indicator
+
+$$
+\mathbb{1}\left[\min\left(P_{t+1}, \dots, P_{t+h}\right) / P_t - 1 < -\theta\right]
+$$
+
+for the downside barrier, and its mirror with $\max$ and $> +\theta$ for the upside one.
+The window starts at $t+1$: the barrier can only be touched *after* the bar the
+condition is read on. The unconditional **base rate** is the historical mean $p_0(h)$.
+Rows with $n < 20$ are undefined; the last $h$ bars of every horizon's sample have no
+realized outcome and are dropped.
 
 ### 2. Conditional surface (CDF) and local recovery (PDF)
 
@@ -197,17 +229,19 @@ A node computes a feature series $X_t$, then evaluates 30 thresholds spanning it
 cumulative deviations:
 
 $$
-\Delta_{>}(x, h) = P\left(\text{outcome} \mid X_t > x\right) - p_0(h),
+\Delta_{>}(x, h) = P\left(\text{touch} \mid X_t > x\right) - p_0(h),
 \qquad
-\Delta_{<}(x, h) = P\left(\text{outcome} \mid X_t < x\right) - p_0(h)
+\Delta_{<}(x, h) = P\left(\text{touch} \mid X_t < x\right) - p_0(h)
 $$
 
-These are the CDF of the outcome in the feature. Differencing adjacent cumulative rows
-recovers the **local** (PDF) edge — the deviation for observations whose feature value
-falls *within* an interval — from which the combiner interpolates the edge at any
-current feature value. Each node is written as an `.xlsx` with three colour-scaled
-tabs (PDF, CDF-above, CDF-below); green = bullish edge, red = bearish. Observation
-counts report the longest-horizon (most conservative) count.
+Differencing adjacent cumulative rows recovers the **local** (PDF) edge — the deviation
+for observations whose feature value falls *within* an interval — from which the
+combiner interpolates the edge at any current feature value. Each node is written as an
+`.xlsx` with three colour-scaled tabs (PDF, CDF-above, CDF-below). The colour scale is
+derived from the base rate rather than fixed, and the barrier's registry entry carries a
+sign, so **red always means worse**: a higher downside-touch probability is red, a higher
+upside-touch probability is green. Observation counts report the longest-horizon (most
+conservative) count.
 
 ### 3. Signal combination — Naive Bayes in log-odds
 
@@ -251,7 +285,9 @@ $$
 
 The add-one estimator (Davison & Hinkley) keeps $p$ strictly positive; its floor,
 $1/(n_\mathrm{shifts}+1)$, is also the resolution limit, so a sweep of $k$ tests needs a
-Bonferroni $\alpha/k$ and nothing below the floor can be resolved.
+Bonferroni $\alpha/k$ and nothing below the floor can be resolved. BTC sweeps run 39,000
+shifts against $\alpha = 2.56\times10^{-4}$; NASDAQ runs 27,000 against
+$3.79\times10^{-4}$.
 
 | Verdict | Meaning |
 |---------|---------|
@@ -260,22 +296,42 @@ Bonferroni $\alpha/k$ and nothing below the floor can be resolved.
 | `underpowered` | Sits at the resolution floor; might clear $\alpha/k$, but this many shifts cannot show it |
 | `noise` | Indistinguishable from the null |
 
-Results are written to `validation.json` (or `validation.<event>.json` for a
-non-default outcome). Re-running with `--families` **merges** into that file, and the
-Bonferroni denominator is taken over every test the file contains.
+Results are written to `validation.<event>.json`. Re-running with `--families`
+**merges** into that file, and the Bonferroni denominator is taken over every test the
+file contains.
 
-### 5. Pluggable outcomes
+### 5. Skew — the second barrier
 
-| `--outcome` | Event | Default base rate (BTC, +14d) |
-|-------------|-------|-------------------------------|
-| `up` | $\text{close}_{t+h} > \text{close}_t$ — the default | 56.5% |
-| `drawdown` | $\min(\text{close}_{t+1..t+h}) / \text{close}_t - 1 < -\theta$ — a peak-to-trough loss | 21.7% ($\theta = 0.10$) |
-| `runup` | Mirror of `drawdown`: a gain exceeding $+\theta$ at any point within $h$ | — |
-| `vol_high` | Realized volatility over $(t, t+h]$ exceeded its own trailing (backward-looking) median | 47.4% |
+`--skew` finds the bin where the downside deviation peaks, then reads the **upside**
+deviation at that same bin, on the same bars, each net of its own base rate. The
+difference is the asymmetry. The baseline is itself asymmetric — BTC touches +10% more
+often than −10% simply because it drifts up — which is exactly why both barriers must
+be measured rather than assumed symmetric.
 
-Node status (`pending` / `tested`) tracks the **default outcome only**. Any other
-outcome writes to a per-event subdirectory (`<family>/dd10/<node>.xlsx`) and leaves
-node status untouched, so no two outcomes overwrite each other.
+### 6. Calibration, not accuracy
+
+`--backtest` walks the combiner over historical sample dates and asks whether the
+probability it emits is *right*: when it says 40%, is the barrier touched 40% of the
+time? It reports a calibration table plus a **Brier skill score** against the base rate.
+"Directional accuracy" is meaningless for a touch event, and when the base rate is far
+from 50% it also flatters a model that only ever predicts the majority class. On BTC
+`dd10` the combined signal scores $+0.26$ at +14d and $-0.07$ at +3d — genuine skill at
+the long horizon, worse than simply quoting the base rate at the short one.
+
+### 7. Pluggable barriers
+
+| `--outcome` | Event | Sign |
+|-------------|-------|------|
+| `drawdown` | $\min(P_{t+1..t+h}) / P_t - 1 < -\theta$ | more is worse |
+| `runup` | $\max(P_{t+1..t+h}) / P_t - 1 > +\theta$ | more is better |
+
+Both are one signed `_touch` primitive. Every artifact is scoped by the barrier's event
+label (`dd10`, `run10`, `dd2`, …) — surfaces, logs, skip records, validation and
+findings — so two barriers or two thresholds never overwrite each other.
+
+Node progress is **derived from disk**: a node is tested for a barrier iff its xlsx
+exists under that barrier's directory. `universe.json` is a pure declaration and is
+never written back by the pipeline.
 
 * * *
 
@@ -289,63 +345,67 @@ data/
   fetcher.py         ← SourceRegistry:  register_source() / fetch()
 engine/
   matrix.py          ← base rate + conditional CDF surfaces
-  outcomes.py        ← OutcomeRegistry: the event being measured (up / drawdown / vol)
-  writer.py          ← xlsx rendering, colour scales, PDF recovery
+  outcomes.py        ← OutcomeRegistry: the barrier being measured
+  writer.py          ← xlsx rendering, base-rate-scaled colour, PDF recovery
   combiner.py        ← Naive Bayes log-odds combination + shrinkage
   validate.py        ← circular-shift null test + Bonferroni verdicts
-  harrv.py           ← HAR-RV volatility forecast vs naive RV vs implied vol
   charts.py          ← regenerates the README figures from committed data
 tree/
   tree.py            ← node traversal over universe.json
 workspaces/
   <name>/
-    universe.json    ← asset, horizons, feature families, all config
+    universe.json    ← asset, horizons, barrier, feature families, all config
     plugin.py        ← (optional) custom features and data sources
-    findings.json    ← structured per-family verdicts, written by --findings
-    validation.json  ← per-node null-test p-values and verdicts, written by --validate
-assets/              ← README figures + captured volforecast scores
+    <family>/<event>/     ← surfaces, run log, skip records
+    validation.<event>.json
+    findings.<event>.json
+assets/              ← README figures + captured skew scores
+research/
+  drawdown_overlay/  ← does the validated signal actually trade?
 ```
 
 Root code owns the stable engine contracts; each workspace owns everything specific to
-its asset. Both the feature layer and the data-source layer are registries.
+its asset. The feature layer, the data-source layer and the barrier layer are all
+registries.
 
 * * *
 
 ## CLI reference
 
-All commands take `--workspace <name>` (default `btc_daily_14days`):
+All commands take `--workspace <name>` (default `btc_daily_14days`) and run against
+that workspace's declared barrier unless `--outcome` / `--threshold` override it:
 
 | Command | Stage | Output |
 |---------|-------|--------|
-| `--status` / `--list` | Inventory | Pending / tested / skipped per family |
+| `--status` / `--list` | Inventory | Pending / tested / skipped per family, for this barrier |
 | `--next` / `--family <name>` / `--node <id>` | Compute | Runs nodes → writes `.xlsx` surfaces |
-| `--regen` | Compute | Regenerates `.xlsx` without changing node status |
+| `--regen` | Compute | Regenerates `.xlsx` for already-tested nodes |
 | `--read <id>` | Inspect | Prints significant rows from a node's surface |
-| `--probe` | Combine | Current combined estimate — best node per family, Naive Bayes |
-| `--backtest` | Validate | Walk-forward directional accuracy, bucketed by model edge |
-| `--findings` | Report | Writes `findings.json` — structured verdict per family |
-| `--validate` | Falsify | Shuffle-null test of every tested node; writes `validation.json` |
-| `--volforecast` | Extension | HAR-RV vs naive RV vs implied vol on the workspace asset |
+| `--probe` | Combine | Current combined touch probability, best node per family |
+| `--skew` | Compare | Both barriers on identical bars; writes `assets/skew_scores.json` |
+| `--backtest` | Validate | Calibration + Brier skill vs the base rate |
+| `--findings` | Report | Writes `findings.<event>.json` — structured verdict per family |
+| `--validate` | Falsify | Shuffle-null test of every tested node |
 | `--charts` | Report | Regenerates `assets/` figures from committed data |
 
-`--families a,b,c` narrows `--probe` / `--backtest` / `--validate` to a subset.
-`--outcome <name>` (with `--threshold` where applicable) re-aims any command at a
-different event; `--shifts N` sets the resampling depth for `--validate`;
-`--vol-horizons H,...` sets the horizons for `--volforecast`.
+`--families a,b,c` narrows `--probe` / `--backtest` / `--validate` / `--skew` to a
+subset. `--rerun` makes `--family` re-run nodes already tested or skipped.
+`--shifts N` sets the resampling depth for `--validate`.
 
 * * *
 
 ## Workspaces
 
-| Workspace | Asset | Interval | Horizons | History | Extras |
-|-----------|-------|----------|----------|---------|--------|
-| `btc_daily_14days` | BTC-USD | 1d | +1…+14 d | from 2015 | CoinMetrics on-chain, halving-cycle features, Deribit DVOL |
-| `nasdaq_hourly_24hrs` | ^IXIC | 1h | +1…+24 h | trailing ~730 d | VIX / treasury cross-asset, time-of-day |
+| Workspace | Asset | Interval | Horizons | History | Barrier | Extras |
+|-----------|-------|----------|----------|---------|---------|--------|
+| `btc_daily_14days` | BTC-USD | 1d | +1…+14 d | from 2015 | ±10% | CoinMetrics on-chain, halving-cycle features |
+| `nasdaq_hourly_24hrs` | ^IXIC | 1h | +1…+24 h | trailing ~730 d | ±2% | VIX / treasury cross-asset, time-of-day |
 
 A workspace is defined entirely by `universe.json` (`meta` + `families`). Key `meta`
 fields: `asset` `{provider, ticker, interval}`, `horizons`, `start_date`,
 `n_thresholds`, `display_horizons`, `sample_freq`, `min_obs`, and `outcome`
-`{name, params}`.
+`{name, params}` — which is **required**, since the barrier size has to be chosen for
+the asset.
 
 ### Built-in data sources
 
@@ -356,7 +416,6 @@ fields: `asset` `{provider, ticker, interval}`, `horizons`, `start_date`,
 | `treasury` | yfinance `^TNX` | tnx |
 | `dxy` | yfinance `DX-Y.NYB` (daily) | dxy |
 | `coinmetrics` | CoinMetrics community API *(btc plugin)* | mvrv, hash_rate, adr_act_cnt, tx_cnt |
-| `dvol` | Deribit volatility-index API *(btc plugin)* | dvol |
 
 * * *
 
@@ -365,7 +424,6 @@ fields: `asset` `{provider, ticker, interval}`, `horizons`, `start_date`,
 **Data sources**
 - Yahoo Finance via [`yfinance`](https://github.com/ranaroussi/yfinance) — OHLCV, VIX, 10-year treasury yield, US dollar index
 - [CoinMetrics Community API](https://docs.coinmetrics.io/api/v4) — Bitcoin on-chain metrics (MVRV, hash rate, active addresses)
-- [Deribit API](https://docs.deribit.com/) — DVOL, the BTC 30-day implied-volatility index
 
 **Statistical methods**
 - Naive Bayes and the conditional-independence assumption — Hand & Yu (2001), *Idiot's Bayes — Not So Stupid After All?*, International Statistical Review 69(3)
@@ -374,10 +432,11 @@ fields: `asset` `{provider, ticker, interval}`, `horizons`, `start_date`,
 - Add-one permutation p-values and resampling resolution — Davison & Hinkley (1997), *Bootstrap Methods and Their Application*, CUP, §4.2
 - Resampling that preserves serial dependence — Politis & Romano (1994), *The Stationary Bootstrap*, JASA 89(428)
 - Multiple testing over a searched universe of rules — White (2000), *A Reality Check for Data Snooping*, Econometrica 68(5)
+- Probability forecast scoring and decomposition — Brier (1950), *Verification of Forecasts Expressed in Terms of Probability*, Monthly Weather Review 78(1)
 
-**Volatility forecasting**
-- Corsi (2009), *A Simple Approximate Long-Memory Model of Realized Volatility*, Journal of Financial Econometrics 7(2) — HAR-RV
-- Patton (2011), *Volatility Forecast Comparison Using Imperfect Volatility Proxies*, Journal of Econometrics 160(1) — QLIKE robustness
+**Barrier-touch / first passage**
+- First-passage probabilities for drifting Brownian motion — Karatzas & Shreve (1991), *Brownian Motion and Stochastic Calculus*, §3.5
+- Triple-barrier labelling of financial time series — López de Prado (2018), *Advances in Financial Machine Learning*, ch. 3
 
 **Technical indicators**
 - Wilder (1978), *New Concepts in Technical Trading Systems* — RSI, ATR

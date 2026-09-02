@@ -4,12 +4,11 @@ README figures, regenerated from committed artifacts.
 Every figure is built from files already in the repo — the validation JSON written
 by `--validate` and the node surfaces written by the compute pass — so
 `python run.py --charts` reproduces the whole set offline, with no data fetch. The
-sole exception is the volatility-forecast panel, which needs live implied-vol data;
-it is drawn from a dated capture in assets/volforecast_scores.json and skipped if
-that file is absent.
+skew panel additionally reads assets/skew_scores.json, a dated capture of `--skew`,
+and is skipped if that file is absent.
 
 Palette is deliberately flat: one accent blue, one warning amber, grey for
-"indistinguishable from noise", and a muted red for the option-market benchmark.
+"indistinguishable from noise", and a muted red for the longest horizon.
 Green/red on the heatmap follows the workbook convention (red = more risk).
 """
 
@@ -126,17 +125,21 @@ def _read_surface(xlsx_path: Path, kind: str):
 
 # ── figures ──────────────────────────────────────────────────────────────────
 
+BTC = WS / 'btc_daily_14days'
+NDX = WS / 'nasdaq_hourly_24hrs'
+
+
 def fig_peak_vs_null(out: Path) -> None:
-    """Hero: measured peak deviation vs the noise ceiling, direction | drawdown."""
-    _, direction = _load_validation(WS / 'btc_daily_14days' / 'validation.json')
-    _, drawdown  = _load_validation(WS / 'btc_daily_14days' / 'validation.dd10.json')
+    """Hero: measured peak deviation vs the noise ceiling, for both barriers."""
+    _, down = _load_validation(BTC / 'validation.dd10.json')
+    _, up_ = _load_validation(BTC / 'validation.run10.json')
 
     fig, axes = plt.subplots(1, 2, figsize=(10, 4.7), sharex=True, sharey=True)
     panels = [
-        (axes[0], direction, 'Direction:  higher in h bars?'),
-        (axes[1], drawdown,  'Drawdown:  down ≥10% within h bars?'),
+        (axes[0], down, 'Downside barrier:  touches −10% within h bars?'),
+        (axes[1], up_, 'Upside barrier:  touches +10% within h bars?'),
     ]
-    lim = 48
+    lim = 52
     for ax, rows, title in panels:
         ax.fill_between([0, lim], [0, lim], lim, color=_ACCENT, alpha=0.05, zorder=0)
         ax.plot([0, lim], [0, lim], color=_MUTED, lw=1, ls='--', zorder=1)
@@ -153,46 +156,51 @@ def fig_peak_vs_null(out: Path) -> None:
         ax.set_ylim(0, lim)
         ax.legend(frameon=False, fontsize=8, loc='upper left')
     axes[0].set_ylabel('measured peak deviation (pp)')
-    fig.suptitle('Every signal, against the noise it has to beat', fontsize=12, fontweight='bold')
+    fig.suptitle('Every condition, against the noise it has to beat', fontsize=12, fontweight='bold')
     fig.text(0.5, -0.03,
-             'One point per feature × horizon (195 each, BTC daily). On or below the dashed line = '
-             'a shuffle of the data reaches the same peak just as often.',
+             'One point per feature × horizon, BTC daily. On or below the dashed line = '
+             'a shuffle of the same data reaches that peak just as often.',
              ha='center', fontsize=8, color=_MUTED)
     fig.savefig(out)
     plt.close(fig)
 
 
 def fig_nominal_hits(out: Path) -> None:
-    """How many nodes clear p<0.05, per workspace/outcome, vs chance."""
-    dir_d, _ = _load_validation(WS / 'btc_daily_14days' / 'validation.json')
-    ndx_d, _ = _load_validation(WS / 'nasdaq_hourly_24hrs' / 'validation.json')
-    dd_d, _  = _load_validation(WS / 'btc_daily_14days' / 'validation.dd10.json')
-
-    data = [
-        ('Direction\nBTC daily',     dir_d, _MUTED),
-        ('Direction\nNASDAQ hourly', ndx_d, _MUTED),
-        ('Drawdown ≥10%\nBTC daily', dd_d, _ACCENT),
+    """Hits clearing p<0.05 per workspace x barrier, against chance."""
+    sets = [
+        ('Down −10%\nBTC daily', BTC / 'validation.dd10.json', _ACCENT),
+        ('Up +10%\nBTC daily', BTC / 'validation.run10.json', _MUTED),
+        ('Down −2%\nNASDAQ hourly', NDX / 'validation.dd2.json', _ACCENT),
+        ('Up +2%\nNASDAQ hourly', NDX / 'validation.run2.json', _MUTED),
     ]
-    fig, ax = plt.subplots(figsize=(8, 4.7))
-    x = np.arange(len(data))
+    data = []
+    for label, path, color in sets:
+        if not path.exists():
+            continue
+        d, _ = _load_validation(path)
+        data.append((label, d, color))
+    if not data:
+        return
+
+    fig, ax = plt.subplots(figsize=(9, 4.7))
+    top = max(d['summary']['nominal'] for _, d, _ in data)
     for i, (label, d, color) in enumerate(data):
-        n_tests  = d['n_tests']
-        nominal  = d['summary']['nominal']
-        struct   = d['summary']['structure']
-        expected = 0.05 * n_tests
+        nominal = d['summary']['nominal']
+        struct = d['summary']['structure']
+        expected = 0.05 * d['n_tests']
         ax.bar(i, nominal, width=0.55, color=color, zorder=3)
         ax.hlines(expected, i - 0.32, i + 0.32, color=_INK, lw=1.6, ls='--', zorder=4)
         ax.text(i, nominal + 1.4, str(nominal), ha='center', fontweight='bold')
         if struct:
-            ax.text(i, nominal + 5.2, f'{struct} clear\nBonferroni', ha='center',
+            ax.text(i, nominal + 5.0, f'{struct} clear\nBonferroni', ha='center',
                     fontsize=8, color=_GREEN)
-        ax.text(i + 0.36, expected, f'  {expected:.0f} by chance', va='center',
-                fontsize=8, color=_INK)
-    ax.set_xticks(x)
+        ax.text(i, expected + top * 0.022, f'{expected:.0f} by chance', ha='center',
+                va='bottom', fontsize=7.5, color=_INK)
+    ax.set_xticks(range(len(data)))
     ax.set_xticklabels([d[0] for d in data])
     ax.set_ylabel('nodes significant at p < 0.05')
-    ax.set_ylim(0, 72)
-    ax.set_title('Same features, same machinery — only the question changes', fontweight='bold')
+    ax.set_ylim(0, top * 1.35 + 8)
+    ax.set_title('Same features, same machinery — only the barrier changes', fontweight='bold')
     fig.text(0.5, -0.02,
              'Dashed line = false positives expected from testing this many nodes at α = 0.05.',
              ha='center', fontsize=8, color=_MUTED)
@@ -200,9 +208,9 @@ def fig_nominal_hits(out: Path) -> None:
     plt.close(fig)
 
 
-def fig_winrate_surface(out: Path) -> None:
-    """Heatmap of one node's conditional-probability surface."""
-    path = WS / 'btc_daily_14days' / 'volatility' / 'dd10' / 'bb_pct_20.xlsx'
+def fig_touch_surface(out: Path) -> None:
+    """Heatmap of one node's conditional touch-probability surface."""
+    path = BTC / 'volatility' / 'dd10' / 'bb_pct_20.xlsx'
     thr, ns, hcols, mat = _read_surface(path, 'pdf')
 
     fig, ax = plt.subplots(figsize=(9, 6.2))
@@ -214,27 +222,27 @@ def fig_winrate_surface(out: Path) -> None:
     ax.set_yticklabels([f'{v:+.2f}   n={n}' for v, n in zip(thr, ns)], fontsize=7)
     ax.set_xlabel('forecast horizon')
     ax.set_ylabel('Bollinger %b  (feature value — low = price pinned to the lower band)')
-    ax.set_title("A single node's surface:  P(10% drawdown | %b ≈ x) − base rate",
+    ax.set_title("A single node's surface:  P(touch −10% | %b ≈ x) − base rate",
                  fontweight='bold')
     ax.grid(False)
     cb = fig.colorbar(im, ax=ax, shrink=0.75, pad=0.02)
-    cb.set_label('deviation from 21.7% base rate (pp)', fontsize=8)
+    cb.set_label('deviation from base rate (pp)', fontsize=8)
     fig.text(0.5, 0.01,
-             'The engine writes one of these for every feature. The dark band is the readable signal; '
-             'everything pale is within noise.', ha='center', fontsize=8, color=_MUTED)
+             'The engine writes one of these per feature per barrier. The dark band is the '
+             'readable signal; everything pale is within noise.',
+             ha='center', fontsize=8, color=_MUTED)
     fig.savefig(out)
     plt.close(fig)
 
 
 def fig_drawdown_monotone(out: Path) -> None:
-    """The overextension → drawdown signal, monotone across thresholds."""
-    path = WS / 'btc_daily_14days' / 'ma' / 'dd10' / 'ma_ratio_200.xlsx'
+    """The overextension to downside-touch signal, monotone across thresholds."""
+    path = BTC / 'ma' / 'dd10' / 'ma_ratio_200.xlsx'
     thr, ns, hcols, mat = _read_surface(path, 'above')
     thr = np.array(thr)
 
     fig, ax = plt.subplots(figsize=(8, 4.9))
-    series = [('+3d', _MUTED, 1.3), ('+7d', _ACCENT, 1.7), ('+14d', _RED, 2.1)]
-    for hz, color, lw in series:
+    for hz, color, lw in [('+3d', _MUTED, 1.3), ('+7d', _ACCENT, 1.7), ('+14d', _RED, 2.1)]:
         if hz not in hcols:
             continue
         j = hcols.index(hz)
@@ -251,65 +259,82 @@ def fig_drawdown_monotone(out: Path) -> None:
         arrowprops=dict(arrowstyle='->', color=_MUTED),
     )
     ax.set_xlabel('threshold  τ   (condition:  price / 200-day MA − 1  >  τ)')
-    ax.set_ylabel('P(10% drawdown) − base rate (pp)')
-    ax.set_title('The signal that holds up: overextension precedes drawdowns, monotonically',
-                 fontweight='bold')
+    ax.set_ylabel('P(touch −10%) − base rate (pp)')
+    ax.set_title('Overextension precedes downside touches, monotonically', fontweight='bold')
     ax.legend(frameon=False, fontsize=9, title='horizon')
     fig.savefig(out)
     plt.close(fig)
 
 
-def fig_volforecast(out: Path) -> None:
-    """HAR-RV vs naive persistence vs implied vol (dated capture)."""
-    path = ASSETS / 'volforecast_scores.json'
+def fig_skew(out: Path) -> None:
+    """
+    The question the endpoint framing could not ask: does a condition tilt downside,
+    or does it just raise both barriers?
+
+    Each node is plotted as its peak downside deviation against the upside deviation
+    measured on the same bars, at the same slice of feature space. Points on the
+    diagonal move both barriers equally — a volatility proxy carrying no directional
+    information. Distance below the diagonal is the genuinely asymmetric part.
+    """
+    path = ASSETS / 'skew_scores.json'
     if not path.exists():
-        print('  [charts] skip volforecast.png — assets/volforecast_scores.json missing')
         return
-    d  = json.loads(path.read_text(encoding='utf-8'))
-    hs = list(d['horizons'])
-    models = [
-        ('har',      'HAR-RV',                    _ACCENT),
-        ('rv_naive', 'naive (carry RV forward)',  _MUTED),
-        ('iv',       'implied vol (DVOL)',        _RED),
-    ]
+    payload = json.loads(path.read_text(encoding='utf-8'))
+    rows = payload['nodes']
+    if not rows:
+        return
 
-    fig, axes = plt.subplots(1, 2, figsize=(10, 4.4))
-    metrics = [
-        (axes[0], 'qlike',  'QLIKE  (lower is better)'),
-        (axes[1], 'r2_log', 'out-of-sample R² in logs  (higher is better)'),
-    ]
-    for ax, metric, label in metrics:
-        x = np.arange(len(hs))
-        w = 0.26
-        for k, (mk, mlabel, c) in enumerate(models):
-            vals = [d['horizons'][h]['models'][mk][metric] for h in hs]
-            ax.bar(x + (k - 1) * w, vals, width=w, color=c, label=mlabel, zorder=3)
-        ax.axhline(0, color=_INK, lw=0.8)
-        ax.set_xticks(x)
-        ax.set_xticklabels([f'h = {h}' for h in hs])
-        ax.set_title(label, fontsize=10)
-    axes[0].legend(frameon=False, fontsize=8)
+    fig, ax = plt.subplots(figsize=(7.6, 6.4))
+    lim = max(max(abs(r['down_dev']) for r in rows),
+              max(abs(r['up_dev']) for r in rows)) * 1.12
 
-    n_lo = d['horizons'][hs[0]]['n']
-    n_hi = d['horizons'][hs[-1]]['n']
-    fig.suptitle('Volatility forecast: HAR-RV clears the naive baseline, ties the option market',
-                 fontsize=12, fontweight='bold')
-    fig.text(0.5, -0.04,
-             f'BTC, {n_hi:,}–{n_lo:,} walk-forward forecasts · captured {d["captured"]} · '
-             'encompassing test: implied vol absorbs HAR (β_HAR ≈ 0)',
+    ax.fill_between([-lim, lim], [-lim, lim], -lim, color=_ACCENT, alpha=0.05, zorder=0)
+    ax.plot([-lim, lim], [-lim, lim], color=_MUTED, lw=1, ls='--', zorder=1)
+    ax.axhline(0, color=_GRID, lw=1)
+    ax.axvline(0, color=_GRID, lw=1)
+
+    for r in rows:
+        c = _ACCENT if r['skew'] > 5 else (_AMBER if r['skew'] < -5 else _MUTED)
+        ax.scatter(r['down_dev'], r['up_dev'], s=34, c=c,
+                   edgecolors='white', linewidths=0.5, zorder=3)
+    # Label the extremes only, and declutter: points close together get their labels
+    # pushed apart vertically so the annotations stay readable.
+    labelled = sorted(rows, key=lambda r: -abs(r['skew']))[:6]
+    placed: list[tuple[float, float]] = []
+    for r in labelled:
+        x, y = r['down_dev'], r['up_dev']
+        dy = -3.0
+        # nudge until this label is clear of every one already placed
+        while any(abs(x - px) < lim * 0.30 and abs((y + dy * lim / 90) - py) < lim * 0.055
+                  for px, py in placed):
+            dy -= 11.0
+        placed.append((x, y + dy * lim / 90))
+        ax.annotate(r['node'], (x, y), fontsize=7.5,
+                    xytext=(6, dy), textcoords='offset points', color=_INK,
+                    arrowprops=dict(arrowstyle='-', color=_MUTED, lw=0.5,
+                                    shrinkA=0, shrinkB=2) if dy < -6 else None)
+
+    ax.set_xlim(-lim, lim)
+    ax.set_ylim(-lim, lim)
+    ax.set_xlabel('P(touch −10%) deviation at the peak bin (pp)')
+    ax.set_ylabel('P(touch +10%) deviation, same bars, same bin (pp)')
+    ax.set_title('Real asymmetry, or just volatility?', fontweight='bold')
+    ax.text(0.97, 0.06, 'on the diagonal =\nraises both barriers equally',
+            transform=ax.transAxes, ha='right', fontsize=8, color=_MUTED)
+    fig.text(0.5, -0.01,
+             f"Below the diagonal = downside-specific. BTC daily, {payload.get('horizon', '+7d')}, "
+             f'one point per node.',
              ha='center', fontsize=8, color=_MUTED)
     fig.savefig(out)
     plt.close(fig)
 
 
-# ── driver ───────────────────────────────────────────────────────────────────
-
 _FIGURES = [
     ('peak_vs_null.png',      fig_peak_vs_null),
     ('nominal_hits.png',      fig_nominal_hits),
-    ('winrate_surface.png',   fig_winrate_surface),
+    ('touch_surface.png',     fig_touch_surface),
     ('drawdown_monotone.png', fig_drawdown_monotone),
-    ('volforecast.png',       fig_volforecast),
+    ('barrier_skew.png',      fig_skew),
 ]
 
 
