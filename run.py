@@ -36,6 +36,7 @@ from engine import combiner as cmb
 from engine import outcomes
 from engine import validate as val
 from engine import harrv
+from engine import charts
 from tree.tree import (
     load_tree, save_tree, all_nodes, find_node,
     pending_in_family, all_in_family, next_pending,
@@ -951,8 +952,16 @@ if __name__ == '__main__':
     group.add_argument('--validate', action='store_true', help='Shuffle-null test every tested node; writes validation.json')
     group.add_argument('--volforecast', action='store_true',
                        help='HAR-RV vs naive RV vs implied vol on the workspace asset')
+    group.add_argument('--charts', action='store_true',
+                       help='Regenerate README figures into assets/ from committed data (ignores --workspace)')
 
     args = parser.parse_args()
+
+    if args.charts:
+        print('Rendering README figures into assets/ ...')
+        charts.render_all()
+        sys.exit(0)
+
     ws   = Workspace(args.workspace)
 
     if args.outcome or args.threshold is not None:
