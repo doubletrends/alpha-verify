@@ -1,5 +1,5 @@
 """
-Stage three: is a node's surface more than the search that found it?
+Stage four: is a node's surface more than the search that found it?
 
 A cube is 41 barrier levels x 10 bins x 30 horizons. Reading the largest cell off that
 and calling it an edge measures how many cells were searched, not whether the feature

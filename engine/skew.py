@@ -1,5 +1,5 @@
 """
-Stage five: the up/down asymmetry the mirrored summary grid is built for.
+Stage three: the up/down asymmetry the mirrored summary grid is built for.
 
 The summary theta ladder is mirrored magnitudes -- +theta and -theta sit at matching
 distances from entry -- so that P(touch +theta) and P(touch -theta) can be read against

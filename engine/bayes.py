@@ -1,5 +1,5 @@
 """
-Stage eight: do the conditions compose, and does that survive out of sample?
+Stage six: do the conditions compose, and does that survive out of sample?
 
 Every stage before this one measures conditions *one at a time*. The obvious next
 question -- what happens when several hold at once -- has an answer already sitting in

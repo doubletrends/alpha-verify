@@ -131,10 +131,6 @@ def _dxy_ma_ratio(dxy: pd.Series, period: int) -> pd.Series:
     return dxy / dxy.rolling(period).mean() - 1.0
 
 
-def _time_of_day(data: pd.DataFrame) -> pd.Series:
-    return pd.Series(pd.to_datetime(data.index).hour, index=data.index, dtype=float)
-
-
 def _day_of_week(data: pd.DataFrame) -> pd.Series:
     return pd.Series(pd.to_datetime(data.index).dayofweek, index=data.index, dtype=float)
 
@@ -201,7 +197,6 @@ register('roc',               lambda d, p: _roc(d['close'], p['period']))
 register('roc_spread',        lambda d, p: _roc_spread(d['close'], p['fast'], p['slow']))
 register('dxy_ret',           lambda d, p: _dxy_ret(d['dxy'], p['period']))
 register('dxy_ma_ratio',      lambda d, p: _dxy_ma_ratio(d['dxy'], p['period']))
-register('time_of_day',       lambda d, p: _time_of_day(d))
 register('day_of_week',       lambda d, p: _day_of_week(d))
 register('vix_level',         lambda d, p: _vix_level(d))
 register('vix_ma_ratio',      lambda d, p: _vix_ma_ratio(d, p['period']))

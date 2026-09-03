@@ -1,0 +1,194 @@
+"""Composition report figures."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import numpy as np
+from matplotlib.colors import TwoSlopeNorm
+
+from engine import bayes
+from engine.report_common import theta_pct
+from engine.report_style import (
+    CMAP_DIV,
+    GRID,
+    INK_2,
+    MUTED,
+    S1,
+    S2,
+    S3,
+    SURFACE,
+    frame,
+    note,
+    plt,
+    save,
+    title,
+)
+
+
+def fig_calibration(ws, out: Path) -> Path | None:
+    if not ws.bayes_path.exists():
+        return None
+    z = np.load(ws.bayes_path, allow_pickle=False)
+    summary = ws.read_json(ws.bayes_summary_path)
+    m = summary.get("metrics", {})
+
+    y = z["y"]
+    n_bins = int(np.clip(len(y) // 30, 4, 10))
+    series = [
+        (f'naive Bayes, all {summary.get("design", {}).get("n_features", "")} nodes',
+         "p_all", "all_nodes", S2),
+        ("one node per family", "p_dedup", "one_per_family", S3),
+        ("  + scale corrected", "p_scaled", "one_per_family_scaled", S1),
+    ]
+
+    fig, ax = plt.subplots(figsize=(6.6, 5.6))
+    ax.plot([0, 1], [0, 1], color=MUTED, linewidth=1.0, zorder=1)
+    ax.annotate(
+        "perfectly calibrated",
+        (0.62, 0.62),
+        xytext=(4, -12),
+        textcoords="offset points",
+        color=MUTED,
+        fontsize=7.5,
+        rotation=38,
+    )
+
+    hi = 0.0
+    for label, key, mkey, colour in series:
+        c = bayes.calibration(y, z[key], n_bins)
+        if not len(c["predicted"]):
+            continue
+        ax.plot(
+            c["predicted"],
+            c["realized"],
+            color=colour,
+            linewidth=1.8,
+            marker="o",
+            markersize=6.5,
+            markerfacecolor=colour,
+            markeredgecolor=SURFACE,
+            markeredgewidth=1.6,
+            zorder=4,
+            label=f"{label.strip()}  —  Brier {m[mkey]['brier']:.3f}",
+        )
+        hi = max(hi, c["predicted"].max(), c["realized"].max())
+
+    prior = m.get("prior_only", {}).get("brier")
+    ax.axhline(
+        m.get("realized_rate", np.nan),
+        color=GRID,
+        linewidth=0.9,
+        zorder=0,
+        label=f"constant prior  —  Brier {prior:.3f}",
+    )
+
+    lim = min(1.0, hi * 1.15)
+    ax.set_xlim(0, lim)
+    ax.set_ylim(0, lim)
+    ax.set_xlabel("predicted probability (out of sample)")
+    ax.set_ylabel("realized frequency")
+    ax.legend(loc="upper left", fontsize=8, labelcolor=INK_2)
+    frame(ax, grid_axis="both")
+
+    t = summary.get("target", {})
+    d = summary.get("design", {})
+    beats = [name for name, _, mkey, _ in series if m[mkey]["brier"] < prior]
+    if not beats:
+        verdict = "no model beats it — the ranking is real (see the AUC grid) and the probabilities still are not"
+    elif len(beats) == 1:
+        verdict = f'only "{beats[0].strip()}" beats it'
+    else:
+        verdict = f"{len(beats)} of the three beat it"
+    title(
+        fig,
+        "Composing the conditions — and the price of assuming they are independent",
+        f'P(touch {theta_pct(t.get("theta", 0), ws.theta_step)} within {t.get("horizon")}'
+        f'{t.get("unit", "d")}), {d.get("folds")}-fold expanding walk forward. '
+        f"A point above the line was under-predicted, below it over-predicted. "
+        f"A constant prior scores Brier {prior:.3f}; {verdict}.",
+    )
+    note(
+        fig,
+        f'{m.get("n_scored", 0)} non-overlapping out-of-sample bars · every table, '
+        f"edge, prior and scale fit on the training window only, with a "
+        f'{d.get("embargo_bars")}-bar embargo · overconfidence factor '
+        f'{1 / summary.get("platt_a_mean", 1):.1f}x · 06_bayes.json',
+    )
+    fig.subplots_adjust(top=0.80)
+    return save(fig, out / "09_composition.png")
+
+
+def fig_composition_grid(ws, out: Path) -> Path | None:
+    """Where the composed model ranks, over the grid everything else is judged on."""
+    if not ws.bayes_path.exists():
+        return None
+    z = np.load(ws.bayes_path, allow_pickle=False)
+    th_all, hz_all, auc = z["grid_theta"], z["grid_horizon"], z["grid_auc"]
+    if not len(th_all):
+        return None
+
+    min_events = 10
+    n_pos = z["grid_realized"] * z["grid_n_scored"]
+    n_neg = z["grid_n_scored"] - n_pos
+    usable = (n_pos >= min_events) & (n_neg >= min_events)
+
+    th = np.array(sorted(set(th_all)))
+    hz = np.array(sorted(set(hz_all)))
+    m = np.full((len(th), len(hz)), np.nan)
+    for t, h, a, ok in zip(th_all, hz_all, auc, usable):
+        if ok:
+            m[int(np.flatnonzero(th == t)[0]), int(np.flatnonzero(hz == h)[0])] = a
+    if not np.isfinite(m).any():
+        return None
+    lim = float(np.nanmax(np.abs(m - 0.5)))
+
+    fig, ax = plt.subplots(figsize=(7.2, 5.4))
+    cmap = CMAP_DIV.copy()
+    cmap.set_bad(SURFACE)
+    mesh = ax.pcolormesh(
+        np.arange(len(hz) + 1),
+        np.arange(len(th) + 1),
+        m,
+        cmap=cmap,
+        norm=TwoSlopeNorm(vcenter=0.5, vmin=0.5 - lim, vmax=0.5 + lim),
+    )
+    cb = fig.colorbar(mesh, ax=ax, pad=0.02, fraction=0.045)
+    cb.set_label("out-of-sample AUC  (0.5 = no ranking)", color=INK_2, fontsize=8)
+    cb.outline.set_visible(False)
+    cb.ax.tick_params(color=GRID, labelsize=7.5)
+
+    ax.set_xticks(np.arange(len(hz)) + 0.5)
+    ax.set_xticklabels([f"+{h}{ws.horizon_unit}" for h in hz])
+    ax.set_yticks(np.arange(len(th)) + 0.5)
+    ax.set_yticklabels([theta_pct(t, ws.theta_step) for t in th], fontsize=7.5)
+    ax.tick_params(length=0)
+    for side in ("top", "right", "left", "bottom"):
+        ax.spines[side].set_visible(False)
+    ax.set_xlabel(f"horizon (+{ws.horizon_unit})")
+    ax.set_ylabel("barrier θ")
+
+    above = int(np.nansum(m > 0.5))
+    tot = int(np.isfinite(m).sum())
+    k = int(np.nanargmax(m))
+    bi, bj = divmod(k, len(hz))
+    title(
+        fig,
+        "Does the ranking survive, and where?",
+        f"The same walk forward run at every target on the judged grid. Red ranks "
+        f"better than chance out of sample, blue worse.\n"
+        f"{above} of {tot} targets come out above 0.5. The strongest is "
+        f"{theta_pct(th[bi], ws.theta_step)} within +{int(hz[bj])}{ws.horizon_unit} at AUC "
+        f"{m[bi, bj]:.2f} — modest, and that is what an honest out-of-sample number "
+        f"on this question looks like.",
+    )
+    note(
+        fig,
+        f"{ws.dir.name} · one-node-per-family model, everything fit on training "
+        f"windows only, scored on non-overlapping bars · blank cells had fewer "
+        f"than {min_events} events on one side, where AUC turns on two or three "
+        f"cases · AUC is unchanged by the scale correction, which moves "
+        f"calibration and not order · 06_bayez.npz",
+    )
+    fig.subplots_adjust(top=0.82)
+    return save(fig, out / "10_composition_grid.png")
