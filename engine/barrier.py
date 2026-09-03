@@ -184,24 +184,6 @@ def touch_tensor(
             'edges': np.asarray(edges, dtype=float)}
 
 
-def forward_extremes(data: pd.DataFrame, h: int) -> tuple[pd.Series, pd.Series]:
-    """
-    Worst and best excursion over (t, t+h], as returns relative to close_t.
-
-    Uses low/high, so the result is what a resting stop or limit order would actually
-    experience. The window opens at t+1: a barrier cannot be touched on the bar the
-    condition is read on. NaN where the full window is not realized.
-    """
-    close = data['close']
-    low   = data['low'] if 'low' in data else close
-    high  = data['high'] if 'high' in data else close
-
-    lows  = pd.concat([low.shift(-k) for k in range(1, h + 1)], axis=1).min(axis=1)
-    highs = pd.concat([high.shift(-k) for k in range(1, h + 1)], axis=1).max(axis=1)
-    valid = close.shift(-h).notna()
-    return (lows / close - 1.0).where(valid), (highs / close - 1.0).where(valid)
-
-
 def summarize(cube: dict, thetas: np.ndarray, horizons: np.ndarray,
               tol: float = 1e-9) -> dict:
     """
@@ -243,6 +225,61 @@ def summarize(cube: dict, thetas: np.ndarray, horizons: np.ndarray,
         'horizons': cube['horizons'][hi],
         'edges':    cube['edges'],
     }
+
+
+def touch_band(surface: np.ndarray, thetas: np.ndarray, q: float) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Invert a (n_theta, n_h) probability surface into the barrier levels touched with
+    probability q: the up level and the down level, per horizon.
+
+    The cube answers "how likely is θ?"; a reader almost always wants the inverse, "how
+    far does price get?". Both arms are read off the same surface -- up levels from the
+    positive θ rows, down levels from the negative -- so the answer is one number per
+    side per horizon: *at q = 0.5, price touches +4.6% and −3.7% within seven days.*
+
+    P(touch θ) falls monotonically in |θ|, so each arm is a decreasing curve and the
+    crossing of q is found by linear interpolation between the two bracketing rows.
+
+    **This interpolates, and everything else in the pipeline refuses to.** The refusal
+    applies to `summarize`, where an interpolated cell would be a second measurement
+    that could disagree with the first and would then be judged and counted as a test.
+    Nothing here is judged: this runs on the full cube, for rendering only, and the
+    interpolation is between two measured rows one percentage point apart. A level that
+    reaches the end of the ladder without crossing q is clipped to the last θ measured
+    and flagged, rather than extrapolated into a range the cube never saw.
+
+    Returns (up, down) as positive magnitudes in θ units, and NaN in the two places the
+    ladder cannot answer: where even the nearest rung is reached less often than q, so
+    the crossing lies between 0 and one step and is finer than the grid resolves, and
+    where the far end is still above q, so it lies beyond the widest barrier measured.
+    Returning 0 for the first case would assert a level the cube never measured.
+    """
+    th = np.asarray(thetas, dtype=float)
+    n_h = surface.shape[1]
+    out = []
+    for sign in (+1, -1):
+        rows = np.flatnonzero(th * sign > 0)
+        mag = np.abs(th[rows])
+        order = np.argsort(mag)
+        rows, mag = rows[order], mag[order]
+
+        levels = np.full(n_h, np.nan)
+        for j in range(n_h):
+            p = surface[rows, j]
+            ok = np.isfinite(p)
+            if ok.sum() < 2:
+                continue
+            m, pv = mag[ok], p[ok]
+            if pv[0] < q:            # crossing is finer than one step of the ladder
+                levels[j] = np.nan
+            elif pv[-1] >= q:        # crossing is beyond the widest barrier measured
+                levels[j] = np.nan
+            else:
+                k = int(np.argmax(pv < q))
+                p0, p1 = pv[k - 1], pv[k]
+                levels[j] = m[k - 1] + (p0 - q) * (m[k] - m[k - 1]) / (p0 - p1)
+        out.append(levels)
+    return out[0], out[1]
 
 
 # ── economic evaluation ───────────────────────────────────────────────────────

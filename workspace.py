@@ -34,12 +34,11 @@ class Workspace:
         interval = self.asset.get('interval', '1d')
         self.horizon_unit = 'h' if interval.endswith('h') else 'd'
 
-        # The cube measures every horizon in this ladder; the workbook renders only
-        # the few in `barrier_horizons`, which must be a subset of it.
+        # The cube measures every horizon in this ladder; the summary grid below
+        # selects the few that everything is judged on.
         hz = meta.get('horizons', {})
         self.h_min = hz.get('min', 1)
         self.h_max = hz.get('max', 30)
-        self.barrier_horizons = meta.get('barrier_horizons', [3, 7, 14, 30])
 
         # Barrier levels. These have to be scaled to the asset and the horizon: a 10%
         # barrier over 14 BTC days is reached about a fifth of the time, while the same
@@ -60,6 +59,14 @@ class Workspace:
         self.summary_theta_abs = sm.get('theta_abs',
                                         [0, 0.01, 0.02, 0.03, 0.05, 0.07, 0.10, 0.15, 0.20])
         self.summary_h = sm.get('horizons', [1, 2, 3, 5, 7, 14, 30])
+
+        # The composition stage's headline target. It is declared rather than derived so
+        # the figure everyone reads is not silently re-pointed by a change to the grid;
+        # `bayes_target` falls back to a rule when a workspace does not name one.
+        by = meta.get('bayes', {})
+        self.bayes_theta   = by.get('theta')
+        self.bayes_horizon = by.get('horizon')
+        self.bayes_folds   = by.get('folds', 5)
 
         # Economic filter.
         ec = meta.get('evaluate', {})
@@ -101,29 +108,29 @@ class Workspace:
     def tree_path(self) -> Path:
         return self.dir / 'universe.json'
 
-    # Four artifacts per node: the full measurement, its workbook, the coarse grid
-    # everything is judged on, and its workbook.
+    # Pipeline artifact folders are numbered by command:
+    # surface 01, summary 02, skew 03, validation 04.
 
     def cube_path(self, family: str, node_id: str) -> Path:
-        return self.dir / 'cubes_full' / family / f'{node_id}.npz'
+        return self.dir / '01_surface_array' / family / f'{node_id}.npz'
 
     def has_cube(self, family: str, node_id: str) -> bool:
         return self.cube_path(family, node_id).exists()
 
     def surface_path(self, family: str, node_id: str) -> Path:
-        return self.dir / 'surfaces_full' / family / f'{node_id}.xlsx'
+        return self.dir / '01_surface_xlsx' / family / f'{node_id}.xlsx'
 
     def has_surface(self, family: str, node_id: str) -> bool:
         return self.surface_path(family, node_id).exists()
 
     def summary_cube_path(self, family: str, node_id: str) -> Path:
-        return self.dir / 'cubes_summary' / family / f'{node_id}.npz'
+        return self.dir / '02_summary_array' / family / f'{node_id}.npz'
 
     def has_summary_cube(self, family: str, node_id: str) -> bool:
         return self.summary_cube_path(family, node_id).exists()
 
     def summary_surface_path(self, family: str, node_id: str) -> Path:
-        return self.dir / 'surfaces_summary' / family / f'{node_id}.xlsx'
+        return self.dir / '02_summary_xlsx' / family / f'{node_id}.xlsx'
 
     def has_summary_surface(self, family: str, node_id: str) -> bool:
         return self.summary_surface_path(family, node_id).exists()
@@ -133,16 +140,30 @@ class Workspace:
         return self.dir / 'evaluation.json'
 
     def validation_path(self, family: str, node_id: str) -> Path:
-        return self.dir / 'validations' / family / f'{node_id}.npz'
+        return self.dir / '04_validation_array' / family / f'{node_id}.npz'
 
     def has_validation(self, family: str, node_id: str) -> bool:
         return self.validation_path(family, node_id).exists()
 
     def validation_sheet_path(self, family: str, node_id: str) -> Path:
-        return self.dir / 'validations_xlsx' / family / f'{node_id}.xlsx'
+        return self.dir / '04_validation_xlsx' / family / f'{node_id}.xlsx'
 
     def has_validation_sheet(self, family: str, node_id: str) -> bool:
         return self.validation_sheet_path(family, node_id).exists()
+
+    # The skew stage: the mirrored grid's up/down asymmetry, conditional and excess.
+
+    def skew_path(self, family: str, node_id: str) -> Path:
+        return self.dir / '03_skew_array' / family / f'{node_id}.npz'
+
+    def has_skew(self, family: str, node_id: str) -> bool:
+        return self.skew_path(family, node_id).exists()
+
+    def skew_sheet_path(self, family: str, node_id: str) -> Path:
+        return self.dir / '03_skew_xlsx' / family / f'{node_id}.xlsx'
+
+    def has_skew_sheet(self, family: str, node_id: str) -> bool:
+        return self.skew_sheet_path(family, node_id).exists()
 
     @property
     def baseline_cube(self) -> Path:
@@ -150,7 +171,42 @@ class Workspace:
 
     @property
     def cleared_path(self) -> Path:
-        return self.dir / 'cleared.json'
+        return self.dir / '05_gate.json'
+
+    @property
+    def bayes_path(self) -> Path:
+        return self.dir / '06_bayez.npz'
+
+    @property
+    def bayes_summary_path(self) -> Path:
+        return self.dir / '06_bayes.json'
+
+    @property
+    def result_dir(self) -> Path:
+        return self.dir / 'result'
+
+    def bayes_target(self, baseline: np.ndarray) -> tuple[float, int]:
+        """
+        The (θ, h) the composition figures are drawn at.
+
+        Taken from universe.json when it names one. Otherwise chosen from the workspace's
+        own grid: the middle summary horizon, and the downside barrier whose
+        unconditional rate there is closest to 30% -- common enough that a walk forward
+        has events to score, rare enough that predicting it is not trivial. Deriving it
+        from the grid rather than hard-coding a percentage is what lets the same rule
+        serve BTC and NASDAQ without either being a special case.
+        """
+        hz = self.summary_horizons
+        h = int(self.bayes_horizon) if self.bayes_horizon is not None else int(hz[len(hz) // 2])
+        if self.bayes_theta is not None:
+            return float(self.bayes_theta), h
+
+        th = self.summary_thetas
+        j = int(np.flatnonzero(hz == h)[0])
+        down = np.flatnonzero(th < 0)
+        rates = baseline[down, j]
+        i = int(down[int(np.nanargmin(np.abs(rates - 0.30)))])
+        return float(th[i]), h
 
     # ── json helpers ──────────────────────────────────────────────────────────
 

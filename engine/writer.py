@@ -22,6 +22,8 @@ from openpyxl.formatting.rule import ColorScaleRule
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
+from engine.barrier import MIN_BIN_N
+
 _PCT_FMT = '0.0%'
 _PP_FMT = '+0.0;-0.0;0.0'
 _PVAL_FMT = '0.0000'
@@ -36,7 +38,6 @@ _FILL_NA = PatternFill('solid', start_color='F7F7F7', end_color='F7F7F7')
 _FILL_MID = PatternFill('solid', start_color='DDDDDD', end_color='DDDDDD')
 _CENTER = Alignment(horizontal='center', vertical='center', wrap_text=True)
 
-_HDR_ROWS = 3
 _COL_ROW  = 5   # horizon labels
 _N_ROW    = 6   # observations behind this bin at each horizon
 _DATA_ROW = 7   # first θ row
@@ -186,6 +187,103 @@ def write_barrier_xlsx(
         for j in range(n_h):
             ws.column_dimensions[get_column_letter(2 + j)].width = 6.5
         ws.freeze_panes = f'B{_DATA_ROW}'
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(path)
+
+
+def write_skew_xlsx(
+    result:  dict,
+    path:    Path,
+    node_id: str,
+    feature: str,
+    params:  dict,
+    unit:    str = 'd',
+) -> None:
+    """
+    Human-readable skew artifact: the mirrored grid's up/down asymmetry.
+
+    The first sheet is the per-horizon peak excess skew -- the search statistic --validation
+    later null-tests. The remaining sheets render, per condition bin, the conditional
+    skew (P(+theta) - P(-theta), still carrying the asset's drift) and the excess skew
+    (that minus the baseline node's own skew, so drift is removed).
+
+    Positive means the condition reaches *up* more readily than down. Rows are barrier
+    magnitude |theta|, largest at the top.
+    """
+    cond   = result['cond_skew']
+    excess = result['excess_skew']
+    mags   = result['mags']
+    horizons = result['horizons']
+    bin_n  = result['bin_n']
+    labels = result['meta']['bin_labels']
+    n_mag, n_bins, n_h = excess.shape
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'summary'
+    end = 'F'
+    _write_headers(
+        ws,
+        f'{feature_label(node_id)} — skew summary',
+        'Peak excess skew by horizon; this is the statistic --validation null-tests',
+        f'node {node_id}   params={params}   '
+        f'excess skew = P(+θ|bin) − P(−θ|bin) minus the baseline node’s same difference',
+        merge_end=end,
+    )
+    headers = ['horizon', 'peak excess pp', 'at |θ|', 'bin', 'cond skew pp', 'n']
+    for col, header in enumerate(headers, 1):
+        c = ws.cell(row=_COL_ROW, column=col, value=header)
+        c.font, c.alignment = Font(bold=True), _CENTER
+    for j, h in enumerate(horizons):
+        face = np.abs(excess[:, :, j]).copy()
+        for b in range(n_bins):
+            if bin_n[b, j] < MIN_BIN_N:
+                face[:, b] = np.nan
+        r = _COL_ROW + 1 + j
+        if np.isfinite(face).any():
+            k = int(np.nanargmax(face))
+            mi, bi = divmod(k, n_bins)
+            row = [f'+{int(h)}{unit}', float(excess[mi, bi, j]), float(mags[mi]),
+                   bi + 1, float(cond[mi, bi, j]), int(bin_n[bi, j])]
+        else:
+            row = [f'+{int(h)}{unit}', None, None, None, None, None]
+        for col, v in enumerate(row, 1):
+            c = ws.cell(row=r, column=col, value=v)
+            if col in (2, 5):
+                c.number_format = _PP_FMT
+            if col == 3:
+                c.number_format = '0.0%'
+            c.alignment = _CENTER
+    for col, width in enumerate([10, 15, 9, 8, 13, 8], 1):
+        ws.column_dimensions[get_column_letter(col)].width = width
+    ws.freeze_panes = f'A{_COL_ROW + 1}'
+
+    used = {'summary'}
+    names = _sheet_names(list(labels))
+    for b in range(n_bins):
+        common = (f'node {node_id}   bin {b + 1} of {n_bins}: {labels[b]}   '
+                  'rows: barrier magnitude |θ|, largest at the top   columns: horizon')
+        _write_validation_matrix(
+            wb, used, f'skew {names[b]}',
+            cond[:, b, :], mags, horizons,
+            f'{feature_label(node_id)} — conditional skew',
+            'P(+θ | condition) − P(−θ | condition), percentage points; carries drift',
+            common,
+            _PP_FMT,
+            unit,
+            pvalue_scale=False,
+        )
+        _write_validation_matrix(
+            wb, used, f'excess {names[b]}',
+            excess[:, b, :], mags, horizons,
+            f'{feature_label(node_id)} — excess skew',
+            'Conditional skew minus the baseline node’s skew; drift removed',
+            common,
+            _PP_FMT,
+            unit,
+            pvalue_scale=False,
+        )
 
     path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(path)

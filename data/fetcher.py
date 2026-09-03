@@ -1,9 +1,14 @@
+from pathlib import Path
 from typing import Callable
 
 import pandas as pd
 import yfinance as yf
 
 _registry: dict[str, Callable] = {}
+
+_YF_CACHE = Path(__file__).resolve().parents[1] / '.yfinance-cache'
+_YF_CACHE.mkdir(exist_ok=True)
+yf.set_tz_cache_location(str(_YF_CACHE))
 
 
 def register_source(name: str, fn: Callable) -> None:

@@ -2,8 +2,9 @@
 Node traversal over universe.json.
 
 universe.json is a pure declaration and is never written back: a node's progress is
-derived from the filesystem instead (see Workspace.node_status), so the status-based
-helpers this module used to carry — and save_tree with them — are gone.
+derived from the filesystem instead — a stage is done for a node iff its artifact
+exists (see the `has_*` predicates on Workspace) — so the status-based helpers this
+module used to carry, and save_tree with them, are gone.
 """
 
 import json
