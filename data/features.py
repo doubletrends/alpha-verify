@@ -165,8 +165,20 @@ def _tnx_ret(data: pd.DataFrame, period: int) -> pd.Series:
     return data['tnx'].ffill().pct_change(period)
 
 
+def _constant(data: pd.DataFrame) -> pd.Series:
+    """
+    A feature with no information, so every bar falls in a single bin.
+
+    This is what turns the unconditional base rate into an ordinary node: measured
+    through exactly the same machinery as any condition, it yields P(touch theta in h)
+    with nothing conditioned on. The engine then needs no special case for the base.
+    """
+    return pd.Series(0.0, index=data.index)
+
+
 # ── built-in registrations ────────────────────────────────────────────────────
 
+register('constant',          lambda d, p: _constant(d))
 register('rsi',               lambda d, p: _rsi(d['close'], p['period']))
 register('rsi_spread',        lambda d, p: _rsi_spread(d['close'], p['fast'], p['slow']))
 register('stoch_k',           lambda d, p: _stoch_k(d['high'], d['low'], d['close'], p['k_period']))
