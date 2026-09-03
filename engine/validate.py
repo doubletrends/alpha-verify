@@ -34,6 +34,7 @@ workspace reference -- and correctly uses the baseline node for it.
 from __future__ import annotations
 
 import json
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -63,6 +64,13 @@ def _dev_all_shifts(touched: np.ndarray, idx: np.ndarray, bin_n: np.ndarray,
     ft = np.fft.rfft(touched, axis=1)
     fm = np.conj(np.fft.rfft(mask, axis=1))
     counts = np.fft.irfft(ft[:, None, :] * fm[None, :, :], n=n, axis=2)
+
+    # These are counts of 0/1 indicators and so are exact integers; the FFT returns them
+    # with ~1e-13 of roundoff. Rounding restores exactness, which matters most in the
+    # degenerate case: a single-bin cube has a deviation of identically zero, and
+    # without this the null would be comparing one speck of numerical noise against
+    # another and returning a meaningless p-value instead of 1.
+    counts = np.rint(counts)
 
     base = touched.mean(axis=1)
     with np.errstate(invalid='ignore', divide='ignore'):
@@ -125,7 +133,10 @@ def null_surface(
     ge = (null >= real[:, :, None]).sum(axis=2)
     cell_p = (1.0 + ge) / (1.0 + n_use)
     cell_p[~np.isfinite(real)] = np.nan
-    cell_p95 = np.nanpercentile(null, 95, axis=2)
+    with warnings.catch_warnings():
+        # bins below min_n are all-NaN by design; nanpercentile says so loudly
+        warnings.simplefilter('ignore', category=RuntimeWarning)
+        cell_p95 = np.nanpercentile(null, 95, axis=2)
 
     with np.errstate(invalid='ignore'):
         peak_by_shift = np.nanmax(dev.reshape(-1, n), axis=0)

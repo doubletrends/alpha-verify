@@ -10,17 +10,31 @@
 > this level?** This measures that — every barrier level, every condition, on intraday
 > extremes, against a shuffled null.
 
-Three stages, each producing one artifact per node:
+Six artifacts per node, in order:
 
 ```
-cubes/<family>/<node>.npz        measure    P(touch θ in h | bin)
-surfaces/<family>/<node>.xlsx    render     the same values, readable
-validations/<family>/<node>.npz  falsify    an exact shuffled null
+cubes_full/<family>/<node>.npz        measure   41 θ × 10 bins × 30 h
+surfaces_full/<family>/<node>.xlsx    render    the same values, readable
+cubes_summary/<family>/<node>.npz     reduce    17 θ × 10 bins × 7 h
+surfaces_summary/<family>/<node>.xlsx render
+validations/<family>/<node>.npz       falsify   exact shuffled null
+validations_xlsx/<family>/<node>.xlsx render    readable validation surfaces
 ```
 
-Every node goes through all three, the `baseline` node included — its validation comes
-out degenerate by construction, and that is on purpose. A uniform pipeline carrying one
-meaningless file is worth more than a pipeline with a special case in it.
+**The full grid is the faithful record and is never judged. The summary is what gets
+judged.** The summary is a strict *subset* — index selection out of the full cube, never
+interpolation, so a summary cell is bit-identical to the full cell it came from.
+
+That split exists because adjacent cells of the full grid are very nearly the same
+measurement. A peak taken over 12,300 cells carries a large noise ceiling by
+construction, and counting those cells as 12,300 independent tests overstates the search
+in both directions at once. On the summary the same statistic is a peak over 1,190
+cells, with a correspondingly lower ceiling and an honest test count.
+
+Every node passes through every stage, the `baseline` node included — its validation
+comes out degenerate by construction (peak deviation exactly 0, p exactly 1), and that
+is on purpose. A uniform pipeline carrying one meaningless file is worth more than a
+pipeline with a special case in it.
 
 The **cube** is a 3-D array per node — barrier level θ from −20% to +20% (41 levels,
 including 0), the feature's ten condition bins, and every horizon from +1 to +30 bars.
@@ -155,9 +169,13 @@ wise correction is structurally impossible here — nothing could ever clear it,
 strong the signal:
 
 ```
-p-value floor                         2.59e-04
-Bonferroni α over 1,980 tests         2.53e-05   below the floor, unusable
+p-value floor                       2.59e-04
+Bonferroni α over 462 tests         1.08e-04   below the floor, unusable
 ```
+
+Reducing to the summary grid shrinks the sweep from 1,980 tests to 462 and moves
+Bonferroni's threshold from 2.5e-05 to 1.1e-04 — much closer to reachable, still not
+reachable.
 
 So the gate uses **Benjamini–Hochberg** instead, comparing the k-th smallest p-value
 against `k·q/m`. Tests sitting at the floor then clear collectively, and what is
@@ -172,19 +190,21 @@ stale the moment another node joined the sweep.
 
 ## Results
 
-| Workspace | Nodes | Economic | BH discovery | **Cleared both** |
-|---|--:|--:|--:|--:|
-| `btc_daily_14days` | 66 | 57 | 52 | **51** |
-| `nasdaq_hourly_24hrs` | 34 | 31 | 30 | **29** |
+| Workspace | Nodes | Tests | Economic | BH discovery | **Cleared both** |
+|---|--:|--:|--:|--:|--:|
+| `btc_daily_14days` | 66 | 462 | 54 | 51 | **50** |
+| `nasdaq_hourly_24hrs` | 34 | 204 | 31 | 30 | **29** |
 
-Barrier-touch probability is strongly and widely predictable, which is not a surprise:
-41% of BTC's discoveries sit at the resolution floor, meaning the real surface is more
-extreme than *every* one of the 3,838 usable shifts.
+Barrier-touch probability is strongly and widely predictable, which is not a surprise —
+many discoveries sit at the resolution floor, meaning the real surface is more extreme
+than *every* one of the ~3,838 usable shifts.
 
-**Read the horizon distribution before getting excited.** Of the 51 cleared nodes, 36
-have their strongest cell at **h = 1**. At one bar ahead, "will price touch −2%" is
+**Read the horizon distribution before getting excited.** Of the 50 cleared BTC nodes,
+36 have their strongest cell at **h = 1**. At one bar ahead, "will price touch −2%" is
 close to asking "is volatility high right now", and volatility features answer that
 near-tautologically. It is real, it is significant, and it is mostly mechanical.
+
+`cycle` and `dxy` clear nothing, on either grid, in every version of this pipeline.
 
 **Barrier-touch probability is strongly predictable, and that is not a surprise.** What
 drives it is conditional *variance* — the size of the coming move — which is what
@@ -204,10 +224,12 @@ value: it tells you where to put a stop, and it does not tell you which way to b
 ```bash
 pip install -r requirements.txt
 
-python run.py --workspace btc_daily_14days --cubes              # 1. measure
-python run.py --workspace btc_daily_14days --surfaces           # 2. render
-python run.py --workspace btc_daily_14days --validate           # 3. falsify
-python run.py --workspace btc_daily_14days --gate               # correct + intersect
+python run.py --workspace btc_daily_14days --cubes              # 1. measure  (full)
+python run.py --workspace btc_daily_14days --surfaces           # 2. render   (full)
+python run.py --workspace btc_daily_14days --cubes-summary      # 3. reduce   (+ economic filter)
+python run.py --workspace btc_daily_14days --surfaces-summary   # 4. render   (summary)
+python run.py --workspace btc_daily_14days --validate           # 5. falsify  (on the summary)
+python run.py --workspace btc_daily_14days --gate               # 6. correct + intersect
 python run.py --workspace btc_daily_14days --status             # the funnel
 python run.py --workspace btc_daily_14days --read bb_pct_20     # one node, in the terminal
 ```
@@ -215,8 +237,11 @@ python run.py --workspace btc_daily_14days --read bb_pct_20     # one node, in t
 | Command | Writes |
 |---|---|
 | `--cubes` | `cubes/<family>/<node>.npz` (**the measurement**), `evaluation.json` — builds `baseline` first |
-| `--surfaces` | `surfaces/<family>/<node>.xlsx` (**the deliverable**) — 10 tabs, renders only |
+| `--surfaces` | `surfaces_full/<family>/<node>.xlsx` — 10 tabs, renders only |
+| `--cubes-summary` | `cubes_summary/…` + `evaluation.json` — the judged grid |
+| `--surfaces-summary` | `surfaces_summary/…` — same renderer, coarse grid |
 | `--validate` | `validations/<family>/<node>.npz` — per-cell and peak nulls, one per node |
+| `--validate` | `validations_xlsx/<family>/<node>.xlsx` — readable validation summary, signed deviations and pointwise p-values |
 | `--gate` | `cleared.json` — BH across the sweep, intersected with the economic filter |
 | `--status` | *(terminal)* the funnel per family |
 | `--read <id>` | *(terminal)* the θ rows carrying a qualifying cell |
@@ -238,6 +263,8 @@ A workspace is one `universe.json`. No root code changes.
     "horizons": {"min": 1, "max": 30},
     "barrier_horizons": [3, 7, 14, 30],
     "theta":    {"min": -0.20, "max": 0.20, "step": 0.01},
+    "summary":  {"theta_abs": [0, 0.01, 0.02, 0.03, 0.05, 0.07, 0.10, 0.15, 0.20],
+                 "horizons":  [1, 2, 3, 5, 7, 14, 30]},
     "n_bins":   10,
     "evaluate": {"min_dev": 10.0, "min_bin_n": 50, "min_run": 2}
   },
@@ -250,9 +277,10 @@ A workspace is one `universe.json`. No root code changes.
 }
 ```
 
-`horizons` is the cube's full ladder; `barrier_horizons` is the subset the null
-test runs on — adjacent horizons are nearly the same measurement, so testing all
-thirty would inflate the Bonferroni denominator without adding independent evidence.
+`summary.theta_abs` is given as magnitudes and mirrored, so the judged ladder stays
+symmetric and 0 appears exactly once. Every value must exist on the full grid — the
+summary is a subset, and asking for one that isn't there raises rather than
+interpolating, because interpolating would make it a second measurement.
 
 **Scale θ to the asset and horizon.** BTC daily runs ±20% in 1% steps. NASDAQ hourly runs
 ±4% in 0.2% steps — a 20% move inside a trading day does not happen, and every row of
@@ -293,7 +321,7 @@ data/
   features.py        ← FeatureRegistry: register() / compute()
   fetcher.py         ← SourceRegistry: register_source() / fetch()
 engine/
-  barrier.py         ← the cube, quantile bins, economic filter, npz io
+  barrier.py         ← the cube, quantile bins, summary selection, economic filter, npz io
   validate.py        ← exact FFT circular-shift null, Benjamini-Hochberg
   writer.py          ← the xlsx deliverable (rendering only)
 tree/tree.py         ← node traversal over universe.json

@@ -23,8 +23,11 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 _PCT_FMT = '0.0%'
+_PP_FMT = '+0.0;-0.0;0.0'
+_PVAL_FMT = '0.0000'
 
 _WHITE, _AMBER, _RED = 'FFFFFF', 'FFD166', 'C00000'
+_GREEN = '00875A'
 _FILL_ROW1 = PatternFill('solid', start_color='666666', end_color='666666')
 _FILL_ROW2 = PatternFill('solid', start_color='B2B2B2', end_color='B2B2B2')
 _FILL_ROW3 = PatternFill('solid', start_color='CCCCCC', end_color='CCCCCC')
@@ -183,6 +186,174 @@ def write_barrier_xlsx(
         for j in range(n_h):
             ws.column_dimensions[get_column_letter(2 + j)].width = 6.5
         ws.freeze_panes = f'B{_DATA_ROW}'
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(path)
+
+
+def _safe_sheet_name(name: str, used: set[str]) -> str:
+    name = re.sub(r'[:\\/?*\[\]]', '-', name)[:31]
+    if name not in used:
+        used.add(name)
+        return name
+    base = name[:28]
+    k = 2
+    while f'{base}~{k}' in used:
+        k += 1
+    name = f'{base}~{k}'
+    used.add(name)
+    return name
+
+
+def _write_validation_matrix(
+    wb: Workbook,
+    used: set[str],
+    sheet_name: str,
+    values: np.ndarray,
+    thetas: np.ndarray,
+    horizons: np.ndarray,
+    title: str,
+    subtitle: str,
+    row3: str,
+    number_format: str,
+    unit: str,
+    pvalue_scale: bool,
+) -> None:
+    n_th, n_h = values.shape
+    order = np.argsort(thetas)[::-1]
+    end = get_column_letter(1 + n_h)
+    ws = wb.create_sheet(_safe_sheet_name(sheet_name, used))
+    _write_headers(ws, title, subtitle, row3, merge_end=end)
+
+    c = ws.cell(row=_COL_ROW, column=1, value='θ')
+    c.font, c.alignment = Font(bold=True), _CENTER
+    for j, h in enumerate(horizons):
+        c = ws.cell(row=_COL_ROW, column=2 + j, value=f'+{int(h)}{unit}')
+        c.font, c.alignment = Font(bold=True), _CENTER
+
+    for r_off, i in enumerate(order):
+        r = _DATA_ROW + r_off
+        th = float(thetas[i])
+        tc = ws.cell(row=r, column=1, value=th)
+        tc.number_format = '+0%;-0%;0%'
+        tc.font, tc.alignment = Font(bold=True), _CENTER
+        if abs(th) < 1e-12:
+            tc.fill = _FILL_MID
+        for j in range(n_h):
+            v = values[i, j]
+            cell = ws.cell(row=r, column=2 + j,
+                           value=None if not np.isfinite(v) else float(v))
+            cell.number_format = number_format
+            if not np.isfinite(v):
+                cell.fill = _FILL_NA
+
+    rng = f'B{_DATA_ROW}:{end}{_DATA_ROW + n_th - 1}'
+    if pvalue_scale:
+        ws.conditional_formatting.add(
+            rng,
+            ColorScaleRule(start_type='num', start_value=0, start_color=_GREEN,
+                           mid_type='num', mid_value=0.05, mid_color=_AMBER,
+                           end_type='num', end_value=1.0, end_color=_RED))
+    else:
+        ws.conditional_formatting.add(
+            rng,
+            ColorScaleRule(start_type='num', start_value=-20, start_color=_GREEN,
+                           mid_type='num', mid_value=0, mid_color=_WHITE,
+                           end_type='num', end_value=20, end_color=_RED))
+
+    ws.column_dimensions['A'].width = 8
+    for j in range(n_h):
+        ws.column_dimensions[get_column_letter(2 + j)].width = 8.5
+    ws.freeze_panes = f'B{_DATA_ROW}'
+
+
+def write_validation_xlsx(
+    result:  dict,
+    path:    Path,
+    node_id: str,
+    feature: str,
+    params:  dict,
+    unit:    str = 'd',
+) -> None:
+    """
+    Human-readable validation artifact.
+
+    The first sheet is the horizon-level search statistic used by the gate. The
+    remaining sheets render the per-cell signed deviation and pointwise p-value for
+    each condition bin. Pointwise p-values are for reading the surface; discoveries are
+    still assigned only by --gate across the whole sweep.
+    """
+    thetas = result['thetas']
+    horizons = result['horizons']
+    labels = result['meta']['bin_labels']
+    n_bins = result['cell_real'].shape[1]
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'summary'
+    end = 'F'
+    _write_headers(
+        ws,
+        f'{feature_label(node_id)} — validation summary',
+        'Peak null test by horizon; this is the statistic --gate corrects',
+        f'node {node_id}   params={params}   p floor = 1/(usable shifts + 1)',
+        merge_end=end,
+    )
+    headers = ['horizon', 'peak dev pp', 'null p95 pp', 'peak p', 'usable shifts', 'p floor']
+    for col, header in enumerate(headers, 1):
+        c = ws.cell(row=_COL_ROW, column=col, value=header)
+        c.font, c.alignment = Font(bold=True), _CENTER
+    for r_off, h in enumerate(horizons):
+        r = _COL_ROW + 1 + r_off
+        n = int(result['n_shifts'][r_off])
+        floor = None if n <= 0 else 1.0 / (1.0 + n)
+        row = [
+            f'+{int(h)}{unit}',
+            result['peak_real'][r_off],
+            result['peak_p95'][r_off],
+            result['peak_p'][r_off],
+            n,
+            floor,
+        ]
+        for col, v in enumerate(row, 1):
+            c = ws.cell(row=r, column=col,
+                        value=None if isinstance(v, float) and not np.isfinite(v) else v)
+            if col in (2, 3):
+                c.number_format = _PP_FMT
+            if col in (4, 6):
+                c.number_format = _PVAL_FMT
+            c.alignment = _CENTER
+    for col, width in enumerate([10, 13, 13, 10, 14, 10], 1):
+        ws.column_dimensions[get_column_letter(col)].width = width
+    ws.freeze_panes = f'A{_COL_ROW + 1}'
+
+    used = {'summary'}
+    names = _sheet_names(list(labels))
+    for b in range(n_bins):
+        label = labels[b]
+        suffix = names[b]
+        common = (f'node {node_id}   bin {b + 1} of {n_bins}: {label}   '
+                  'rows: barrier theta   columns: horizon')
+        _write_validation_matrix(
+            wb, used, f'dev {suffix}',
+            result['cell_real'][:, b, :], thetas, horizons,
+            f'{feature_label(node_id)} — signed validation deviation',
+            'Deviation from this node bin sample rate, percentage points',
+            common,
+            _PP_FMT,
+            unit,
+            pvalue_scale=False,
+        )
+        _write_validation_matrix(
+            wb, used, f'p {suffix}',
+            result['cell_p'][:, b, :], thetas, horizons,
+            f'{feature_label(node_id)} — pointwise validation p-values',
+            'Per-cell null p-values; useful for reading, not for discovery claims',
+            common,
+            _PVAL_FMT,
+            unit,
+            pvalue_scale=True,
+        )
 
     path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(path)

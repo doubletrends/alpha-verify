@@ -52,6 +52,15 @@ class Workspace:
 
         self.n_bins = meta.get('n_bins', 10)
 
+        # The summary is the grid everything is *judged* on: a coarse subset of the
+        # full ladder, chosen so adjacent cells are genuinely different measurements.
+        # theta is given as magnitudes and mirrored, which guarantees the ladder stays
+        # symmetric and 0 appears exactly once.
+        sm = meta.get('summary', {})
+        self.summary_theta_abs = sm.get('theta_abs',
+                                        [0, 0.01, 0.02, 0.03, 0.05, 0.07, 0.10, 0.15, 0.20])
+        self.summary_h = sm.get('horizons', [1, 2, 3, 5, 7, 14, 30])
+
         # Economic filter.
         ec = meta.get('evaluate', {})
         self.min_dev   = ec.get('min_dev', 10.0)
@@ -73,6 +82,15 @@ class Workspace:
         return np.arange(self.h_min, self.h_max + 1)
 
     @property
+    def summary_thetas(self) -> np.ndarray:
+        a = sorted({round(abs(float(v)), 10) for v in self.summary_theta_abs})
+        return np.array([-v for v in reversed(a) if v > 0] + [v for v in a], dtype=float)
+
+    @property
+    def summary_horizons(self) -> np.ndarray:
+        return np.array(sorted(int(h) for h in self.summary_h), dtype=int)
+
+    @property
     def thetas(self) -> np.ndarray:
         from engine import barrier
         return barrier.theta_levels(self.theta_min, self.theta_max, self.theta_step)
@@ -83,17 +101,32 @@ class Workspace:
     def tree_path(self) -> Path:
         return self.dir / 'universe.json'
 
+    # Four artifacts per node: the full measurement, its workbook, the coarse grid
+    # everything is judged on, and its workbook.
+
     def cube_path(self, family: str, node_id: str) -> Path:
-        return self.dir / 'cubes' / family / f'{node_id}.npz'
+        return self.dir / 'cubes_full' / family / f'{node_id}.npz'
 
     def has_cube(self, family: str, node_id: str) -> bool:
         return self.cube_path(family, node_id).exists()
 
     def surface_path(self, family: str, node_id: str) -> Path:
-        return self.dir / 'surfaces' / family / f'{node_id}.xlsx'
+        return self.dir / 'surfaces_full' / family / f'{node_id}.xlsx'
 
     def has_surface(self, family: str, node_id: str) -> bool:
         return self.surface_path(family, node_id).exists()
+
+    def summary_cube_path(self, family: str, node_id: str) -> Path:
+        return self.dir / 'cubes_summary' / family / f'{node_id}.npz'
+
+    def has_summary_cube(self, family: str, node_id: str) -> bool:
+        return self.summary_cube_path(family, node_id).exists()
+
+    def summary_surface_path(self, family: str, node_id: str) -> Path:
+        return self.dir / 'surfaces_summary' / family / f'{node_id}.xlsx'
+
+    def has_summary_surface(self, family: str, node_id: str) -> bool:
+        return self.summary_surface_path(family, node_id).exists()
 
     @property
     def eval_path(self) -> Path:
@@ -105,9 +138,15 @@ class Workspace:
     def has_validation(self, family: str, node_id: str) -> bool:
         return self.validation_path(family, node_id).exists()
 
+    def validation_sheet_path(self, family: str, node_id: str) -> Path:
+        return self.dir / 'validations_xlsx' / family / f'{node_id}.xlsx'
+
+    def has_validation_sheet(self, family: str, node_id: str) -> bool:
+        return self.validation_sheet_path(family, node_id).exists()
+
     @property
     def baseline_cube(self) -> Path:
-        return self.cube_path('_base', BASELINE_NODE)
+        return self.summary_cube_path('_base', BASELINE_NODE)
 
     @property
     def cleared_path(self) -> Path:

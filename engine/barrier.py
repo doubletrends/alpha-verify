@@ -202,6 +202,49 @@ def forward_extremes(data: pd.DataFrame, h: int) -> tuple[pd.Series, pd.Series]:
     return (lows / close - 1.0).where(valid), (highs / close - 1.0).where(valid)
 
 
+def summarize(cube: dict, thetas: np.ndarray, horizons: np.ndarray,
+              tol: float = 1e-9) -> dict:
+    """
+    Select a coarse sub-grid of a full cube, without re-measuring anything.
+
+    The full cube is the faithful record: 41 barrier levels a percentage point apart,
+    every horizon from 1 to 30. Adjacent rows and adjacent columns of that are very
+    nearly the same measurement, which matters when the surface is *judged* rather than
+    read -- a peak taken over 12,300 cells carries a large noise ceiling by construction,
+    and counting those cells as 12,300 independent tests overstates the size of the
+    search in both directions at once.
+
+    The summary keeps the same three axes and the same format, so the renderer and the
+    null both work on it unchanged. It is pure index selection: every requested value
+    must already exist in the full cube, or this raises rather than interpolating.
+    Silently interpolating would make the summary a second measurement, and then the two
+    could disagree.
+    """
+    def pick(want: np.ndarray, have: np.ndarray, name: str) -> np.ndarray:
+        idx = []
+        for v in want:
+            hits = np.flatnonzero(np.abs(have - v) <= tol)
+            if not len(hits):
+                raise ValueError(
+                    f'summary {name} {v!r} is not on the full grid '
+                    f'({have.min()}..{have.max()}); it must be a subset, not an interpolation')
+            idx.append(int(hits[0]))
+        return np.array(idx, dtype=int)
+
+    ti = pick(np.asarray(thetas, float), cube['thetas'], 'theta')
+    hi = pick(np.asarray(horizons, float), cube['horizons'].astype(float), 'horizon')
+
+    return {
+        'prob':     cube['prob'][np.ix_(ti, range(cube['prob'].shape[1]), hi)],
+        'hits':     cube['hits'][np.ix_(ti, range(cube['hits'].shape[1]), hi)],
+        'bin_n':    cube['bin_n'][:, hi],
+        'n_obs':    cube['n_obs'][hi],
+        'thetas':   cube['thetas'][ti],
+        'horizons': cube['horizons'][hi],
+        'edges':    cube['edges'],
+    }
+
+
 # ── economic evaluation ───────────────────────────────────────────────────────
 
 def evaluate(

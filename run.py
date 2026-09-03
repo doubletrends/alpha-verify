@@ -1,27 +1,31 @@
 """
 Barrier-touch pipeline.
 
-            --cubes      the measurement: per node, a (θ x bin x horizon) cube of
-                         P(touch θ in h | bin), saved as .npz.
-            --surfaces   Deliverable A: projects a few horizon slices of each cube into
-                         a workbook. Renders only; it never re-measures.
-            --validate   stage three: an exact circular-shift null per node, by FFT,
-                         written as one artifact per node beside its cube.
-            --gate       correct across the sweep with Benjamini-Hochberg, intersect
-                         with the economic filter, write what clears both.
+    --cubes             1. measure     cubes_full/       P(touch θ in h | bin)
+    --surfaces          2. render      surfaces_full/    the same values, readable
+    --cubes-summary     3. reduce      cubes_summary/    the coarse grid, + economic filter
+    --surfaces-summary  4. render      surfaces_summary/
+    --validate          5. falsify     validations/      exact shuffled null
+                                    validations_xlsx/ readable validation sheets
+    --gate              6. correct     cleared.json      Benjamini-Hochberg + economic
 
-The gate is the conclusion, not a hand-off: a node clears it only by passing both the
-economic filter and the null test. The economic one asks whether the edge is large and
-steady enough to be worth anything; the statistical one asks whether it is there at
-all. Either alone is a way to be confidently wrong.
+The full cube is the faithful record and is never judged. The summary is a strict
+subset of it -- index selection, no interpolation -- chosen so adjacent cells are
+genuinely different measurements. Everything that judges runs there: a peak over
+1,190 cells has a far lower noise ceiling than one over 12,300, and counting those
+cells as tests is an honest measure of how wide the search actually was.
+
+Every node passes through every stage, the baseline included. Shuffling a constant
+cannot change anything, so its validation is degenerate by construction -- one
+meaningless artifact is cheaper than a branch in the pipeline.
 
 Usage:
     python run.py --workspace btc_daily_14days --cubes
     python run.py --workspace btc_daily_14days --surfaces
+    python run.py --workspace btc_daily_14days --cubes-summary
+    python run.py --workspace btc_daily_14days --surfaces-summary
     python run.py --workspace btc_daily_14days --validate
     python run.py --workspace btc_daily_14days --gate
-    python run.py --workspace btc_daily_14days --status
-    python run.py --workspace btc_daily_14days --read bb_pct_20
 """
 
 import argparse
@@ -86,8 +90,8 @@ def _baseline_surface(ws: Workspace) -> "np.ndarray | None":
     return barrier.load_cube(path)['prob'][:, 0, :]
 
 
-def build_cube(ws: Workspace, node: dict, get_data, quiet: bool = False) -> dict:
-    """Measure one node across every horizon and barrier level; write the .npz."""
+def build_cube(ws: Workspace, node: dict, get_data, quiet: bool = False) -> None:
+    """Measure one node across every horizon and barrier level; write the full cube."""
     data, feat = _node_feature(ws, node, get_data)
     edges = barrier.bin_edges(feat, ws.n_bins)
     cube  = barrier.touch_tensor(data, feat, ws.horizons, ws.thetas, edges)
@@ -97,22 +101,15 @@ def build_cube(ws: Workspace, node: dict, get_data, quiet: bool = False) -> dict
         'feature': node['feature'], 'params': node['params'],
         'workspace': ws.dir.name,
         'bin_labels': barrier.bin_labels(edges, feat),
+        'grid': 'full',
         'generated': datetime.now(timezone.utc).isoformat(),
     })
-    baseline = _baseline_surface(ws)
-    if baseline is None:
-        return {'passed': False, 'best': None, 'per_horizon': {}}
-    ev = barrier.evaluate(cube, baseline, ws.min_dev, ws.min_bin_n, ws.min_run)
     if not quiet:
-        b = ev['best']
-        note = (f"best {b['dev']:+5.1f}pp  θ={b['theta']:+.0%}  "
-                f"+{b['horizon']}{ws.horizon_unit:<3} bin {b['bin']}  "
-                f"n={b['bin_n']}  run={b['run']}") if b else 'no qualifying cell'
-        print(f"  {node['id']:<26} {note}")
-    return ev
+        print(f"  {node['id']:<26} {cube['prob'].shape}  n={int(cube['n_obs'][0])}")
 
 
 def cmd_cubes(ws: Workspace, family: str | None = None, rerun: bool = False) -> None:
+    """Stage 1. The faithful record: every barrier level, every horizon."""
     tree  = load_tree(ws.tree_path)
     nodes = all_in_family(tree, family) if family else all_nodes(tree)
     if not rerun:
@@ -121,36 +118,89 @@ def cmd_cubes(ws: Workspace, family: str | None = None, rerun: bool = False) -> 
         print('Nothing to do (use --rerun to rebuild existing cubes).')
         return
 
-    # The baseline is the reference every other node is judged against, so it is built
-    # first -- and rebuilt whenever anything else is, since a stale one would silently
-    # shift every comparison.
-    nodes = ([n for n in nodes if n['id'] == BASELINE_NODE]
-             + [n for n in nodes if n['id'] != BASELINE_NODE])
-    if not any(n['id'] == BASELINE_NODE for n in nodes) and not ws.baseline_cube.exists():
-        print(f"No baseline cube yet. Run --cubes without --family, or add a "
-              f"'{BASELINE_NODE}' node, before evaluating conditions.")
-        return
-
     get_data = _loader(ws)
     hz = ws.horizons
-    print(f"\n=== Cubes [{ws.dir.name}] - {len(nodes)} nodes ===")
+    print(f"\n=== 1. Full cubes [{ws.dir.name}] - {len(nodes)} nodes ===")
     print(f"  {len(ws.thetas)} θ x {ws.n_bins} bins x {len(hz)} horizons "
           f"(+{hz[0]}{ws.horizon_unit}..+{hz[-1]}{ws.horizon_unit})   "
           f"θ {ws.thetas[0]:+.0%}..{ws.thetas[-1]:+.0%} step {ws.theta_step:.0%}")
-    print(f"  value = P(touch θ in h | bin); intraday high/low")
-    print(f"  the '{BASELINE_NODE}' node is the unconditional reference, built first\n")
+    print(f"  value = P(touch θ in h | bin); intraday high/low\n")
+
+    skipped = {}
+    for node in nodes:
+        try:
+            build_cube(ws, node, get_data)
+        except Exception as e:
+            skipped[node['id']] = str(e)
+            print(f"  {node['id']:<26} [skip] {e}")
+    print(f"\n  wrote to {ws.dir.relative_to(ROOT)}/cubes_full/"
+          + (f"   ({len(skipped)} skipped)" if skipped else ""))
+
+
+def cmd_surfaces(ws: Workspace, family: str | None = None) -> None:
+    """Stage 2. The full cube, made readable. Renders only; never re-measures."""
+    _render(ws, family, summary=False)
+
+
+def cmd_cubes_summary(ws: Workspace, family: str | None = None) -> None:
+    """
+    Stage 3. The coarse grid everything is judged on, selected from the full cube.
+
+    Pure index selection -- no interpolation, no second measurement -- so a summary cell
+    is bit-identical to the full cell it came from. Adjacent cells here are genuinely
+    different measurements, which is what makes a peak over them meaningful and a count
+    of them an honest test count.
+
+    The economic filter runs here rather than on the full cube, so that what is judged
+    and what is validated sit on the same grid.
+    """
+    tree  = load_tree(ws.tree_path)
+    nodes = [n for n in (all_in_family(tree, family) if family else all_nodes(tree))
+             if ws.has_cube(n['family'], n['id'])]
+    if not nodes:
+        print('No full cubes to summarize - run --cubes first.')
+        return
+
+    # the baseline is the reference the filter reads, so its summary must exist first
+    nodes = ([n for n in nodes if n['id'] == BASELINE_NODE]
+             + [n for n in nodes if n['id'] != BASELINE_NODE])
+
+    th, hz = ws.summary_thetas, ws.summary_horizons
+    print(f"\n=== 3. Summary cubes [{ws.dir.name}] - {len(nodes)} nodes ===")
+    print(f"  {len(th)} θ x {ws.n_bins} bins x {len(hz)} horizons = "
+          f"{len(th) * ws.n_bins * len(hz)} cells  "
+          f"(full: {len(ws.thetas) * ws.n_bins * len(ws.horizons)})")
+    print(f"  θ {', '.join(f'{v:+.0%}' for v in th[len(th)//2:])}  mirrored")
+    print(f"  h {', '.join(f'+{h}{ws.horizon_unit}' for h in hz)}\n")
 
     evals, skipped = {}, {}
     for node in nodes:
         try:
-            evals[node['id']] = build_cube(ws, node, get_data)
+            full = barrier.load_cube(ws.cube_path(node['family'], node['id']))
+            sub  = barrier.summarize(full, th, hz)
+            barrier.save_cube(sub, ws.summary_cube_path(node['family'], node['id']),
+                              {**full['meta'], 'grid': 'summary'})
         except Exception as e:
             skipped[node['id']] = str(e)
             print(f"  {node['id']:<26} [skip] {e}")
+            continue
+
+        baseline = _baseline_surface(ws)
+        if baseline is None:
+            print('  no baseline summary yet - cannot evaluate')
+            return
+        ev = barrier.evaluate(sub, baseline, ws.min_dev, ws.min_bin_n, ws.min_run)
+        evals[node['id']] = ev
+        b = ev['best']
+        note = (f"best {b['dev']:+5.1f}pp  θ={b['theta']:+.0%}  "
+                f"+{b['horizon']}{ws.horizon_unit:<3} bin {b['bin']}  n={b['bin_n']}  "
+                f"run={b['run']}") if b else 'no qualifying cell'
+        print(f"  {node['id']:<26} {note}")
 
     ws.write_json(ws.eval_path, {
         'workspace': ws.dir.name,
         'generated': datetime.now(timezone.utc).isoformat(),
+        'grid': {'thetas': th.tolist(), 'horizons': hz.tolist()},
         'criteria': {'min_dev': ws.min_dev, 'min_bin_n': ws.min_bin_n,
                      'min_run': ws.min_run},
         'passed':  sorted(n for n, e in evals.items() if e['passed']),
@@ -165,48 +215,47 @@ def cmd_cubes(ws: Workspace, family: str | None = None, rerun: bool = False) -> 
     print(f"  wrote {ws.eval_path.relative_to(ROOT)}")
 
 
-# -- Deliverable A: a projection of the cube ----------------------------------
+def cmd_surfaces_summary(ws: Workspace, family: str | None = None) -> None:
+    """Stage 4. The summary cube, made readable. Same renderer, smaller grid."""
+    _render(ws, family, summary=True)
 
-def cmd_surfaces(ws: Workspace, family: str | None = None) -> None:
-    """
-    Render the workbook from the cube: one tab per condition bin, each holding that
-    bin's whole (θ x horizon) face.
 
-    Every value in the cube appears in the workbook, so this is a faithful view of the
-    measurement rather than a summary of it. No measurement happens here.
-    """
-    tree  = load_tree(ws.tree_path)
+def _render(ws: Workspace, family: str | None, summary: bool) -> None:
+    tree = load_tree(ws.tree_path)
+    have = ws.has_summary_cube if summary else ws.has_cube
+    src  = ws.summary_cube_path if summary else ws.cube_path
+    dst  = ws.summary_surface_path if summary else ws.surface_path
+    label = 'summary' if summary else 'full'
+    stage = '4. Summary surfaces' if summary else '2. Full surfaces'
+
     nodes = [n for n in (all_in_family(tree, family) if family else all_nodes(tree))
-             if ws.has_cube(n['family'], n['id'])]
+             if have(n['family'], n['id'])]
     if not nodes:
-        print('No cubes to project - run --cubes first.')
+        print(f'No {label} cubes to render - run --cubes'
+              f'{"-summary" if summary else ""} first.')
         return
 
-    print(f"\n=== Deliverable A [{ws.dir.name}] - {len(nodes)} nodes ===")
-    print(f"  {ws.n_bins} tabs per node, one per condition bin; each tab is that bin's "
-          f"full θ x horizon face\n")
+    print(f"\n=== {stage} [{ws.dir.name}] - {len(nodes)} nodes ===")
+    print(f"  {ws.n_bins} tabs per node, one per condition bin; "
+          f"each tab is that bin's full θ x horizon face\n")
     n_ok = 0
     for node in nodes:
-        cube = barrier.load_cube(ws.cube_path(node['family'], node['id']))
+        cube = barrier.load_cube(src(node['family'], node['id']))
         try:
-            writer.write_barrier_xlsx(
-                cube, ws.surface_path(node['family'], node['id']),
-                node['id'], node['feature'], node['params'], ws.horizon_unit)
+            writer.write_barrier_xlsx(cube, dst(node['family'], node['id']),
+                                      node['id'], node['feature'], node['params'],
+                                      ws.horizon_unit)
         except PermissionError:
-            # Windows locks a workbook that is open in Excel. Skip it rather than
-            # abandoning the run -- the cube is already written, so re-running the
-            # projection once the file is closed costs nothing.
-            print(f"  {node['id']:<26} [locked] close it in Excel and re-run --surfaces")
+            print(f"  {node['id']:<26} [locked] close it in Excel and re-run")
             continue
         n_ok += 1
-    print(f"  wrote {n_ok} workbooks under {ws.dir.relative_to(ROOT)}/surfaces/")
+    print(f"  wrote {n_ok} workbooks under {ws.dir.relative_to(ROOT)}/"
+          f"surfaces_{label}/")
 
-
-# ── Validation ────────────────────────────────────────────────────────────────
 
 def cmd_validate(ws: Workspace, family: str | None = None, rerun: bool = False) -> None:
     """
-    Stage three, per node: null-test the cube and write an artifact beside it.
+    Stage 5, per node: null-test the *summary* cube and write an artifact beside it.
 
     Every node gets one, the baseline included. Shuffling a constant feature cannot
     change anything, so its artifact comes out degenerate -- peak deviation 0, p = 1 --
@@ -218,38 +267,53 @@ def cmd_validate(ws: Workspace, family: str | None = None, rerun: bool = False) 
     """
     tree  = load_tree(ws.tree_path)
     nodes = [n for n in (all_in_family(tree, family) if family else all_nodes(tree))
-             if ws.has_cube(n['family'], n['id'])]
+             if ws.has_summary_cube(n['family'], n['id'])]
     if not rerun:
-        nodes = [n for n in nodes if not ws.has_validation(n['family'], n['id'])]
+        nodes = [n for n in nodes if (
+            not ws.has_validation(n['family'], n['id'])
+            or not ws.has_validation_sheet(n['family'], n['id'])
+        )]
     if not nodes:
-        print('Nothing to validate (use --rerun to redo existing artifacts).')
+        print('Nothing to validate or render (use --rerun to redo, or --cubes-summary first).')
         return
 
     get_data = _loader(ws)
-    print(f"\n=== Validation [{ws.dir.name}] - {len(nodes)} nodes ===")
-    print(f"  exact circular-shift null over every shift, by FFT; "
-          f"{len(ws.thetas)} θ x {ws.n_bins} bins x {len(ws.horizons)} horizons per node")
-    print(f"  guard {val.EDGE_GUARD} bars either side, so the p-value floor is 1/(usable+1)\n")
+    th, hz = ws.summary_thetas, ws.summary_horizons
+    print(f"\n=== 5. Validation [{ws.dir.name}] - {len(nodes)} nodes ===")
+    print(f"  on the summary grid: {len(th)} θ x {ws.n_bins} bins x {len(hz)} horizons "
+          f"= {len(th) * ws.n_bins * len(hz)} cells per node")
+    print(f"  a peak over that has a far lower noise ceiling than one over the full "
+          f"{len(ws.thetas) * ws.n_bins * len(ws.horizons)}")
+    print(f"  guard {val.EDGE_GUARD} bars either side, so the p-value floor is 1/(usable+1)")
+    print(f"  writes .npz machine artifacts and .xlsx readable validation sheets\n")
 
-    done = 0
+    done_npz = 0
+    done_xlsx = 0
     for node in nodes:
         try:
-            data, feat = _node_feature(ws, node, get_data)
-            cube = barrier.load_cube(ws.cube_path(node['family'], node['id']))
+            cube = barrier.load_cube(ws.summary_cube_path(node['family'], node['id']))
+            if ws.has_validation(node['family'], node['id']) and not rerun:
+                r = val.load(ws.validation_path(node['family'], node['id']))
+            else:
+                data, feat = _node_feature(ws, node, get_data)
+                # the summary cube's own coordinates and edges, so the test and the
+                # thing it judges are the same grid down to the last cell
+                r = val.validate_node(data, feat, cube['horizons'], cube['thetas'], cube['edges'])
+                val.save(r, ws.validation_path(node['family'], node['id']), {
+                    'node': node['id'], 'family': node['family'],
+                    'feature': node['feature'], 'params': node['params'],
+                    'workspace': ws.dir.name,
+                    'bin_labels': cube['meta']['bin_labels'],
+                    'generated': datetime.now(timezone.utc).isoformat(),
+                })
+                done_npz += 1
+            writer.write_validation_xlsx(
+                r, ws.validation_sheet_path(node['family'], node['id']),
+                node['id'], node['feature'], node['params'], ws.horizon_unit)
+            done_xlsx += 1
         except Exception as e:
             print(f"  {node['id']:<26} [skip] {e}")
             continue
-
-        # the cube's own edges, so validation partitions the sample identically
-        r = val.validate_node(data, feat, ws.horizons, ws.thetas, cube['edges'])
-        val.save(r, ws.validation_path(node['family'], node['id']), {
-            'node': node['id'], 'family': node['family'],
-            'feature': node['feature'], 'params': node['params'],
-            'workspace': ws.dir.name,
-            'bin_labels': cube['meta']['bin_labels'],
-            'generated': datetime.now(timezone.utc).isoformat(),
-        })
-        done += 1
 
         finite = np.isfinite(r['peak_p'])
         if finite.any():
@@ -262,7 +326,8 @@ def cmd_validate(ws: Workspace, family: str | None = None, rerun: bool = False) 
         else:
             print(f"  {node['id']:<26} insufficient data at every horizon")
 
-    print(f"\n  wrote {done} artifacts under {ws.dir.relative_to(ROOT)}/validations/")
+    print(f"\n  wrote {done_npz} .npz artifacts under {ws.dir.relative_to(ROOT)}/validations/")
+    print(f"  wrote {done_xlsx} workbooks under {ws.dir.relative_to(ROOT)}/validations_xlsx/")
     print(f"  verdicts are assigned by --gate, which needs the whole sweep to correct across")
 
 
@@ -386,15 +451,18 @@ def cmd_status(ws: Workspace) -> None:
     cleared = {c['node'] for c in cl.get('cleared', [])}
     disc = {t['node'] for t in cl.get('tests', []) if t.get('verdict') == 'discovery'}
 
-    by_fam = defaultdict(lambda: [0, 0, 0, 0, 0, 0])
+    by_fam = defaultdict(lambda: [0, 0, 0, 0, 0, 0, 0, 0, 0])
     for n in all_nodes(tree):
         c = by_fam[n['family']]
         c[0] += 1
         c[1] += bool(ws.has_cube(n['family'], n['id']))
         c[2] += bool(ws.has_surface(n['family'], n['id']))
-        c[3] += bool(ws.has_validation(n['family'], n['id']))
-        c[4] += bool(ev.get(n['id'], {}).get('passed'))
-        c[5] += n['id'] in cleared
+        c[3] += bool(ws.has_summary_cube(n['family'], n['id']))
+        c[4] += bool(ws.has_summary_surface(n['family'], n['id']))
+        c[5] += bool(ws.has_validation(n['family'], n['id']))
+        c[6] += bool(ws.has_validation_sheet(n['family'], n['id']))
+        c[7] += bool(ev.get(n['id'], {}).get('passed'))
+        c[8] += n['id'] in cleared
 
     print(f"\n=== Status [{ws.dir.name}] ===")
     print(f"  θ {ws.thetas[0]:+.0%}..{ws.thetas[-1]:+.0%}   "
@@ -405,14 +473,21 @@ def cmd_status(ws: Workspace) -> None:
         print(f"  gate: BH q={meth.get('q')} over {meth.get('n_tests')} tests, "
               f"{len(disc)} nodes with a discovery")
     print()
-    print(f"  {'family':<16}{'nodes':>7}{'cube':>7}{'sheet':>7}{'valid':>7}{'econ':>7}{'cleared':>9}")
-    print('  ' + '-' * 60)
+    hdr = (f"  {'family':<15}{'nodes':>6}{'cube':>6}{'sheet':>6}"
+           f"{'sum':>6}{'sheet':>6}{'valid':>7}{'v-sheet':>8}{'econ':>6}{'cleared':>9}")
+    print(hdr)
+    print('  ' + '-' * (len(hdr) - 2))
     for fam in sorted(by_fam):
         c = by_fam[fam]
-        print(f"  {fam:<16}{c[0]:>7}{c[1]:>7}{c[2]:>7}{c[3]:>7}{c[4]:>7}{c[5]:>9}")
-    tot = [sum(by_fam[f][i] for f in by_fam) for i in range(6)]
-    print('  ' + '-' * 60)
-    print(f"  {'TOTAL':<16}{tot[0]:>7}{tot[1]:>7}{tot[2]:>7}{tot[3]:>7}{tot[4]:>7}{tot[5]:>9}")
+        print(f"  {fam:<15}" + ''.join(f'{v:>6}' for v in c[:5])
+              + f"{c[5]:>7}{c[6]:>8}{c[7]:>6}{c[8]:>9}")
+    tot = [sum(by_fam[f][i] for f in by_fam) for i in range(9)]
+    print('  ' + '-' * (len(hdr) - 2))
+    print(f"  {'TOTAL':<15}" + ''.join(f'{v:>6}' for v in tot[:5])
+          + f"{tot[5]:>7}{tot[6]:>8}{tot[7]:>6}{tot[8]:>9}")
+    print(f"\n  full grid {len(ws.thetas)}θ x {len(ws.horizons)}h   |   "
+          f"summary {len(ws.summary_thetas)}θ x {len(ws.summary_horizons)}h "
+          f"(judged and validated here)")
 
 
 def cmd_read(ws: Workspace, node_id: str) -> None:
@@ -502,7 +577,7 @@ def cmd_read(ws: Workspace, node_id: str) -> None:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='Barrier-touch pipeline: P(price reaches θ within h | condition), '
-                    'then what that is worth as a trade.')
+                    'measured on a full grid and judged on a coarse one.')
     parser.add_argument('--workspace', metavar='NAME', default='btc_daily_14days')
     parser.add_argument('--family', metavar='NAME', help='Restrict to one family')
     parser.add_argument('--rerun', action='store_true', help='Rebuild cubes that already exist')
@@ -510,10 +585,15 @@ if __name__ == '__main__':
                         help='Benjamini-Hochberg false-discovery rate for --gate (default 0.05)')
 
     g = parser.add_mutually_exclusive_group()
-    g.add_argument('--cubes',    action='store_true', help='Measure every node: θ x bin x horizon (pre-A)')
-    g.add_argument('--surfaces', action='store_true', help='Project cubes into Deliverable A workbooks')
-    g.add_argument('--validate', action='store_true', help='Stage 3: null-test every cube, one artifact per node')
-    g.add_argument('--gate',     action='store_true', help='Correct across the sweep (BH) and intersect with the economic filter')
+    g.add_argument('--cubes',           action='store_true', help='1. measure: full θ x bin x horizon cube per node')
+    g.add_argument('--surfaces',        action='store_true', help='2. render the full cubes')
+    g.add_argument('--cubes-summary',   action='store_true', dest='cubes_summary',
+                   help='3. select the coarse grid everything is judged on; runs the economic filter')
+    g.add_argument('--surfaces-summary', action='store_true', dest='surfaces_summary',
+                   help='4. render the summary cubes')
+    g.add_argument('--validate', action='store_true',
+                   help='5. null-test every summary cube, writing .npz and readable .xlsx artifacts')
+    g.add_argument('--gate',     action='store_true', help='6. correct across the sweep (BH) and intersect with the economic filter')
     g.add_argument('--status',   action='store_true', help='Inventory by family')
     g.add_argument('--read',     metavar='ID', help='Print a node surface summary')
 
@@ -524,6 +604,10 @@ if __name__ == '__main__':
         cmd_cubes(ws, args.family, args.rerun)
     elif args.surfaces:
         cmd_surfaces(ws, args.family)
+    elif args.cubes_summary:
+        cmd_cubes_summary(ws, args.family)
+    elif args.surfaces_summary:
+        cmd_surfaces_summary(ws, args.family)
     elif args.validate:
         cmd_validate(ws, args.family, args.rerun)
     elif args.gate:

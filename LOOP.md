@@ -1,7 +1,17 @@
 # Pipeline — Procedure
 
-Three stages, one artifact per node at each: measure into a cube, render it as a
-workbook, falsify it against a shuffled null. Nothing else is produced.
+Six stages, with machine and readable artifacts per node. The full grid is measured and rendered but
+never judged; a coarse subset of it is what gets judged and validated.
+
+```
+--cubes             1. measure   cubes_full/         41 θ × 10 bins × 30 h
+--surfaces          2. render    surfaces_full/
+--cubes-summary     3. reduce    cubes_summary/      17 θ × 10 bins × 7 h  (+ economic filter)
+--surfaces-summary  4. render    surfaces_summary/
+--validate          5. falsify   validations/        exact shuffled null
+                              validations_xlsx/   readable validation sheets
+--gate              6. correct   cleared.json        Benjamini-Hochberg + economic
+```
 
 Pass `--workspace <name>` to every command.
 
@@ -29,14 +39,14 @@ the economic filter, how many clear the null, how many clear both.
 
 ---
 
-## 1. Measure — the cube (pre-A)
+## 1. Measure — the full cube
 
 ```
 python run.py --workspace <name> --cubes
 python run.py --workspace <name> --cubes --family volatility   # or one family
 ```
 
-Writes `cubes/<family>/<node>.npz` — a 3-D array per node:
+Writes `cubes_full/<family>/<node>.npz` — a 3-D array per node:
 
 | axis | contents |
 |---|---|
@@ -80,14 +90,14 @@ workbook a *projection* rather than a second computation, so the two can never d
 
 ---
 
-## 2. Render — Deliverable A
+## 2. Render the full cube
 
 ```
 python run.py --workspace <name> --surfaces
 ```
 
-Reads the cubes and writes `surfaces/<family>/<node>.xlsx` — **one tab per condition
-bin**, each holding that bin's entire θ × h face:
+Reads the cubes and writes `surfaces_full/<family>/<node>.xlsx` — **one tab per
+condition bin**, each holding that bin's entire θ × h face:
 
 | | |
 |---|---|
@@ -119,17 +129,47 @@ and large |θ| at short horizons is touched almost never.
 
 ---
 
-## 3. Falsify
+## 3. Reduce — the summary grid
+
+```
+python run.py --workspace <name> --cubes-summary
+python run.py --workspace <name> --surfaces-summary
+```
+
+Selects a coarse sub-grid out of each full cube and writes `cubes_summary/` and
+`surfaces_summary/`. Pure index selection: every summary cell is bit-identical to the
+full cell it came from, and a requested θ or h that is not on the full grid raises
+rather than interpolating — interpolating would make the summary a second measurement,
+and then the two could disagree.
+
+**Why judge a subset.** Adjacent cells of the full grid are very nearly the same
+measurement. A peak over 12,300 cells has a large noise ceiling by construction, and
+counting them as 12,300 tests overstates the search in both directions at once. On the
+summary the peak is over 1,190 cells and the test count is honest.
+
+The **economic filter runs here**, not on the full cube, so that what is judged and what
+is validated sit on the same grid. Writes `evaluation.json`.
+
+Configure with `summary.theta_abs` (magnitudes, mirrored) and `summary.horizons`.
+
+---
+
+## 4. Falsify
 
 ```
 python run.py --workspace <name> --validate
 python run.py --workspace <name> --validate --family volatility   # or one family
 ```
 
+Runs on the **summary** cube, using its stored θ, horizons and bin edges, so the test
+and the thing it judges are the same grid down to the last cell.
+
 Writes `validations/<family>/<node>.npz`, one per node — the baseline included, whose
-artifact comes out degenerate because shuffling a constant cannot change anything. Per
-node artifacts also mean two runs never write the same path, which is what made a shared
-validation file untrustworthy.
+artifact comes out degenerate because shuffling a constant cannot change anything. It
+also writes `validations_xlsx/<family>/<node>.xlsx`, a readable workbook with a summary
+tab plus per-bin signed-deviation and pointwise-p tabs. Per-node artifacts also mean two
+runs never write the same path, which is what made a shared validation file
+untrustworthy.
 
 | | |
 |---|---|
@@ -141,8 +181,14 @@ validation file untrustworthy.
 
 **The null is exact.** `counts[θ, bin]` as a function of shift is a circular
 cross-correlation, so one FFT gives every shift at once — ~70× faster than resampling
-and it returns the whole permutation distribution. All 30 horizons cost ~3 min per
-workspace, so there is no reason to test a subset.
+and it returns the whole permutation distribution. On the summary grid the whole
+workspace validates in well under a minute.
+
+Counts are rounded to integers after the transform. They are counts of 0/1 indicators
+and so exact by construction; the FFT returns them with ~1e-13 of roundoff. That matters
+most in the degenerate case — a single-bin cube has a deviation of identically zero, and
+without rounding the null compares one speck of numerical noise against another and
+returns a meaningless p-value instead of 1.
 
 **Its floor is real.** Only *n* distinct shifts exist, so no p-value below `1/(n+1)`
 (~2.6e-4) is obtainable. Resampling 20,000 shifts from a group of 4,214 and reporting
@@ -153,7 +199,7 @@ read where a surface is unusual; never as a criterion for finding something.
 
 ---
 
-## 4. The gate
+## 5. The gate
 
 ```
 python run.py --workspace <name> --gate
@@ -254,7 +300,8 @@ There is no `status` field — progress is read from disk.
 | `start_date` | history start |
 | `horizons` | `{min, max}` — the cube's horizon ladder |
 
-| `theta` | `{min, max, step}` — the barrier ladder |
+| `theta` | `{min, max, step}` — the full barrier ladder |
+| `summary` | `{theta_abs, horizons}` — the coarse grid that gets judged |
 | `n_bins` | condition bins per feature (quantile) |
 | `evaluate` | `{min_dev, min_bin_n, min_run}` — the economic filter |
 
@@ -269,9 +316,11 @@ and every row of that ladder would be empty.
 | Path | Written by | Contents |
 |------|-----------|----------|
 | `universe.json` | you | nodes + asset config; never written by the pipeline |
-| `cubes/_base/baseline.npz` | `--cubes` | the unconditional reference, built first |
-| `cubes/<family>/<node>.npz` | `--cubes` | **the measurement** — (θ × bin × h) probabilities |
-| `surfaces/<family>/<node>.xlsx` | `--surfaces` | **the deliverable** — 10 tabs, the cube made readable |
-| `evaluation.json` | `--cubes` | economic filter verdict per node |
+| `cubes_full/<family>/<node>.npz` | `--cubes` | the faithful record — (θ × bin × h) probabilities |
+| `surfaces_full/<family>/<node>.xlsx` | `--surfaces` | 10 tabs, the full cube made readable |
+| `cubes_summary/<family>/<node>.npz` | `--cubes-summary` | the judged grid, a strict subset |
+| `surfaces_summary/<family>/<node>.xlsx` | `--surfaces-summary` | 10 tabs, the summary made readable |
+| `evaluation.json` | `--cubes-summary` | economic filter verdict per node |
 | `validations/<family>/<node>.npz` | `--validate` | per-cell and peak nulls, one per node |
+| `validations_xlsx/<family>/<node>.xlsx` | `--validate` | readable validation summary, signed deviations and pointwise p-values |
 | `cleared.json` | `--gate` | BH verdicts for every test, and what clears both filters |
