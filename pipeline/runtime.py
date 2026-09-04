@@ -7,7 +7,7 @@ import numpy as np
 
 from data import features, fetcher
 from engine import barrier
-from tree.tree import all_nodes, load_tree
+from universe import all_nodes, load_universe
 from workspace import BASELINE_NODE, Workspace
 
 
@@ -56,10 +56,10 @@ def feature_panel(ws: Workspace) -> tuple[pd.DataFrame, dict, dict]:
     valid-row intersection, so it is excluded from the feature matrix. Its prior still
     enters the model through the baseline surface.
     """
-    tree = load_tree(ws.tree_path)
+    universe = load_universe(ws.universe_path)
     get_data = loader(ws)
     feats, fams, data = {}, {}, None
-    for node in all_nodes(tree):
+    for node in all_nodes(universe):
         if node["id"] == BASELINE_NODE:
             continue
         try:

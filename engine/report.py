@@ -1,4 +1,4 @@
-"""Stage seven: render report figures from artifacts on disk."""
+"""Stage 6: render report figures from artifacts on disk."""
 
 from __future__ import annotations
 
@@ -12,12 +12,13 @@ from engine.report_diagnostics import (
     fig_null_gap_ranking,
 )
 from engine.report_single_node import fig_atr_ladder, fig_band, fig_baseline, fig_shift
-from tree.tree import all_nodes, load_tree
+from universe import all_nodes, load_universe
 
 
 _CAPTIONS = {
     '01_band.png': 'The measured forward envelope starts at the last close.',
-    '02_landscape.png': 'Magnitude clears the null; direction mostly does not.',
+    '02_landscape.png': 'Cleared nodes are large enough to matter and strong enough '
+                        'to beat their own null.',
     '03_where_the_edge_is.png': 'Where the strongest cleared effects sit by horizon.',
     '04_families.png': 'Which feature families carry discoveries.',
     '05_null.png': 'The exact circular-shift null as a distribution, and its resolution '
@@ -38,15 +39,15 @@ _CAPTIONS = {
 def build(ws) -> None:
     """Render every figure this workspace has the artifacts for."""
     out = ws.result_dir
-    tree = load_tree(ws.tree_path)
+    universe = load_universe(ws.universe_path)
     evaluation = ws.read_json(ws.eval_path)
     cleared = ws.read_json(ws.cleared_path)
 
     if not cleared:
-        print('No 05_gate.json - run --gate first.')
+        print('No 04_gate.json - run --gate first.')
         return
 
-    print(f"\n=== 7. Report [{ws.dir.name}] ===")
+    print(f"\n=== 6. Report [{ws.dir.name}] ===")
     print(f"  rendering from artifacts on disk; nothing here re-measures\n")
 
     # stale numbering from an earlier layout would otherwise linger beside the new files
@@ -54,14 +55,14 @@ def build(ws) -> None:
         stale.unlink()
 
     jobs = [
-        ('band',             lambda: fig_band(ws, tree, cleared, out)),
-        ('landscape',        lambda: fig_landscape(ws, tree, evaluation, cleared, out)),
+        ('band',             lambda: fig_band(ws, universe, cleared, out)),
+        ('landscape',        lambda: fig_landscape(ws, universe, evaluation, cleared, out)),
         ('where the edge is', lambda: fig_horizons(ws, cleared, out)),
-        ('families',         lambda: fig_families(ws, tree, cleared, out)),
-        ('the null',         lambda: fig_null(ws, tree, cleared, out)),
-        ('funnel',           lambda: fig_funnel(ws, tree, evaluation, cleared, out)),
+        ('families',         lambda: fig_families(ws, universe, cleared, out)),
+        ('the null',         lambda: fig_null(ws, universe, cleared, out)),
+        ('funnel',           lambda: fig_funnel(ws, universe, evaluation, cleared, out)),
         ('baseline surface', lambda: fig_baseline(ws, out)),
-        ('conditional shift', lambda: fig_shift(ws, tree, cleared, out)),
+        ('conditional shift', lambda: fig_shift(ws, universe, cleared, out)),
         ('composition',      lambda: fig_calibration(ws, out)),
         ('composition grid', lambda: fig_composition_grid(ws, out)),
         ('ATR ladder',       lambda: fig_atr_ladder(ws, cleared, out)),
@@ -83,7 +84,7 @@ def build(ws) -> None:
 
     index = [f'# {ws.dir.name}', '',
              f"`{ws.asset['ticker']}` · {ws.asset.get('interval', '1d')} · "
-             f"from {ws.start_date} · {len(all_nodes(tree))} nodes", '']
+             f"from {ws.start_date} · {len(all_nodes(universe))} nodes", '']
     for p in written:
         index += [f'### {_CAPTIONS.get(p.name, p.stem)}', '',
                   f'![{p.stem}]({p.name})', '']

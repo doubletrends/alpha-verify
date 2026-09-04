@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "volatility-matrix"
+version = "0.1.0"
+description = "Conditional barrier-touch probability pipeline."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "numpy>=2.0",
+  "pandas>=2.2",
+  "matplotlib>=3.8",
+  "yfinance>=0.2",
+  "openpyxl>=3.1",
+]
+
+[project.scripts]
+volatility-matrix = "pipeline.cli:main"
+
+[tool.setuptools]
+packages = ["data", "engine", "pipeline"]
+py-modules = ["run", "workspace", "universe"]

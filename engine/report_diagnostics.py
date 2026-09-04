@@ -27,139 +27,99 @@ from engine.report_style import (
 )
 from engine.writer import feature_label
 from pipeline.runtime import loader, node_feature
-from tree.tree import all_nodes
+from universe import all_nodes
 from workspace import BASELINE_NODE
 
 
-def fig_landscape(ws, tree, evaluation, cleared, out: Path) -> Path | None:
+def fig_landscape(ws, universe, evaluation, cleared, out: Path) -> Path | None:
     """
-    Every node as one point, on the three axes the pipeline actually judges by.
+    Every validated node as one point on the two axes that decide whether it clears.
 
-    x and y are each a node's peak against *its own* null, so both are dimensionless and
-    1.0 means "exactly at the 95th percentile of what shuffling produces". That framing
-    matters more than it looks: the noise ceiling is not one number across the sweep, it
-    depends on how a feature bins and how much history it survives, so comparing raw
-    percentage points between nodes compares their sample sizes as much as their signal.
-
-    x  does the condition move the *magnitude* of the move -- P(touch θ) at all
-    y  does it move the *direction* -- the up/down asymmetry, drift removed
-    c  is it big enough to act on -- the economic filter's own effect size
-
-    The picture is the thesis. Everything spreads horizontally and nothing spreads
-    vertically: conditions move how far price travels and not which way.
+    x is the economic effect size: the strongest qualifying cell's deviation from the
+    baseline probability, in percentage points. y is the statistical strength: the
+    observed surface peak divided by that node's own shuffled-null p95. The upper-right
+    quadrant is the product claim: large enough to matter, and too strong to explain as
+    feature alignment noise.
     """
     tests = cleared.get('tests', [])
     if not tests:
         return None
 
-    def best_ratio(rows):
-        out_ = {}
-        for r in rows:
-            if r.get('peak_p95'):
-                v = r['peak_real'] / r['peak_p95']
-                out_[r['node']] = max(out_.get(r['node'], -np.inf), v)
-        return out_
+    best_null = {}
+    for r in tests:
+        if r.get('node') == BASELINE_NODE or not r.get('peak_p95'):
+            continue
+        v = float(r['peak_real']) / float(r['peak_p95'])
+        cur = best_null.get(r['node'])
+        if cur is None or v > cur[0]:
+            best_null[r['node']] = (v, r)
 
-    touch = best_ratio(tests)
-    skew = best_ratio(cleared.get('skew_tests', []))
     ev = evaluation.get('nodes', {})
-    fam_of = {n['id']: n['family'] for n in all_nodes(tree)}
+    fam_of = {n['id']: n['family'] for n in all_nodes(universe)}
+    cleared_nodes = {c['node'] for c in cleared.get('cleared', [])}
 
     pts = []
-    for node, x in touch.items():
-        y = skew.get(node)
-        if y is None or node == BASELINE_NODE:
-            continue
+    for node, (ratio, row) in best_null.items():
         best = ev.get(node, {}).get('best')
-        pts.append((node, x, y, abs(best['dev']) if best else 0.0, fam_of.get(node, '?')))
+        if not best:
+            continue
+        pts.append({
+            'node': node,
+            'ratio': ratio,
+            'dev': abs(float(best['dev'])),
+            'family': fam_of.get(node, '?'),
+            'cleared': node in cleared_nodes,
+            'horizon': int(row['horizon']),
+        })
     if len(pts) < 5:
         return None
 
-    xs = np.array([p[1] for p in pts])
-    ys = np.array([p[2] for p in pts])
-    cs = np.array([p[3] for p in pts])
+    xs = np.array([p['dev'] for p in pts])
+    ys = np.array([p['ratio'] for p in pts])
+    is_clear = np.array([p['cleared'] for p in pts], dtype=bool)
 
-    # Equal aspect fixes the box's shape to the data's, so the *figure* has to follow or
-    # a tall cloud gets a square box stranded in a wide canvas. Flat clouds stay wide;
-    # workspaces with genuine vertical outliers come out closer to square.
-    span_x = (xs.max() - xs.min()) * 1.14
-    span_y = (ys.max() - ys.min()) * 1.28
-    fig_h = float(np.clip(7.0 * span_y / span_x + 2.0, 4.2, 8.4))
-    fig, ax = plt.subplots(figsize=(9.4, fig_h))
-    ax.axvline(1.0, color=GRID, linewidth=1.0, zorder=1)
+    fig, ax = plt.subplots(figsize=(8.8, 5.2))
+    ax.axvline(ws.min_dev, color=GRID, linewidth=1.0, zorder=1)
     ax.axhline(1.0, color=GRID, linewidth=1.0, zorder=1)
-    sc = ax.scatter(xs, ys, c=cs, cmap=CMAP_SEQ, vmin=0, vmax=max(cs.max(), 1),
-                    s=64, linewidths=1.4, edgecolors=SURFACE, zorder=5)
+    ax.scatter(xs[~is_clear], ys[~is_clear], s=44, color=FAINT,
+               edgecolors=SURFACE, linewidths=1.0, zorder=3, label='did not clear both')
+    ax.scatter(xs[is_clear], ys[is_clear], s=70, c=xs[is_clear], cmap=CMAP_SEQ,
+               vmin=ws.min_dev, vmax=max(float(xs.max()), ws.min_dev + 1),
+               edgecolors=SURFACE, linewidths=1.4, zorder=5, label='cleared both')
 
-    cb = fig.colorbar(sc, ax=ax, pad=0.02, fraction=0.04)
-    cb.set_label('strongest cell vs the unconditional rate (pp)', color=INK_2, fontsize=8)
-    cb.outline.set_visible(False)
-    cb.ax.tick_params(color=GRID, labelsize=7.5)
-
-    ax.set_xlabel('moves the barrier rate   →   peak ÷ its own null p95')
-    ax.set_ylabel('moves direction   →\npeak ÷ its own null p95')
+    ax.set_xlabel('economic effect size: strongest qualifying deviation from baseline (pp)')
+    ax.set_ylabel('statistical strength: observed surface peak ÷ shuffled-null p95')
     _frame(ax, grid_axis='both')
+    ax.set_xlim(0, float(xs.max()) * 1.18)
+    ax.set_ylim(0, float(ys.max()) * 1.16)
+    ax.annotate('economic threshold', (ws.min_dev, ax.get_ylim()[1] * 0.92),
+                xytext=(5, 0), textcoords='offset points', color=MUTED,
+                fontsize=7.5, va='center')
+    ax.annotate('null p95', (ax.get_xlim()[1] * 0.97, 1.0),
+                xytext=(0, 4), textcoords='offset points', color=MUTED,
+                fontsize=7.5, ha='right', va='bottom')
+    ax.legend(loc='upper left', fontsize=8, labelcolor=INK_2)
 
-    # Both axes are the same dimensionless quantity -- a peak in units of that node's own
-    # noise ceiling -- so a unit has to be the same length on each. Letting them autoscale
-    # independently stretches a vertical range of 0.9 to the same height as a horizontal
-    # range of 2.6 and draws a round cloud, which is the opposite of what the data says.
-    # Equal aspect with each axis held to its own data range gives a wide, short box: no
-    # empty quadrant, and the flattening is the finding rather than a drawing choice.
-    px = (xs.max() - xs.min()) * 0.07
-    py = (ys.max() - ys.min()) * 0.14
-    ax.set_xlim(xs.min() - px, xs.max() + px)
-    ax.set_ylim(ys.min() - py, ys.max() + py)
-    ax.set_aspect('equal', adjustable='box')
-    ax.annotate('noise ceiling, both axes', (1.0, 1.0), xytext=(5, 3),
-                textcoords='offset points', color=MUTED, fontsize=7.5,
-                va='bottom', ha='left')
-
-    # One in-plot callout only, and it is the one that has to point at something. The
-    # rest of the naming goes in the note: the cloud changes shape per workspace, so any
-    # fixed in-plot corner is occupied on one of them.
-    dead = sorted({f for f in {p[4] for p in pts}
-                   if not any(t.get('verdict') == 'discovery'
-                              for t in tests if fam_of.get(t['node']) == f)})
-    if dead:
-        din = [i for i, p in enumerate(pts) if p[4] in dead]
-        ax.annotate(' · '.join(dead) + '\ncleared nothing',
-                    (float(xs[din].mean()), float(ys[din].min())),
-                    xytext=(-16, -24), textcoords='offset points', ha='right',
-                    fontsize=7.8, fontweight='bold', color=INK, linespacing=1.5,
+    if is_clear.any():
+        clear_idx = np.flatnonzero(is_clear)
+        top = clear_idx[int(np.argmax(xs[is_clear]))]
+        ax.annotate(f'strongest cleared\n{pts[top]["node"]}',
+                    (float(xs[top]), float(ys[top])),
+                    xytext=(-10, 16), textcoords='offset points', ha='right',
+                    fontsize=7.8, fontweight='bold', color=INK,
                     arrowprops=dict(arrowstyle='-', color=MUTED, linewidth=0.8))
 
-    top_x = int(np.argmax(xs))
-    ax.annotate(f'strongest magnitude\n{pts[top_x][0]}',
-                (float(xs[top_x]), float(ys[top_x])),
-                xytext=(-8, 18), textcoords='offset points', ha='right',
-                fontsize=7.8, fontweight='bold', color=INK,
-                arrowprops=dict(arrowstyle='-', color=MUTED, linewidth=0.8))
-
-    # Whether anything moves direction is the whole question, and the answer can differ
-    # by workspace. A fixed headline would drift from the measured result.
-    n_dir = int((ys > 1.0).sum())
-    exp = len(pts) * (1 - 0.95 ** len(ws.summary_horizons))
-    lifted = [pts[k][0] for k in np.argsort(-ys) if ys[k] > 1.5]
-    if lifted:
-        head_txt = 'Magnitude clears the null; direction has exceptions'
-        vert = (f'vertically all but {len(lifted)} sit on it, and those {len(lifted)} '
-                f'({", ".join(lifted[:3])}) are what the gate picks up')
-    else:
-        head_txt = 'Magnitude clears the null; direction mostly does not'
-        vert = (f'vertically it never leaves the line — {n_dir} of {len(pts)} nodes '
-                f'cross it at all, against {exp:.0f} expected by chance across '
-                f'{len(ws.summary_horizons)} horizons')
-    _title(fig, head_txt,
-           f'One point per node. Both axes are peak ÷ that node\'s shuffled-null p95, '
-           f'so 1.0 is the noise ceiling on each. The horizontal spread reaches '
-           f'{xs.max():.1f}x; {vert}.')
-    _note(fig, f'{ws.dir.name} · furthest on magnitude: '
-               f'{" · ".join(pts[k][0] for k in np.argsort(-xs)[:3])} · each axis takes '
-               f'the node\'s strongest horizon · crossing 1.0 once across '
-               f'{len(ws.summary_horizons)} horizons is weak; distance past it is the '
-               f'claim · 05_gate.json + evaluation.json')
-    fig.subplots_adjust(top=1 - 1.05 / fig_h, bottom=0.72 / fig_h)
+    n_econ = len(evaluation.get('passed', []))
+    n_disc = len({t['node'] for t in tests if t.get('verdict') == 'discovery'})
+    n_clear = int(is_clear.sum())
+    _title(fig, 'Cleared both: useful size, null-tested strength',
+           f'One point per validated node. Right of the vertical line means the best '
+           f'cell passed the economic filter; above the horizontal line means the '
+           f'surface peak beat its own shuffled-null p95. {n_clear} nodes clear both.')
+    _note(fig, f'{ws.dir.name} · {n_econ} economically usable · {n_disc} nodes with a '
+               f'Benjamini-Hochberg discovery · {n_clear} clear both · 04_gate.json + '
+               f'evaluation.json')
+    fig.subplots_adjust(top=0.78)
     return _save(fig, out / '02_landscape.png')
 
 
@@ -221,14 +181,14 @@ def fig_null_gap_ranking(ws, cleared, out: Path) -> Path | None:
            f'Each row keeps one node: its strongest discovered horizon. Grey ticks are '
            f'the shuffled-null p95; blue dots are the observed peak. {at_floor} of these '
            f'{len(rows)} are already at the exact p-value floor.')
-    _note(fig, f'{ws.dir.name} · ranked from 05_gate.json tests · one best discovered '
+    _note(fig, f'{ws.dir.name} · ranked from 04_gate.json tests · one best discovered '
                f'horizon per node, so repeated variants do not fill the chart')
     fig.subplots_adjust(top=1 - 0.95 / fig_h, left=0.25, bottom=0.14)
     return _save(fig, out / '12_null_gap_ranking.png')
 
 
-def fig_funnel(ws, tree, evaluation, cleared, out: Path) -> Path:
-    n_nodes = len(all_nodes(tree))
+def fig_funnel(ws, universe, evaluation, cleared, out: Path) -> Path:
+    n_nodes = len(all_nodes(universe))
     n_econ = len(evaluation.get('passed', []))
     n_disc = len({t['node'] for t in cleared.get('tests', [])
                   if t.get('verdict') == 'discovery'})
@@ -245,7 +205,7 @@ def fig_funnel(ws, tree, evaluation, cleared, out: Path) -> Path:
     # the descriptions share one x, past the longest bar, so they read as a column
     # rather than a ragged edge that collides with whichever count precedes it
     desc_x = n_nodes * 1.14
-    for (name, v, sub), y, colour in zip(stages, ys, ORD):
+    for (_, v, sub), y, colour in zip(stages, ys, ORD):
         ax.barh(y, v, height=0.62, color=colour, linewidth=0)
         ax.text(v + n_nodes * 0.02, y, f'{v}', va='center', ha='left',
                 fontsize=11, fontweight='bold', color=INK)
@@ -265,7 +225,7 @@ def fig_funnel(ws, tree, evaluation, cleared, out: Path) -> Path:
     _note(fig, f'{len(cleared.get("tests", []))} tests over {n_nodes} nodes × '
                f'{len(ws.summary_horizons)} horizons · Benjamini-Hochberg at '
                f'q = {cleared.get("method", {}).get("q", 0.05)} · evaluation.json + '
-               f'05_gate.json')
+               f'04_gate.json')
     fig.subplots_adjust(top=0.74, left=0.19)
     return _save(fig, out / '06_funnel.png')
 
@@ -300,12 +260,12 @@ def fig_horizons(ws, cleared, out: Path) -> Path | None:
            f'volatility high right now", and volatility features answer that almost '
            f'tautologically.')
     _note(fig, 'It is real, it is significant, and it is mostly mechanical · '
-               '05_gate.json')
+               '04_gate.json')
     fig.subplots_adjust(top=0.70)
     return _save(fig, out / '03_where_the_edge_is.png')
 
 
-def fig_null(ws, tree, cleared, out: Path) -> Path | None:
+def fig_null(ws, universe, cleared, out: Path) -> Path | None:
     """
     The exact null as a distribution rather than a p-value.
 
@@ -313,7 +273,7 @@ def fig_null(ws, tree, cleared, out: Path) -> Path | None:
     autocorrelation. The observed surface either sits inside that cloud or it does not,
     and the width of the cloud is the honest answer to "how big is big".
     """
-    head = _headline_node(ws, cleared, tree)
+    head = _headline_node(ws, cleared, universe)
     if head is None:
         return None
     cube = barrier.load_cube(ws.summary_cube_path(head['family'], head['id']))
@@ -355,14 +315,14 @@ def fig_null(ws, tree, cleared, out: Path) -> Path | None:
     return _save(fig, out / '05_null.png')
 
 
-def fig_families(ws, tree, cleared, out: Path) -> Path | None:
+def fig_families(ws, universe, cleared, out: Path) -> Path | None:
     tests = cleared.get('tests', [])
     if not tests:
         return None
-    fam_of = {n['id']: n['family'] for n in all_nodes(tree)}
+    fam_of = {n['id']: n['family'] for n in all_nodes(universe)}
     # the baseline family is excluded: shuffling a constant cannot move anything, so its
     # row is empty by construction and would read as a finding beside the ones that are
-    fams = sorted({n['family'] for n in all_nodes(tree)} - {'_base'})
+    fams = sorted({n['family'] for n in all_nodes(universe)} - {'_base'})
     hz = sorted({int(t['horizon']) for t in tests})
 
     m = np.zeros((len(fams), len(hz)))
@@ -404,9 +364,9 @@ def fig_families(ws, tree, cleared, out: Path) -> Path | None:
            f'Nodes with a Benjamini-Hochberg discovery, by family and horizon. '
            f'A blank row cleared nothing, anywhere, at any barrier.'
            + (f'\nBlank here: {", ".join(dead)} — '
-              f'{sum(1 for n in all_nodes(tree) if n["family"] in dead)} nodes between '
+              f'{sum(1 for n in all_nodes(universe) if n["family"] in dead)} nodes between '
               f'them, and not one significant cell.' if dead else ''))
-    _note(fig, f'{ws.dir.name} · 05_gate.json')
+    _note(fig, f'{ws.dir.name} · 04_gate.json')
     fig.subplots_adjust(top=0.86 - 0.5 / len(fams), left=0.20, bottom=0.10)
     return _save(fig, out / '04_families.png')
 

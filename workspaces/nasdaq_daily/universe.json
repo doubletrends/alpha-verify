@@ -1,0 +1,858 @@
+{
+  "meta": {
+    "created": "2026-09-03",
+    "description": "NASDAQ daily feature universe (+1d to +30d, reproducible daily flagship)",
+    "workspace": "nasdaq_daily",
+    "asset": {
+      "provider": "yfinance",
+      "ticker": "^IXIC",
+      "interval": "1d"
+    },
+    "start_date": "2015-01-01",
+    "min_obs": 100,
+    "theta": {
+      "min": -0.15,
+      "max": 0.15,
+      "step": 0.005
+    },
+    "n_bins": 10,
+    "evaluate": {
+      "min_dev": 10.0,
+      "min_bin_n": 50,
+      "min_run": 2
+    },
+    "horizons": {
+      "min": 1,
+      "max": 30
+    },
+    "summary": {
+      "theta_abs": [
+        0,
+        0.005,
+        0.01,
+        0.015,
+        0.02,
+        0.03,
+        0.05,
+        0.07,
+        0.1,
+        0.15
+      ],
+      "horizons": [
+        1,
+        2,
+        3,
+        5,
+        7,
+        14,
+        30
+      ]
+    },
+    "bayes": {
+      "theta": -0.07,
+      "horizon": 30,
+      "folds": 5
+    }
+  },
+  "families": {
+    "_base": [
+      {
+        "id": "baseline",
+        "family": "_base",
+        "category": "reference",
+        "feature": "constant",
+        "params": {},
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      }
+    ],
+    "rsi": [
+      {
+        "id": "rsi_7",
+        "family": "rsi",
+        "category": "price_momentum",
+        "feature": "rsi",
+        "params": {
+          "period": 7
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "rsi_14",
+        "family": "rsi",
+        "category": "price_momentum",
+        "feature": "rsi",
+        "params": {
+          "period": 14
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "rsi_21",
+        "family": "rsi",
+        "category": "price_momentum",
+        "feature": "rsi",
+        "params": {
+          "period": 21
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "rsi_spread_7_14",
+        "family": "rsi",
+        "category": "price_momentum",
+        "feature": "rsi_spread",
+        "params": {
+          "fast": 7,
+          "slow": 14
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": "rsi_14"
+      }
+    ],
+    "williams_r": [
+      {
+        "id": "wr_7",
+        "family": "williams_r",
+        "category": "price_momentum",
+        "feature": "williams_r",
+        "params": {
+          "period": 7
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "wr_14",
+        "family": "williams_r",
+        "category": "price_momentum",
+        "feature": "williams_r",
+        "params": {
+          "period": 14
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "wr_21",
+        "family": "williams_r",
+        "category": "price_momentum",
+        "feature": "williams_r",
+        "params": {
+          "period": 21
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "wr_spread_7_14",
+        "family": "williams_r",
+        "category": "price_momentum",
+        "feature": "wr_spread",
+        "params": {
+          "fast": 7,
+          "slow": 14
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": "wr_14"
+      }
+    ],
+    "stoch": [
+      {
+        "id": "stoch_7",
+        "family": "stoch",
+        "category": "price_momentum",
+        "feature": "stoch_k",
+        "params": {
+          "k_period": 7
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "stoch_14",
+        "family": "stoch",
+        "category": "price_momentum",
+        "feature": "stoch_k",
+        "params": {
+          "k_period": 14
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "stoch_d_14",
+        "family": "stoch",
+        "category": "price_momentum",
+        "feature": "stoch_d",
+        "params": {
+          "k_period": 14,
+          "d_period": 3
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": "stoch_14"
+      }
+    ],
+    "roc": [
+      {
+        "id": "roc_1",
+        "family": "roc",
+        "category": "price_momentum",
+        "feature": "roc",
+        "params": {
+          "period": 1
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "roc_3",
+        "family": "roc",
+        "category": "price_momentum",
+        "feature": "roc",
+        "params": {
+          "period": 3
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "roc_5",
+        "family": "roc",
+        "category": "price_momentum",
+        "feature": "roc",
+        "params": {
+          "period": 5
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "roc_10",
+        "family": "roc",
+        "category": "price_momentum",
+        "feature": "roc",
+        "params": {
+          "period": 10
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "roc_20",
+        "family": "roc",
+        "category": "price_momentum",
+        "feature": "roc",
+        "params": {
+          "period": 20
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "roc_spread_5_20",
+        "family": "roc",
+        "category": "price_momentum",
+        "feature": "roc_spread",
+        "params": {
+          "fast": 5,
+          "slow": 20
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": "roc_5"
+      }
+    ],
+    "ma": [
+      {
+        "id": "ma_ratio_10",
+        "family": "ma",
+        "category": "trend",
+        "feature": "ma_ratio",
+        "params": {
+          "period": 10
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "ma_ratio_20",
+        "family": "ma",
+        "category": "trend",
+        "feature": "ma_ratio",
+        "params": {
+          "period": 20
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "ma_ratio_50",
+        "family": "ma",
+        "category": "trend",
+        "feature": "ma_ratio",
+        "params": {
+          "period": 50
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "ma_ratio_100",
+        "family": "ma",
+        "category": "trend",
+        "feature": "ma_ratio",
+        "params": {
+          "period": 100
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "ma_ratio_200",
+        "family": "ma",
+        "category": "trend",
+        "feature": "ma_ratio",
+        "params": {
+          "period": 200
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "ma_cross_10_50",
+        "family": "ma",
+        "category": "trend",
+        "feature": "ma_cross",
+        "params": {
+          "fast": 10,
+          "slow": 50
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": "ma_ratio_50"
+      },
+      {
+        "id": "ma_cross_20_100",
+        "family": "ma",
+        "category": "trend",
+        "feature": "ma_cross",
+        "params": {
+          "fast": 20,
+          "slow": 100
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": "ma_ratio_100"
+      },
+      {
+        "id": "ma_cross_50_200",
+        "family": "ma",
+        "category": "trend",
+        "feature": "ma_cross",
+        "params": {
+          "fast": 50,
+          "slow": 200
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": "ma_ratio_200"
+      }
+    ],
+    "macd": [
+      {
+        "id": "macd_12_26",
+        "family": "macd",
+        "category": "trend_momentum",
+        "feature": "macd",
+        "params": {
+          "fast": 12,
+          "slow": 26
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "macd_9_21",
+        "family": "macd",
+        "category": "trend_momentum",
+        "feature": "macd",
+        "params": {
+          "fast": 9,
+          "slow": 21
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": "macd_12_26"
+      },
+      {
+        "id": "macd_histogram_12_26",
+        "family": "macd",
+        "category": "trend_momentum",
+        "feature": "macd_histogram",
+        "params": {
+          "fast": 12,
+          "slow": 26,
+          "signal": 9
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": "macd_12_26"
+      }
+    ],
+    "volatility": [
+      {
+        "id": "realized_vol_7",
+        "family": "volatility",
+        "category": "volatility",
+        "feature": "realized_vol",
+        "params": {
+          "period": 7
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "realized_vol_14",
+        "family": "volatility",
+        "category": "volatility",
+        "feature": "realized_vol",
+        "params": {
+          "period": 14
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "realized_vol_21",
+        "family": "volatility",
+        "category": "volatility",
+        "feature": "realized_vol",
+        "params": {
+          "period": 21
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "realized_vol_30",
+        "family": "volatility",
+        "category": "volatility",
+        "feature": "realized_vol",
+        "params": {
+          "period": 30
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "atr_14",
+        "family": "volatility",
+        "category": "volatility",
+        "feature": "atr",
+        "params": {
+          "period": 14
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "bb_pct_20",
+        "family": "volatility",
+        "category": "volatility",
+        "feature": "bb_pct",
+        "params": {
+          "period": 20
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "bb_width_20",
+        "family": "volatility",
+        "category": "volatility",
+        "feature": "bb_width",
+        "params": {
+          "period": 20
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "vol_ratio_7_21",
+        "family": "volatility",
+        "category": "volatility",
+        "feature": "vol_ratio",
+        "params": {
+          "fast": 7,
+          "slow": 21
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": "realized_vol_21"
+      }
+    ],
+    "volume": [
+      {
+        "id": "volume_ratio_10",
+        "family": "volume",
+        "category": "volume",
+        "feature": "volume_ratio",
+        "params": {
+          "period": 10
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "volume_ratio_20",
+        "family": "volume",
+        "category": "volume",
+        "feature": "volume_ratio",
+        "params": {
+          "period": 20
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "volume_ratio_50",
+        "family": "volume",
+        "category": "volume",
+        "feature": "volume_ratio",
+        "params": {
+          "period": 50
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      }
+    ],
+    "drawdown": [
+      {
+        "id": "drawdown_7",
+        "family": "drawdown",
+        "category": "drawdown",
+        "feature": "drawdown",
+        "params": {
+          "period": 7
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "drawdown_14",
+        "family": "drawdown",
+        "category": "drawdown",
+        "feature": "drawdown",
+        "params": {
+          "period": 14
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "drawdown_30",
+        "family": "drawdown",
+        "category": "drawdown",
+        "feature": "drawdown",
+        "params": {
+          "period": 30
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "drawdown_60",
+        "family": "drawdown",
+        "category": "drawdown",
+        "feature": "drawdown",
+        "params": {
+          "period": 60
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "drawdown_recovery_7_60",
+        "family": "drawdown",
+        "category": "drawdown",
+        "feature": "drawdown_recovery",
+        "params": {
+          "short": 7,
+          "long": 60
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": "drawdown_60"
+      }
+    ],
+    "vix": [
+      {
+        "id": "vix_level",
+        "family": "vix",
+        "category": "cross_asset",
+        "feature": "vix_level",
+        "params": {},
+        "data": [
+          "ohlcv",
+          "vix"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "vix_ma_ratio_10",
+        "family": "vix",
+        "category": "cross_asset",
+        "feature": "vix_ma_ratio",
+        "params": {
+          "period": 10
+        },
+        "data": [
+          "ohlcv",
+          "vix"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "vix_ma_ratio_20",
+        "family": "vix",
+        "category": "cross_asset",
+        "feature": "vix_ma_ratio",
+        "params": {
+          "period": 20
+        },
+        "data": [
+          "ohlcv",
+          "vix"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "vix_ret_1",
+        "family": "vix",
+        "category": "cross_asset",
+        "feature": "vix_ret",
+        "params": {
+          "period": 1
+        },
+        "data": [
+          "ohlcv",
+          "vix"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "vix_ret_5",
+        "family": "vix",
+        "category": "cross_asset",
+        "feature": "vix_ret",
+        "params": {
+          "period": 5
+        },
+        "data": [
+          "ohlcv",
+          "vix"
+        ],
+        "derived_from": null
+      }
+    ],
+    "treasury": [
+      {
+        "id": "tnx_level",
+        "family": "treasury",
+        "category": "cross_asset",
+        "feature": "tnx_level",
+        "params": {},
+        "data": [
+          "ohlcv",
+          "treasury"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "tnx_ma_ratio_20",
+        "family": "treasury",
+        "category": "cross_asset",
+        "feature": "tnx_ma_ratio",
+        "params": {
+          "period": 20
+        },
+        "data": [
+          "ohlcv",
+          "treasury"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "tnx_ret_1",
+        "family": "treasury",
+        "category": "cross_asset",
+        "feature": "tnx_ret",
+        "params": {
+          "period": 1
+        },
+        "data": [
+          "ohlcv",
+          "treasury"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "tnx_ret_5",
+        "family": "treasury",
+        "category": "cross_asset",
+        "feature": "tnx_ret",
+        "params": {
+          "period": 5
+        },
+        "data": [
+          "ohlcv",
+          "treasury"
+        ],
+        "derived_from": null
+      }
+    ],
+    "dxy": [
+      {
+        "id": "dxy_ret_1",
+        "family": "dxy",
+        "category": "cross_asset",
+        "feature": "dxy_ret",
+        "params": {
+          "period": 1
+        },
+        "data": [
+          "ohlcv",
+          "dxy"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "dxy_ret_5",
+        "family": "dxy",
+        "category": "cross_asset",
+        "feature": "dxy_ret",
+        "params": {
+          "period": 5
+        },
+        "data": [
+          "ohlcv",
+          "dxy"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "dxy_ma_ratio_20",
+        "family": "dxy",
+        "category": "cross_asset",
+        "feature": "dxy_ma_ratio",
+        "params": {
+          "period": 20
+        },
+        "data": [
+          "ohlcv",
+          "dxy"
+        ],
+        "derived_from": null
+      }
+    ],
+    "day_of_week": [
+      {
+        "id": "day_of_week",
+        "family": "day_of_week",
+        "category": "temporal",
+        "feature": "day_of_week",
+        "params": {},
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      }
+    ]
+  }
+}

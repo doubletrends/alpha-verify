@@ -4,17 +4,11 @@ from __future__ import annotations
 
 import argparse
 
-from pipeline.commands import (
-    cmd_bayes,
-    cmd_gate,
-    cmd_read,
-    cmd_report,
-    cmd_skew,
-    cmd_status,
-    cmd_summary,
-    cmd_surface,
-    cmd_validation,
-)
+from pipeline.composition_command import cmd_bayes
+from pipeline.inspect_commands import cmd_read, cmd_status
+from pipeline.report_command import cmd_report
+from pipeline.stat_commands import cmd_gate, cmd_validation
+from pipeline.surface_commands import cmd_summary, cmd_surface
 from workspace import Workspace
 
 
@@ -25,7 +19,7 @@ def build_parser() -> argparse.ArgumentParser:
             "measured on a full grid and judged on a coarse one."
         )
     )
-    parser.add_argument("--workspace", metavar="NAME", default="nasdaq_daily_30days")
+    parser.add_argument("--workspace", metavar="NAME", default="nasdaq_daily")
     parser.add_argument("--family", metavar="NAME", help="Restrict to one family")
     parser.add_argument("--rerun", action="store_true", help="Rebuild artifacts that already exist")
     parser.add_argument(
@@ -43,23 +37,22 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="2. write 02_summary_array and 02_summary_xlsx; runs the economic filter",
     )
-    g.add_argument("--skew", action="store_true", help="3. write 03_skew_array and 03_skew_xlsx")
     g.add_argument(
         "--validation",
         action="store_true",
-        help="4. write 04_validation_array and 04_validation_xlsx",
+        help="3. write 03_validation_array and 03_validation_xlsx",
     )
     g.add_argument(
         "--gate",
         action="store_true",
-        help="5. correct across the sweep (BH) and intersect with the economic filter",
+        help="4. correct across the sweep (BH) and intersect with the economic filter",
     )
     g.add_argument(
         "--bayes",
         action="store_true",
-        help="6. compose conditions out of sample, 06_bayez.npz + 06_bayes.json",
+        help="5. compose conditions out of sample, 05_bayes.npz + 05_bayes.json",
     )
-    g.add_argument("--report", action="store_true", help="7. render figures into workspace result/")
+    g.add_argument("--report", action="store_true", help="6. render figures into workspace result/")
     g.add_argument("--status", action="store_true", help="Inventory by family")
     g.add_argument("--read", metavar="ID", help="Print a node surface summary")
     return parser
@@ -74,8 +67,6 @@ def main(argv: list[str] | None = None) -> None:
         cmd_surface(ws, args.family, args.rerun)
     elif args.summary:
         cmd_summary(ws, args.family)
-    elif args.skew:
-        cmd_skew(ws, args.family, args.rerun)
     elif args.validation:
         cmd_validation(ws, args.family, args.rerun)
     elif args.gate:

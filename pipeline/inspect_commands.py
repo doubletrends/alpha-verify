@@ -6,38 +6,34 @@ from collections import defaultdict
 
 import numpy as np
 
-from engine import barrier, skew as skw, validate as val
+from engine import barrier, validate as val
 from pipeline.runtime import baseline_surface
-from tree.tree import all_nodes, find_node, load_tree
+from universe import all_nodes, find_node, load_universe
 from workspace import Workspace
 
 
 def cmd_status(ws: Workspace) -> None:
-    tree = load_tree(ws.tree_path)
+    universe = load_universe(ws.universe_path)
     ev = ws.read_json(ws.eval_path).get("nodes", {})
     cl = ws.read_json(ws.cleared_path)
     cleared = {c["node"] for c in cl.get("cleared", [])}
     disc = {t["node"] for t in cl.get("tests", []) if t.get("verdict") == "discovery"}
-    sk_disc = set(cl.get("skew_summary", {}).get("discoveries", []))
 
     cols = [
-        "nodes", "cube", "sheet", "sum", "sheet", "skew",
-        "valid", "v-sheet", "econ", "sk-disc", "cleared",
+        "nodes", "cube", "sheet", "sum", "sheet", "valid", "v-sheet", "econ", "cleared",
     ]
     by_fam = defaultdict(lambda: [0] * len(cols))
-    for n in all_nodes(tree):
+    for n in all_nodes(universe):
         c = by_fam[n["family"]]
         c[0] += 1
         c[1] += bool(ws.has_cube(n["family"], n["id"]))
         c[2] += bool(ws.has_surface(n["family"], n["id"]))
         c[3] += bool(ws.has_summary_cube(n["family"], n["id"]))
         c[4] += bool(ws.has_summary_surface(n["family"], n["id"]))
-        c[5] += bool(ws.has_skew_sheet(n["family"], n["id"]))
-        c[6] += bool(ws.has_validation(n["family"], n["id"]))
-        c[7] += bool(ws.has_validation_sheet(n["family"], n["id"]))
-        c[8] += bool(ev.get(n["id"], {}).get("passed"))
-        c[9] += n["id"] in sk_disc
-        c[10] += n["id"] in cleared
+        c[5] += bool(ws.has_validation(n["family"], n["id"]))
+        c[6] += bool(ws.has_validation_sheet(n["family"], n["id"]))
+        c[7] += bool(ev.get(n["id"], {}).get("passed"))
+        c[8] += n["id"] in cleared
 
     print(f"\n=== Status [{ws.dir.name}] ===")
     print(
@@ -49,7 +45,7 @@ def cmd_status(ws: Workspace) -> None:
         meth = cl.get("method", {})
         print(
             f"  gate: BH q={meth.get('q')} over {meth.get('n_tests')} tests, "
-            f"{len(disc)} nodes with a discovery, {len(sk_disc)} with a skew discovery"
+            f"{len(disc)} nodes with a discovery, {len(cleared)} cleared both filters"
         )
     print()
     hdr = f"  {'family':<15}" + "".join(f"{name:>9}" for name in cols)
@@ -72,8 +68,8 @@ def cmd_read(ws: Workspace, node_id: str) -> None:
     Print one node's summary cube in the terminal: the θ rows carrying a qualifying
     cell, for whichever bin is strongest, with the null test beside them.
     """
-    tree = load_tree(ws.tree_path)
-    node = find_node(tree, node_id)
+    universe = load_universe(ws.universe_path)
+    node = find_node(universe, node_id)
     path = ws.summary_cube_path(node["family"], node_id)
     if not path.exists():
         print(f"No summary array for {node_id} - run --summary first.")
@@ -121,28 +117,8 @@ def cmd_read(ws: Workspace, node_id: str) -> None:
             f"                  {int(np.nansum(cp <= 0.05))} of {int(np.isfinite(cp).sum())} "
             "cells in this bin are pointwise p<=0.05"
         )
-        if "skew_peak_p" in vr and np.isfinite(vr["skew_peak_p"]).any():
-            k = int(np.nanargmin(np.where(np.isfinite(vr["skew_peak_p"]), vr["skew_peak_p"], np.nan)))
-            print(
-                f"  skew null     : peak excess {vr['skew_peak_real'][k]:+.1f}pp vs p95 "
-                f"{vr['skew_peak_p95'][k]:.1f}, p={vr['skew_peak_p'][k]:.5f} "
-                f"at +{int(vr['horizons'][k])}{ws.horizon_unit}"
-            )
     else:
         print("  null          : not validated yet")
-
-    spath = ws.skew_path(node["family"], node_id)
-    if spath.exists():
-        sr = skw.load(spath)
-        peaks = skw.peak_by_horizon(sr)
-        hit = {h: p for h, p in peaks.items() if p}
-        if hit:
-            h = max(hit, key=lambda k: abs(hit[k]["excess"]))
-            p = hit[h]
-            print(
-                f"  skew          : excess {p['excess']:+.1f}pp (cond {p['cond']:+.1f}pp) "
-                f"at |θ|={p['mag'] * 100:.3g}%, bin {p['bin'] + 1}, +{h}{ws.horizon_unit}"
-            )
 
     avail = {int(x) for x in hz}
     show = [h for h in (1, 2, 3, 5, 7, 10, 14, 21, 30) if h in avail]

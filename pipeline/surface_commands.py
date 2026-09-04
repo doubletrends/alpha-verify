@@ -7,7 +7,7 @@ from pathlib import Path
 
 from engine import barrier, writer
 from pipeline.runtime import baseline_surface, loader, node_feature
-from tree.tree import all_in_family, all_nodes, load_tree
+from universe import all_in_family, all_nodes, load_universe
 from workspace import BASELINE_NODE, Workspace
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,8 +35,8 @@ def build_cube(ws: Workspace, node: dict, get_data, quiet: bool = False) -> None
 
 def _write_surface_array(ws: Workspace, family: str | None = None, rerun: bool = False) -> None:
     """Stage 1a. The faithful record: every barrier level, every horizon."""
-    tree = load_tree(ws.tree_path)
-    nodes = all_in_family(tree, family) if family else all_nodes(tree)
+    universe = load_universe(ws.universe_path)
+    nodes = all_in_family(universe, family) if family else all_nodes(universe)
     if not rerun:
         nodes = [n for n in nodes if not ws.has_cube(n["family"], n["id"])]
     if not nodes:
@@ -84,9 +84,9 @@ def _write_summary_array(ws: Workspace, family: str | None = None) -> None:
     Pure index selection means every summary cell is bit-identical to the full cell it
     came from. The economic filter runs here so judged and validated grids match.
     """
-    tree = load_tree(ws.tree_path)
+    universe = load_universe(ws.universe_path)
     nodes = [
-        n for n in (all_in_family(tree, family) if family else all_nodes(tree))
+        n for n in (all_in_family(universe, family) if family else all_nodes(universe))
         if ws.has_cube(n["family"], n["id"])
     ]
     if not nodes:
@@ -167,7 +167,7 @@ def cmd_summary(ws: Workspace, family: str | None = None) -> None:
 
 
 def _render(ws: Workspace, family: str | None, summary: bool) -> None:
-    tree = load_tree(ws.tree_path)
+    universe = load_universe(ws.universe_path)
     have = ws.has_summary_cube if summary else ws.has_cube
     src = ws.summary_cube_path if summary else ws.cube_path
     dst = ws.summary_surface_path if summary else ws.surface_path
@@ -176,7 +176,7 @@ def _render(ws: Workspace, family: str | None, summary: bool) -> None:
     out_dir = "02_summary_xlsx" if summary else "01_surface_xlsx"
 
     nodes = [
-        n for n in (all_in_family(tree, family) if family else all_nodes(tree))
+        n for n in (all_in_family(universe, family) if family else all_nodes(universe))
         if have(n["family"], n["id"])
     ]
     if not nodes:

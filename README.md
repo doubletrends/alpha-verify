@@ -11,34 +11,32 @@ limits, margin calls and liquidations all turn on a barrier touch, not a closing
 This pipeline measures that question across barrier levels, condition bins and forward
 horizons, using high/low extremes and an exact shuffled null.
 
-The flagship workspace is now `nasdaq_daily_30days`: a reproducible daily NASDAQ
+The flagship workspace is now `nasdaq_daily`: a reproducible daily NASDAQ
 Composite run from 2015-01-01, with a 30-session horizon ladder and a barrier grid scaled
 for equity-index moves.
 
-![conditional band](workspaces/nasdaq_daily_30days/result/01_band.png)
+![conditional band](workspaces/nasdaq_daily/result/01_band.png)
 
 The figure above inverts the measured cube into the form people actually use: given the
 condition the index is in on the latest bar, how wide is the historical 50% touch
 envelope? The filled band is the current condition bin; the thin bands show the edge
 bins, so the value of conditioning is visible on the price axis.
 
-![the landscape](workspaces/nasdaq_daily_30days/result/02_landscape.png)
+![the landscape](workspaces/nasdaq_daily/result/02_landscape.png)
 
-Every node is plotted against its own circular-shift null. Horizontally, most conditions
-move barrier-touch rates far beyond their shuffled noise ceiling. Vertically, none clear
-the up/down skew null: on daily NASDAQ data, the conditions mostly predict move
-magnitude, not direction.
+Every node is plotted against the two filters that decide whether it clears: practical
+effect size and shuffled-null strength. The useful result is the upper-right cluster:
+conditions that are large enough to matter and too strong to explain as alignment noise.
 
 ## What It Found
 
-| | `nasdaq_daily_30days` | `btc_daily_14days` |
+| | `nasdaq_daily` | `btc_daily` |
 |---|--:|--:|
 | Nodes measured | 58 | 66 |
 | Null tests (node x horizon) | 406 | 462 |
 | Economically usable | 53 | 55 |
 | Nodes with a BH discovery | 53 | 51 |
 | **Cleared both** | **51** | **50** |
-| Conditions that bend direction | **0** | **0** |
 
 Three findings carry the front page.
 
@@ -47,18 +45,18 @@ both the economic filter and the shuffled-null gate. The strongest cleared cells
 all one-bar artifacts: the peak horizons are +2d for 13 nodes, +7d for 12, +1d for 10,
 and +30d for 7.
 
-![where the edge is](workspaces/nasdaq_daily_30days/result/03_where_the_edge_is.png)
+![where the edge is](workspaces/nasdaq_daily/result/03_where_the_edge_is.png)
 
-**2. Direction mostly disappears after drift is removed.** The mirrored barrier ladder
-compares `P(touch +theta)` against `P(touch -theta)` in the same condition bin. After
-subtracting the baseline skew and null-testing the excess, daily NASDAQ has zero skew
-discoveries.
+**2. The filters are strict enough to be useful.** A condition has to pass an economic
+threshold and a shuffled-null test corrected across the sweep. The point is not a large
+spreadsheet of indicators; it is a short list of conditional barrier claims that survived
+both gates.
 
 **3. Cross-asset regimes matter, but they are still magnitude regimes.** VIX, Treasury
 yield and DXY features join price, volatility and trend features in the discovery set.
 The family view shows where those discoveries land by horizon.
 
-![families](workspaces/nasdaq_daily_30days/result/04_families.png)
+![families](workspaces/nasdaq_daily/result/04_families.png)
 
 ## Why The Numbers Are Trustworthy
 
@@ -69,7 +67,7 @@ cross-correlation between the touch indicator and the bin-membership mask. One F
 every shift at once, returning the full permutation distribution rather than a resampled
 approximation.
 
-![the null](workspaces/nasdaq_daily_30days/result/05_null.png)
+![the null](workspaces/nasdaq_daily/result/05_null.png)
 
 The finest obtainable p-value is `1/(n+1)`. For the NASDAQ daily run that floor is
 `3.95e-4`; with 406 tests, Bonferroni would require `1.23e-4`, which is below the floor.
@@ -78,7 +76,7 @@ unreachable family-wise threshold.
 
 ### Two Filters Are Required
 
-![funnel](workspaces/nasdaq_daily_30days/result/06_funnel.png)
+![funnel](workspaces/nasdaq_daily/result/06_funnel.png)
 
 The economic filter requires a deviation of at least 10 percentage points, in a bin with
 at least 50 observations, across at least two adjacent barrier rows with the same sign.
@@ -87,14 +85,14 @@ correction across the sweep. Neither filter alone is treated as a claim.
 
 ### The Baseline Is A Node
 
-![baseline surface](workspaces/nasdaq_daily_30days/result/07_baseline_surface.png)
+![baseline surface](workspaces/nasdaq_daily/result/07_baseline_surface.png)
 
 `baseline` is measured like any other node. Its single condition bin is the unconditional
 touch probability surface, and every conditional node has to beat that reference. This
 keeps the pipeline uniform and prevents special-case arithmetic from drifting away from
 the artifacts.
 
-![conditional shift](workspaces/nasdaq_daily_30days/result/08_conditional_shift.png)
+![conditional shift](workspaces/nasdaq_daily/result/08_conditional_shift.png)
 
 ## Do Conditions Compose?
 
@@ -106,11 +104,11 @@ logit P(touch | x1..xk)
   = logit P(touch) + sum_i [logit P(touch | xi) - logit P(touch)]
 ```
 
-Stage 6 tests that composition out of sample. Bin edges, per-bin rates, the prior and
+Stage 5 tests that composition out of sample. Bin edges, per-bin rates, the prior and
 the scale correction are all fit on an expanding training window, then applied to later
 bars with a 30-session embargo and non-overlapping scoring.
 
-![composition](workspaces/nasdaq_daily_30days/result/09_composition.png)
+![composition](workspaces/nasdaq_daily/result/09_composition.png)
 
 | model | Brier down | AUC | vs. prior |
 |---|--:|--:|--:|
@@ -123,7 +121,7 @@ The raw model is overconfident because correlated indicators count similar evide
 times. Keeping one node per family removes most of the damage; a Platt scale correction
 does the rest for the headline target, `P(touch -7% within 30d)`.
 
-![composition grid](workspaces/nasdaq_daily_30days/result/10_composition_grid.png)
+![composition grid](workspaces/nasdaq_daily/result/10_composition_grid.png)
 
 Across the judged grid, 80 of 83 usable targets rank above chance out of sample. The
 strongest usable target is `-5%` within `+2d`, at AUC 0.87.
@@ -131,22 +129,22 @@ strongest usable target is `-5%` within `+2d`, at AUC 0.87.
 ## Run It
 
 ```bash
-pip install -r requirements.txt
+pip install -e .
 
 python run.py --surface            # 1. write 01_surface_array and 01_surface_xlsx
 python run.py --summary            # 2. write 02_summary_array and 02_summary_xlsx
-python run.py --skew               # 3. write 03_skew_array and 03_skew_xlsx
-python run.py --validation         # 4. write 04_validation_array and 04_validation_xlsx
-python run.py --gate               # 5. BH correction and economic/statistical intersect
-python run.py --bayes              # 6. walk-forward composition
-python run.py --report             # 7. render workspaces/nasdaq_daily_30days/result
+python run.py --validation         # 3. write 03_validation_array and 03_validation_xlsx
+python run.py --gate               # 4. BH correction and economic/statistical intersect
+python run.py --bayes              # 5. walk-forward composition
+python run.py --report             # 6. render workspaces/nasdaq_daily/result
 
 python run.py --status
 python run.py --read vix_level
 ```
 
-`run.py` defaults to `nasdaq_daily_30days`. Pass `--workspace btc_daily_14days` to rerun
-the BTC comparison workspace. `--family <name>` restricts a stage, `--rerun` rebuilds
+`run.py` defaults to `nasdaq_daily`. After `pip install -e .`, the same CLI is
+also available as `volatility-matrix`. Pass `--workspace btc_daily` to rerun the
+BTC comparison workspace. `--family <name>` restricts a stage, `--rerun` rebuilds
 existing artifacts, and `--fdr Q` sets the Benjamini-Hochberg rate used by `--gate`.
 
 ### What Lands On Disk
@@ -157,18 +155,16 @@ workspaces/<name>/
   01_surface_xlsx/<family>/<node>.xlsx          view     full cube workbook
   02_summary_array/<family>/<node>.npz      compute  judged theta x bins x horizons
   02_summary_xlsx/<family>/<node>.xlsx  view     summary cube workbook
-  03_skew_array/<family>/<node>.npz               compute  P(+theta) vs P(-theta)
-  03_skew_xlsx/<family>/<node>.xlsx         view     readable skew sheet
-  04_validation_array/<family>/<node>.npz         compute  exact shuffled null
-  04_validation_xlsx/<family>/<node>.xlsx   view     readable validation sheet
-  evaluation.json  05_gate.json  06_bayez.npz  06_bayes.json
+  03_validation_array/<family>/<node>.npz         compute  exact shuffled null
+  03_validation_xlsx/<family>/<node>.xlsx   view     readable validation sheet
+  evaluation.json  04_gate.json  05_bayes.npz  05_bayes.json
                                                    verdicts and composition metrics
 workspaces/<name>/result/*.png                                report figures
 ```
 
 The `.npz` arrays are tracked because they are the measurement record. Rendered `.xlsx`
-workbooks are ignored: they are regenerated by `--surface`, `--summary`, `--skew`
-and `--validation`.
+workbooks are ignored: they are regenerated by `--surface`, `--summary`, and
+`--validation`.
 
 ## Limits
 
@@ -193,5 +189,5 @@ across time in a way the hourly one was not.
 White (2000), Lopez de Prado (2018), Politis & Romano (1994), and Karatzas & Shreve
 (1991). Indicator definitions follow Wilder RSI/ATR, Appel MACD and Bollinger Bands.
 
-See [docs/METHOD.md](docs/METHOD.md) for the artifact formats, stage-by-stage procedure
+See [METHOD.md](METHOD.md) for the artifact formats, stage-by-stage procedure
 and extension points.

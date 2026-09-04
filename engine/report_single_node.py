@@ -35,7 +35,7 @@ from engine.writer import feature_label
 from pipeline.runtime import loader, node_feature
 
 
-def fig_band(ws, tree, cleared, out: Path) -> Path | None:
+def fig_band(ws, universe, cleared, out: Path) -> Path | None:
     """
     The cube, inverted and anchored to the price it describes.
 
@@ -49,12 +49,10 @@ def fig_band(ws, tree, cleared, out: Path) -> Path | None:
     historical frequency with which price reached each level under the decile the feature
     currently sits in, and nothing in it knows anything about the future.
     """
-    head = _headline_node(ws, cleared, tree)
+    head = _headline_node(ws, cleared, universe)
     if head is None:
         return None
     cube = barrier.load_cube(ws.cube_path(head['family'], head['id']))
-    base_cube = _full_baseline(ws)
-
     prob, th, hz = cube['prob'], cube['thetas'], cube['horizons']
     n_bins = prob.shape[1]
     if n_bins < 2:
@@ -197,9 +195,9 @@ def fig_baseline(ws, out: Path) -> Path | None:
     return _save(fig, out / '07_baseline_surface.png')
 
 
-def fig_shift(ws, tree, cleared, out: Path) -> Path | None:
+def fig_shift(ws, universe, cleared, out: Path) -> Path | None:
     """The strongest cleared node's strongest bin, as a deviation from the baseline."""
-    head = _headline_node(ws, cleared, tree)
+    head = _headline_node(ws, cleared, universe)
     if head is None:
         return None
     cube = barrier.load_cube(ws.cube_path(head['family'], head['id']))

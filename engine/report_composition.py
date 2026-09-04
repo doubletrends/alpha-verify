@@ -113,7 +113,7 @@ def fig_calibration(ws, out: Path) -> Path | None:
         f'{m.get("n_scored", 0)} non-overlapping out-of-sample bars · every table, '
         f"edge, prior and scale fit on the training window only, with a "
         f'{d.get("embargo_bars")}-bar embargo · overconfidence factor '
-        f'{1 / summary.get("platt_a_mean", 1):.1f}x · 06_bayes.json',
+        f'{1 / summary.get("platt_a_mean", 1):.1f}x · 05_bayes.json',
     )
     fig.subplots_adjust(top=0.80)
     return save(fig, out / "09_composition.png")
@@ -188,7 +188,7 @@ def fig_composition_grid(ws, out: Path) -> Path | None:
         f"windows only, scored on non-overlapping bars · blank cells had fewer "
         f"than {min_events} events on one side, where AUC turns on two or three "
         f"cases · AUC is unchanged by the scale correction, which moves "
-        f"calibration and not order · 06_bayez.npz",
+        f"calibration and not order · 05_bayes.npz",
     )
     fig.subplots_adjust(top=0.82)
     return save(fig, out / "10_composition_grid.png")

@@ -1,0 +1,957 @@
+{
+  "meta": {
+    "created": "2026-06-22",
+    "description": "BTC daily feature universe (+1d to +30d, 14d composition target)",
+    "workspace": "btc_daily",
+    "asset": {
+      "provider": "yfinance",
+      "ticker": "BTC-USD",
+      "interval": "1d"
+    },
+    "start_date": "2015-01-01",
+    "min_obs": 100,
+    "theta": {
+      "min": -0.2,
+      "max": 0.2,
+      "step": 0.01
+    },
+    "n_bins": 10,
+    "evaluate": {
+      "min_dev": 10.0,
+      "min_bin_n": 50,
+      "min_run": 2
+    },
+    "horizons": {
+      "min": 1,
+      "max": 30
+    },
+    "summary": {
+      "theta_abs": [
+        0,
+        0.01,
+        0.02,
+        0.03,
+        0.05,
+        0.07,
+        0.1,
+        0.15,
+        0.2
+      ],
+      "horizons": [
+        1,
+        2,
+        3,
+        5,
+        7,
+        14,
+        30
+      ]
+    },
+    "bayes": {
+      "theta": -0.1,
+      "horizon": 14,
+      "folds": 5
+    }
+  },
+  "families": {
+    "_base": [
+      {
+        "id": "baseline",
+        "family": "_base",
+        "category": "reference",
+        "feature": "constant",
+        "params": {},
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      }
+    ],
+    "rsi": [
+      {
+        "id": "rsi_7",
+        "family": "rsi",
+        "category": "price_momentum",
+        "feature": "rsi",
+        "params": {
+          "period": 7
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "rsi_14",
+        "family": "rsi",
+        "category": "price_momentum",
+        "feature": "rsi",
+        "params": {
+          "period": 14
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "rsi_21",
+        "family": "rsi",
+        "category": "price_momentum",
+        "feature": "rsi",
+        "params": {
+          "period": 21
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "rsi_10",
+        "family": "rsi",
+        "category": "price_momentum",
+        "feature": "rsi",
+        "params": {
+          "period": 10
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": "rsi_14"
+      },
+      {
+        "id": "rsi_18",
+        "family": "rsi",
+        "category": "price_momentum",
+        "feature": "rsi",
+        "params": {
+          "period": 18
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": "rsi_14"
+      },
+      {
+        "id": "rsi_divergence_7_14",
+        "family": "rsi",
+        "category": "price_momentum",
+        "feature": "rsi_spread",
+        "params": {
+          "fast": 7,
+          "slow": 14
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": "rsi_7"
+      }
+    ],
+    "williams_r": [
+      {
+        "id": "wr_7",
+        "family": "williams_r",
+        "category": "price_momentum",
+        "feature": "williams_r",
+        "params": {
+          "period": 7
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "wr_14",
+        "family": "williams_r",
+        "category": "price_momentum",
+        "feature": "williams_r",
+        "params": {
+          "period": 14
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "wr_21",
+        "family": "williams_r",
+        "category": "price_momentum",
+        "feature": "williams_r",
+        "params": {
+          "period": 21
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "wr_spread_7_14",
+        "family": "williams_r",
+        "category": "price_momentum",
+        "feature": "wr_spread",
+        "params": {
+          "fast": 7,
+          "slow": 14
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": "wr_14"
+      }
+    ],
+    "roc": [
+      {
+        "id": "roc_3",
+        "family": "roc",
+        "category": "price_momentum",
+        "feature": "roc",
+        "params": {
+          "period": 3
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "roc_5",
+        "family": "roc",
+        "category": "price_momentum",
+        "feature": "roc",
+        "params": {
+          "period": 5
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "roc_7",
+        "family": "roc",
+        "category": "price_momentum",
+        "feature": "roc",
+        "params": {
+          "period": 7
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "roc_14",
+        "family": "roc",
+        "category": "price_momentum",
+        "feature": "roc",
+        "params": {
+          "period": 14
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "roc_spread_5_14",
+        "family": "roc",
+        "category": "price_momentum",
+        "feature": "roc_spread",
+        "params": {
+          "fast": 5,
+          "slow": 14
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": "roc_5"
+      }
+    ],
+    "stoch": [
+      {
+        "id": "stoch_14",
+        "family": "stoch",
+        "category": "price_momentum",
+        "feature": "stoch_k",
+        "params": {
+          "k_period": 14
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "stoch_7",
+        "family": "stoch",
+        "category": "price_momentum",
+        "feature": "stoch_k",
+        "params": {
+          "k_period": 7
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": "stoch_14"
+      },
+      {
+        "id": "stoch_d_14",
+        "family": "stoch",
+        "category": "price_momentum",
+        "feature": "stoch_d",
+        "params": {
+          "k_period": 14,
+          "d_period": 3
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": "stoch_14"
+      }
+    ],
+    "macd": [
+      {
+        "id": "macd_12_26",
+        "family": "macd",
+        "category": "price_momentum",
+        "feature": "macd",
+        "params": {
+          "fast": 12,
+          "slow": 26
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "macd_9_21",
+        "family": "macd",
+        "category": "price_momentum",
+        "feature": "macd",
+        "params": {
+          "fast": 9,
+          "slow": 21
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": "macd_12_26"
+      },
+      {
+        "id": "macd_histogram_12_26",
+        "family": "macd",
+        "category": "price_momentum",
+        "feature": "macd_histogram",
+        "params": {
+          "fast": 12,
+          "slow": 26,
+          "signal": 9
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": "macd_12_26"
+      }
+    ],
+    "ma": [
+      {
+        "id": "ma_ratio_7",
+        "family": "ma",
+        "category": "moving_average",
+        "feature": "ma_ratio",
+        "params": {
+          "period": 7
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "ma_ratio_14",
+        "family": "ma",
+        "category": "moving_average",
+        "feature": "ma_ratio",
+        "params": {
+          "period": 14
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "ma_ratio_21",
+        "family": "ma",
+        "category": "moving_average",
+        "feature": "ma_ratio",
+        "params": {
+          "period": 21
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "ma_ratio_50",
+        "family": "ma",
+        "category": "moving_average",
+        "feature": "ma_ratio",
+        "params": {
+          "period": 50
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "ma_ratio_100",
+        "family": "ma",
+        "category": "moving_average",
+        "feature": "ma_ratio",
+        "params": {
+          "period": 100
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "ma_ratio_200",
+        "family": "ma",
+        "category": "moving_average",
+        "feature": "ma_ratio",
+        "params": {
+          "period": 200
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "ma_cross_7_21",
+        "family": "ma",
+        "category": "moving_average",
+        "feature": "ma_cross",
+        "params": {
+          "fast": 7,
+          "slow": 21
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "ma_cross_14_50",
+        "family": "ma",
+        "category": "moving_average",
+        "feature": "ma_cross",
+        "params": {
+          "fast": 14,
+          "slow": 50
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "ma_cross_50_200",
+        "family": "ma",
+        "category": "moving_average",
+        "feature": "ma_cross",
+        "params": {
+          "fast": 50,
+          "slow": 200
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "ma_ratio_30",
+        "family": "ma",
+        "category": "moving_average",
+        "feature": "ma_ratio",
+        "params": {
+          "period": 30
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": "ma_ratio_21"
+      }
+    ],
+    "volatility": [
+      {
+        "id": "realized_vol_7",
+        "family": "volatility",
+        "category": "volatility",
+        "feature": "realized_vol",
+        "params": {
+          "period": 7
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "realized_vol_14",
+        "family": "volatility",
+        "category": "volatility",
+        "feature": "realized_vol",
+        "params": {
+          "period": 14
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "realized_vol_21",
+        "family": "volatility",
+        "category": "volatility",
+        "feature": "realized_vol",
+        "params": {
+          "period": 21
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "realized_vol_30",
+        "family": "volatility",
+        "category": "volatility",
+        "feature": "realized_vol",
+        "params": {
+          "period": 30
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "atr_14",
+        "family": "volatility",
+        "category": "volatility",
+        "feature": "atr",
+        "params": {
+          "period": 14
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "bb_pct_14",
+        "family": "volatility",
+        "category": "volatility",
+        "feature": "bb_pct",
+        "params": {
+          "period": 14
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "bb_pct_20",
+        "family": "volatility",
+        "category": "volatility",
+        "feature": "bb_pct",
+        "params": {
+          "period": 20
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "bb_width_20",
+        "family": "volatility",
+        "category": "volatility",
+        "feature": "bb_width",
+        "params": {
+          "period": 20
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "vol_ratio_7_21",
+        "family": "volatility",
+        "category": "volatility",
+        "feature": "vol_ratio",
+        "params": {
+          "fast": 7,
+          "slow": 21
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": "realized_vol_21"
+      }
+    ],
+    "volume": [
+      {
+        "id": "volume_ratio_7",
+        "family": "volume",
+        "category": "volume",
+        "feature": "volume_ratio",
+        "params": {
+          "period": 7
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "volume_ratio_14",
+        "family": "volume",
+        "category": "volume",
+        "feature": "volume_ratio",
+        "params": {
+          "period": 14
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "volume_ratio_30",
+        "family": "volume",
+        "category": "volume",
+        "feature": "volume_ratio",
+        "params": {
+          "period": 30
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      }
+    ],
+    "drawdown": [
+      {
+        "id": "drawdown_7",
+        "family": "drawdown",
+        "category": "drawdown",
+        "feature": "drawdown",
+        "params": {
+          "period": 7
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "drawdown_14",
+        "family": "drawdown",
+        "category": "drawdown",
+        "feature": "drawdown",
+        "params": {
+          "period": 14
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "drawdown_30",
+        "family": "drawdown",
+        "category": "drawdown",
+        "feature": "drawdown",
+        "params": {
+          "period": 30
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "drawdown_60",
+        "family": "drawdown",
+        "category": "drawdown",
+        "feature": "drawdown",
+        "params": {
+          "period": 60
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "drawdown_90",
+        "family": "drawdown",
+        "category": "drawdown",
+        "feature": "drawdown",
+        "params": {
+          "period": 90
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "drawdown_120",
+        "family": "drawdown",
+        "category": "drawdown",
+        "feature": "drawdown",
+        "params": {
+          "period": 120
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": "drawdown_90"
+      },
+      {
+        "id": "drawdown_recovery_7_90",
+        "family": "drawdown",
+        "category": "drawdown",
+        "feature": "drawdown_recovery",
+        "params": {
+          "short": 7,
+          "long": 90
+        },
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": "drawdown_90"
+      }
+    ],
+    "dxy": [
+      {
+        "id": "dxy_ret_1",
+        "family": "dxy",
+        "category": "cross_asset",
+        "feature": "dxy_ret",
+        "params": {
+          "period": 1
+        },
+        "data": [
+          "ohlcv",
+          "dxy"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "dxy_ret_5",
+        "family": "dxy",
+        "category": "cross_asset",
+        "feature": "dxy_ret",
+        "params": {
+          "period": 5
+        },
+        "data": [
+          "ohlcv",
+          "dxy"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "dxy_ret_10",
+        "family": "dxy",
+        "category": "cross_asset",
+        "feature": "dxy_ret",
+        "params": {
+          "period": 10
+        },
+        "data": [
+          "ohlcv",
+          "dxy"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "dxy_ret_20",
+        "family": "dxy",
+        "category": "cross_asset",
+        "feature": "dxy_ret",
+        "params": {
+          "period": 20
+        },
+        "data": [
+          "ohlcv",
+          "dxy"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "dxy_ma_ratio_20",
+        "family": "dxy",
+        "category": "cross_asset",
+        "feature": "dxy_ma_ratio",
+        "params": {
+          "period": 20
+        },
+        "data": [
+          "ohlcv",
+          "dxy"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "dxy_ma_ratio_10",
+        "family": "dxy",
+        "category": "cross_asset",
+        "feature": "dxy_ma_ratio",
+        "params": {
+          "period": 10
+        },
+        "data": [
+          "ohlcv",
+          "dxy"
+        ],
+        "derived_from": "dxy_ma_ratio_20"
+      },
+      {
+        "id": "dxy_ma_ratio_50",
+        "family": "dxy",
+        "category": "cross_asset",
+        "feature": "dxy_ma_ratio",
+        "params": {
+          "period": 50
+        },
+        "data": [
+          "ohlcv",
+          "dxy"
+        ],
+        "derived_from": "dxy_ma_ratio_20"
+      }
+    ],
+    "on_chain": [
+      {
+        "id": "mvrv",
+        "family": "on_chain",
+        "category": "on_chain",
+        "feature": "mvrv",
+        "params": {},
+        "data": [
+          "ohlcv",
+          "coinmetrics"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "hash_rate_ma_ratio_30",
+        "family": "on_chain",
+        "category": "on_chain",
+        "feature": "hash_rate_ma_ratio",
+        "params": {
+          "period": 30
+        },
+        "data": [
+          "ohlcv",
+          "coinmetrics"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "adr_act_ma_ratio_30",
+        "family": "on_chain",
+        "category": "on_chain",
+        "feature": "adr_act_ma_ratio",
+        "params": {
+          "period": 30
+        },
+        "data": [
+          "ohlcv",
+          "coinmetrics"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "adr_act_ma_ratio_7",
+        "family": "on_chain",
+        "category": "on_chain",
+        "feature": "adr_act_ma_ratio",
+        "params": {
+          "period": 7
+        },
+        "data": [
+          "ohlcv",
+          "coinmetrics"
+        ],
+        "derived_from": "adr_act_ma_ratio_30"
+      },
+      {
+        "id": "hash_rate_ma_ratio_90",
+        "family": "on_chain",
+        "category": "on_chain",
+        "feature": "hash_rate_ma_ratio",
+        "params": {
+          "period": 90
+        },
+        "data": [
+          "ohlcv",
+          "coinmetrics"
+        ],
+        "derived_from": "hash_rate_ma_ratio_30"
+      }
+    ],
+    "cycle": [
+      {
+        "id": "days_since_halving",
+        "family": "cycle",
+        "category": "cycle",
+        "feature": "days_since_halving",
+        "params": {},
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": null
+      },
+      {
+        "id": "cycle_phase",
+        "family": "cycle",
+        "category": "cycle",
+        "feature": "cycle_phase",
+        "params": {},
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": "days_since_halving"
+      },
+      {
+        "id": "days_to_halving",
+        "family": "cycle",
+        "category": "cycle",
+        "feature": "days_to_halving",
+        "params": {},
+        "data": [
+          "ohlcv"
+        ],
+        "derived_from": "days_since_halving"
+      }
+    ]
+  }
+}

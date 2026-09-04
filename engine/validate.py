@@ -40,7 +40,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-# One threshold, defined by the module that does the binning, so measurement, skew and
+# One threshold, defined by the module that does the binning, so measurement and
 # validation partition the sample identically.
 from engine.barrier import MIN_BIN_N
 
@@ -86,47 +86,12 @@ def _usable_shifts(n: int, guard: int) -> np.ndarray:
     return (s >= guard) & (s <= n - guard)
 
 
-def _skew_peak_by_shift(
-    signed:          np.ndarray,
-    base:            np.ndarray,
-    pairs:           list,
-    baseline_skew_h: np.ndarray,
-) -> "np.ndarray | None":
-    """
-    Max |excess skew| over the (magnitude, bin) face, for every circular shift.
-
-    `signed[i, b, s]` is already (rate[i, b, s] - base[i]) * 100 for every shift, so the
-    paired difference is pure arithmetic on it -- no second transform:
-
-        rate(+m, b, s) - rate(-m, b, s)
-          = (signed[i_plus, b, s] - signed[i_minus, b, s]) / 100 + base[i_plus] - base[i_minus]
-
-    Excess skew subtracts the baseline node's conditional skew, which a shift of the
-    feature leaves untouched. Shift 0 is the identity, so column 0 is the real value.
-    """
-    if not pairs:
-        return None
-    ip = [p[1] for p in pairs]
-    im = [p[2] for p in pairs]
-    cond = (signed[ip, :, :] - signed[im, :, :]
-            + (base[np.asarray(ip)] - base[np.asarray(im)])[:, None, None] * 100.0)
-    excess = cond - np.asarray(baseline_skew_h, dtype=float)[:, None, None]
-    if not np.isfinite(excess).any():
-        return None
-    n = signed.shape[2]
-    with np.errstate(invalid='ignore'), warnings.catch_warnings():
-        warnings.simplefilter('ignore', category=RuntimeWarning)
-        return np.nanmax(np.abs(excess).reshape(-1, n), axis=0)
-
-
 def null_surface(
     touched:         np.ndarray,
     idx:             np.ndarray,
     n_bins:          int,
     min_n:           int = MIN_BIN_N,
     guard:           int = EDGE_GUARD,
-    pairs:           list | None = None,
-    baseline_skew_h: np.ndarray | None = None,
 ) -> dict:
     """
     Null-test one horizon's surface, per cell and as a whole.
@@ -139,11 +104,6 @@ def null_surface(
         peak_p      scalar             p-value of that maximum
         peak_p95    scalar             95th percentile of the maximum's null
         n_shifts    int                usable shifts, so the p-value floor is 1/(n+1)
-        skew_peak_real / skew_peak_p / skew_peak_p95
-                    the same three numbers for max |excess skew| over the mirrored
-                    (magnitude, bin) face -- NaN unless `pairs` and `baseline_skew_h`
-                    are both supplied
-
     `cell_p` is pointwise and nothing else. With 12,300 cells, ~615 sit below 0.05 by
     chance, so it is evidence for *reading* a surface and never a discovery criterion.
     `peak_p` is the statistic that accounts for the search, and it is the one `bh` ranks.
@@ -151,19 +111,16 @@ def null_surface(
     n = touched.shape[1]
     bin_n = np.bincount(idx, minlength=n_bins).astype(float)
     enough = bin_n >= min_n
-    base = touched.mean(axis=1)
 
     signed = _dev_all_shifts(touched, idx, bin_n, n_bins)
     signed[:, ~enough, :] = np.nan
 
     usable = _usable_shifts(n, guard)
     n_use = int(usable.sum())
-    nan_skew = {'skew_peak_real': np.nan, 'skew_peak_p': np.nan, 'skew_peak_p95': np.nan}
     if n_use < 50:
         nan2 = np.full(signed.shape[:2], np.nan)
         return {'cell_real': nan2, 'cell_p': nan2.copy(), 'cell_p95': nan2.copy(),
-                'peak_real': np.nan, 'peak_p': np.nan, 'peak_p95': np.nan, 'n_shifts': 0,
-                **nan_skew}
+                'peak_real': np.nan, 'peak_p': np.nan, 'peak_p95': np.nan, 'n_shifts': 0}
 
     # the reported deviation keeps its sign -- which way the condition moves the barrier
     # is the whole point -- while the test itself is two-sided and compares magnitudes
@@ -188,18 +145,6 @@ def null_surface(
     peak_null = peak_by_shift[usable]
     peak_p = float((1.0 + (peak_null >= peak_real).sum()) / (1.0 + n_use))
 
-    skew_stats = dict(nan_skew)
-    if pairs and baseline_skew_h is not None:
-        sp = _skew_peak_by_shift(signed, base, pairs, baseline_skew_h)
-        if sp is not None and np.isfinite(sp[0]):
-            sp_real = float(sp[0])
-            sp_null = sp[usable]
-            skew_stats = {
-                'skew_peak_real': sp_real,
-                'skew_peak_p':    float((1.0 + (sp_null >= sp_real).sum()) / (1.0 + n_use)),
-                'skew_peak_p95':  float(np.percentile(sp_null, 95)),
-            }
-
     return {
         'cell_real': real_signed,
         'cell_p':    cell_p,
@@ -208,7 +153,6 @@ def null_surface(
         'peak_p':    peak_p,
         'peak_p95':  float(np.percentile(peak_null, 95)),
         'n_shifts':  n_use,
-        **skew_stats,
     }
 
 
@@ -220,7 +164,6 @@ def validate_node(
     edges:         np.ndarray,
     min_n:         int = MIN_BIN_N,
     guard:         int = EDGE_GUARD,
-    baseline_skew: np.ndarray | None = None,
 ) -> dict:
     """
     Null-test every horizon of a node, returning arrays shaped like its cube.
@@ -228,23 +171,18 @@ def validate_node(
     The bin edges are the node's own, passed in rather than recomputed, so validation
     and the cube partition the sample identically.
 
-    `baseline_skew`, when given, is the baseline node's conditional skew on this grid,
-    shaped (n_mag, n_h) where n_mag is the number of +/- theta pairs. Supplying it turns
-    on the excess-skew null; without it the `skew_peak_*` outputs stay NaN.
     """
-    from engine import barrier, skew
+    from engine import barrier
 
     h_max = int(np.max(horizons))
     mins, maxs = barrier.forward_extremes_upto(data, h_max)
     x_all = feature.to_numpy(float)
     n_bins = len(edges) + 1
     n_th, n_h = len(thetas), len(horizons)
-    pairs = skew.pair_indices(thetas)
 
     out = {k: np.full((n_th, n_bins, n_h), np.nan)
            for k in ('cell_real', 'cell_p', 'cell_p95')}
-    for k in ('peak_real', 'peak_p', 'peak_p95',
-              'skew_peak_real', 'skew_peak_p', 'skew_peak_p95'):
+    for k in ('peak_real', 'peak_p', 'peak_p95'):
         out[k] = np.full(n_h, np.nan)
     out['n_shifts'] = np.zeros(n_h, dtype=np.int32)
 
@@ -260,19 +198,15 @@ def validate_node(
         for i, th in enumerate(thetas):
             touched[i] = (ls <= th) if th < 0 else (hs >= th)
 
-        bsk = None if baseline_skew is None else np.asarray(baseline_skew, float)[:, j]
-        r = null_surface(touched, idx, n_bins, min_n, guard,
-                         pairs=pairs, baseline_skew_h=bsk)
+        r = null_surface(touched, idx, n_bins, min_n, guard)
         for k in ('cell_real', 'cell_p', 'cell_p95'):
             out[k][:, :, j] = r[k]
-        for k in ('peak_real', 'peak_p', 'peak_p95',
-                  'skew_peak_real', 'skew_peak_p', 'skew_peak_p95'):
+        for k in ('peak_real', 'peak_p', 'peak_p95'):
             out[k][j] = r[k]
         out['n_shifts'][j] = r['n_shifts']
 
     out['thetas']   = np.asarray(thetas, dtype=float)
     out['horizons'] = np.asarray(horizons, dtype=int)
-    out['mags']     = np.array([p[0] for p in pairs], dtype=float)
     # carried so the renderer works straight off this dict, not only off a reloaded
     # artifact; `save` writes the richer meta passed to it
     out['meta']     = {'bin_labels': barrier.bin_labels(edges, feature)}
@@ -408,8 +342,6 @@ def verdict(rejected: bool, p_value: float, at_floor: bool) -> str:
 
 def save(result: dict, path: Path, meta: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    n_h = len(result['horizons'])
-    nan_h = np.full(n_h, np.nan)
     np.savez_compressed(
         path,
         cell_real=result['cell_real'].astype(np.float32),
@@ -418,13 +350,9 @@ def save(result: dict, path: Path, meta: dict) -> None:
         peak_real=result['peak_real'].astype(np.float32),
         peak_p=result['peak_p'].astype(np.float64),
         peak_p95=result['peak_p95'].astype(np.float32),
-        skew_peak_real=result.get('skew_peak_real', nan_h).astype(np.float32),
-        skew_peak_p=result.get('skew_peak_p', nan_h).astype(np.float64),
-        skew_peak_p95=result.get('skew_peak_p95', nan_h).astype(np.float32),
         n_shifts=result['n_shifts'],
         thetas=result['thetas'],
         horizons=result['horizons'],
-        mags=result.get('mags', np.array([], dtype=float)),
         meta=np.array(json.dumps(meta)),
     )
 

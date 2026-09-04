@@ -14,7 +14,7 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parent
 
-from tree.tree import load_tree
+from universe import load_universe
 
 # The unconditional rate is an ordinary node whose feature is constant, so every bar
 # falls in a single bin. Naming it here rather than special-casing it in the engine is
@@ -25,7 +25,7 @@ BASELINE_NODE = 'baseline'
 class Workspace:
     def __init__(self, name: str):
         self.dir = ROOT / 'workspaces' / name
-        meta = load_tree(self.dir / 'universe.json')['meta']
+        meta = load_universe(self.dir / 'universe.json')['meta']
 
         self.asset      = meta['asset']
         self.start_date = meta['start_date']
@@ -105,11 +105,11 @@ class Workspace:
     # ── paths ─────────────────────────────────────────────────────────────────
 
     @property
-    def tree_path(self) -> Path:
+    def universe_path(self) -> Path:
         return self.dir / 'universe.json'
 
     # Pipeline artifact folders are numbered by command:
-    # surface 01, summary 02, skew 03, validation 04.
+    # surface 01, summary 02, validation 03.
 
     def cube_path(self, family: str, node_id: str) -> Path:
         return self.dir / '01_surface_array' / family / f'{node_id}.npz'
@@ -140,30 +140,16 @@ class Workspace:
         return self.dir / 'evaluation.json'
 
     def validation_path(self, family: str, node_id: str) -> Path:
-        return self.dir / '04_validation_array' / family / f'{node_id}.npz'
+        return self.dir / '03_validation_array' / family / f'{node_id}.npz'
 
     def has_validation(self, family: str, node_id: str) -> bool:
         return self.validation_path(family, node_id).exists()
 
     def validation_sheet_path(self, family: str, node_id: str) -> Path:
-        return self.dir / '04_validation_xlsx' / family / f'{node_id}.xlsx'
+        return self.dir / '03_validation_xlsx' / family / f'{node_id}.xlsx'
 
     def has_validation_sheet(self, family: str, node_id: str) -> bool:
         return self.validation_sheet_path(family, node_id).exists()
-
-    # The skew stage: the mirrored grid's up/down asymmetry, conditional and excess.
-
-    def skew_path(self, family: str, node_id: str) -> Path:
-        return self.dir / '03_skew_array' / family / f'{node_id}.npz'
-
-    def has_skew(self, family: str, node_id: str) -> bool:
-        return self.skew_path(family, node_id).exists()
-
-    def skew_sheet_path(self, family: str, node_id: str) -> Path:
-        return self.dir / '03_skew_xlsx' / family / f'{node_id}.xlsx'
-
-    def has_skew_sheet(self, family: str, node_id: str) -> bool:
-        return self.skew_sheet_path(family, node_id).exists()
 
     @property
     def baseline_cube(self) -> Path:
@@ -171,15 +157,15 @@ class Workspace:
 
     @property
     def cleared_path(self) -> Path:
-        return self.dir / '05_gate.json'
+        return self.dir / '04_gate.json'
 
     @property
     def bayes_path(self) -> Path:
-        return self.dir / '06_bayez.npz'
+        return self.dir / '05_bayes.npz'
 
     @property
     def bayes_summary_path(self) -> Path:
-        return self.dir / '06_bayes.json'
+        return self.dir / '05_bayes.json'
 
     @property
     def result_dir(self) -> Path:

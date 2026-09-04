@@ -114,7 +114,7 @@ def peak_by_horizon(result: dict, min_n: int = MIN_BIN_N) -> dict:
     bin_n  = result['bin_n']
     mags   = result['mags']
     horizons = result['horizons']
-    n_mag, n_bins, n_h = excess.shape
+    _, n_bins, n_h = excess.shape
 
     out: dict[int, dict | None] = {}
     for j in range(n_h):

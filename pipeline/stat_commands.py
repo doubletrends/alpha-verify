@@ -1,4 +1,4 @@
-"""Stages 3-5: skew artifacts, validation nulls, and BH gate."""
+"""Stages 3-4: validation nulls and BH gate."""
 
 from __future__ import annotations
 
@@ -7,104 +7,21 @@ from pathlib import Path
 
 import numpy as np
 
-from engine import barrier, skew as skw, validate as val, writer
-from pipeline.runtime import baseline_surface, loader, node_feature
-from tree.tree import all_in_family, all_nodes, load_tree
+from engine import barrier, validate as val, writer
+from pipeline.runtime import loader, node_feature
+from universe import all_in_family, all_nodes, load_universe
 from workspace import Workspace
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def cmd_skew(ws: Workspace, family: str | None = None, rerun: bool = False) -> None:
-    """Stage 3: compute the up/down asymmetry artifacts from summary cubes."""
-    tree = load_tree(ws.tree_path)
-    nodes = [
-        n for n in (all_in_family(tree, family) if family else all_nodes(tree))
-        if ws.has_summary_cube(n["family"], n["id"])
-    ]
-    if not rerun:
-        nodes = [
-            n for n in nodes
-            if not (ws.has_skew(n["family"], n["id"]) and ws.has_skew_sheet(n["family"], n["id"]))
-        ]
-    if not nodes:
-        print("Nothing to skew (use --rerun to redo, or --summary first).")
-        return
-
-    baseline = baseline_surface(ws)
-    if baseline is None:
-        print("  no baseline summary array - run --summary first")
-        return
-
-    th, hz = ws.summary_thetas, ws.summary_horizons
-    n_mag = int((len(th) - 1) // 2)
-    print(f"\n=== 3. 03_skew_array [{ws.dir.name}] - {len(nodes)} nodes ===")
-    print(f"  {n_mag} θ magnitudes x {ws.n_bins} bins x {len(hz)} horizons per node")
-    print("  conditional  P(+θ|bin) − P(−θ|bin)     excess  that − baseline skew\n")
-
-    done_npz = 0
-    done_xlsx = 0
-    for node in nodes:
-        try:
-            cube = barrier.load_cube(ws.summary_cube_path(node["family"], node["id"]))
-            r = skw.skew_from_cube(cube, baseline)
-            skw.save(r, ws.skew_path(node["family"], node["id"]), {
-                "node": node["id"],
-                "family": node["family"],
-                "feature": node["feature"],
-                "params": node["params"],
-                "workspace": ws.dir.name,
-                "bin_labels": cube["meta"]["bin_labels"],
-                "generated": datetime.now(timezone.utc).isoformat(),
-            })
-            done_npz += 1
-            writer.write_skew_xlsx(
-                r,
-                ws.skew_sheet_path(node["family"], node["id"]),
-                node["id"],
-                node["feature"],
-                node["params"],
-                ws.horizon_unit,
-            )
-            done_xlsx += 1
-        except PermissionError:
-            print(f"  {node['id']:<26} [locked] close it in Excel and re-run")
-            continue
-        except Exception as e:
-            print(f"  {node['id']:<26} [skip] {e}")
-            continue
-
-        peaks = skw.peak_by_horizon(r)
-        hit = {h: p for h, p in peaks.items() if p}
-        if hit:
-            h = max(hit, key=lambda k: abs(hit[k]["excess"]))
-            p = hit[h]
-            print(
-                f"  {node['id']:<26} peak excess {p['excess']:+5.1f}pp at +{h}"
-                f"{ws.horizon_unit}  |θ|={p['mag'] * 100:.3g}%  bin {p['bin'] + 1}  "
-                f"(cond {p['cond']:+.1f}pp)"
-            )
-        else:
-            print(f"  {node['id']:<26} no bin above the reporting threshold")
-
-    print(f"\n  wrote {done_npz} .npz artifacts under {ws.dir.relative_to(ROOT)}/03_skew_array/")
-    print(f"  wrote {done_xlsx} workbooks under {ws.dir.relative_to(ROOT)}/03_skew_xlsx/")
-
-
 def cmd_validation(ws: Workspace, family: str | None = None, rerun: bool = False) -> None:
-    """Stage 4: null-test the summary cube and write validation artifacts."""
-    tree = load_tree(ws.tree_path)
+    """Stage 3: null-test the summary cube and write validation artifacts."""
+    universe = load_universe(ws.universe_path)
     nodes = [
-        n for n in (all_in_family(tree, family) if family else all_nodes(tree))
+        n for n in (all_in_family(universe, family) if family else all_nodes(universe))
         if ws.has_summary_cube(n["family"], n["id"])
     ]
-    missing_skew = [n["id"] for n in nodes if not ws.has_skew(n["family"], n["id"])]
-    nodes = [n for n in nodes if ws.has_skew(n["family"], n["id"])]
-    if missing_skew:
-        print(
-            f"  {len(missing_skew)} node(s) have no skew artifact - run --skew first "
-            f"(skipping {', '.join(missing_skew[:5])}{' ...' if len(missing_skew) > 5 else ''})"
-        )
     if not rerun:
         nodes = [
             n for n in nodes
@@ -112,14 +29,12 @@ def cmd_validation(ws: Workspace, family: str | None = None, rerun: bool = False
             or not ws.has_validation_sheet(n["family"], n["id"])
         ]
     if not nodes:
-        print("Nothing to validate or render (use --rerun to redo, or --skew first).")
+        print("Nothing to validate or render (use --rerun to redo, or --summary first).")
         return
-
-    baseline_skew = skw.baseline_cond_skew(barrier.load_cube(ws.baseline_cube))
 
     get_data = loader(ws)
     th, hz = ws.summary_thetas, ws.summary_horizons
-    print(f"\n=== 4. 04_validation_array [{ws.dir.name}] - {len(nodes)} nodes ===")
+    print(f"\n=== 3. 03_validation_array [{ws.dir.name}] - {len(nodes)} nodes ===")
     print(
         f"  on the summary grid: {len(th)} θ x {ws.n_bins} bins x {len(hz)} horizons "
         f"= {len(th) * ws.n_bins * len(hz)} cells per node"
@@ -129,7 +44,7 @@ def cmd_validation(ws: Workspace, family: str | None = None, rerun: bool = False
         f"{len(ws.thetas) * ws.n_bins * len(ws.horizons)}"
     )
     print(f"  guard {val.EDGE_GUARD} bars either side, so the p-value floor is 1/(usable+1)")
-    print("  nulls the touch peak and the excess-skew peak in the same pass\n")
+    print("  nulls the strongest touch-probability deviation per horizon\n")
 
     done_npz = 0
     done_xlsx = 0
@@ -146,7 +61,6 @@ def cmd_validation(ws: Workspace, family: str | None = None, rerun: bool = False
                     cube["horizons"],
                     cube["thetas"],
                     cube["edges"],
-                    baseline_skew=baseline_skew,
                 )
                 val.save(r, ws.validation_path(node["family"], node["id"]), {
                     "node": node["id"],
@@ -184,36 +98,25 @@ def cmd_validation(ws: Workspace, family: str | None = None, rerun: bool = False
         else:
             print(f"  {node['id']:<26} insufficient data at every horizon")
 
-        sk_finite = np.isfinite(r["skew_peak_p"]) if "skew_peak_p" in r else np.array([False])
-        if sk_finite.any():
-            k = int(np.nanargmin(np.where(sk_finite, r["skew_peak_p"], np.nan)))
-            print(
-                f"  {'':<26}   skew p={r['skew_peak_p'][k]:.5f} at +{r['horizons'][k]}"
-                f"{ws.horizon_unit}  peak {r['skew_peak_real'][k]:5.1f} vs p95 "
-                f"{r['skew_peak_p95'][k]:5.1f}"
-            )
-
-    print(f"\n  wrote {done_npz} .npz artifacts under {ws.dir.relative_to(ROOT)}/04_validation_array/")
-    print(f"  wrote {done_xlsx} workbooks under {ws.dir.relative_to(ROOT)}/04_validation_xlsx/")
+    print(f"\n  wrote {done_npz} .npz artifacts under {ws.dir.relative_to(ROOT)}/03_validation_array/")
+    print(f"  wrote {done_xlsx} workbooks under {ws.dir.relative_to(ROOT)}/03_validation_xlsx/")
     print("  verdicts are assigned by --gate, which needs the whole sweep to correct across")
 
 
 def cmd_gate(ws: Workspace, q: float = 0.05) -> None:
-    """Stage 5: correct across the sweep, then intersect with the economic filter."""
+    """Stage 4: correct across the sweep, then intersect with the economic filter."""
     ev = ws.read_json(ws.eval_path)
     if not ev:
         print("No evaluation.json - run --summary first.")
         return
 
-    tree = load_tree(ws.tree_path)
+    universe = load_universe(ws.universe_path)
     rows = []
-    skew_rows = []
-    for node in all_nodes(tree):
+    for node in all_nodes(universe):
         path = ws.validation_path(node["family"], node["id"])
         if not path.exists():
             continue
         r = val.load(path)
-        has_skew = "skew_peak_p" in r
         for j, h in enumerate(r["horizons"]):
             rows.append({
                 "node": node["id"],
@@ -224,16 +127,6 @@ def cmd_gate(ws: Workspace, q: float = 0.05) -> None:
                 "peak_p95": float(r["peak_p95"][j]),
                 "n_shifts": int(r["n_shifts"][j]),
             })
-            if has_skew and np.isfinite(r["skew_peak_p"][j]):
-                skew_rows.append({
-                    "node": node["id"],
-                    "family": node["family"],
-                    "horizon": int(h),
-                    "peak_p": float(r["skew_peak_p"][j]),
-                    "peak_real": float(r["skew_peak_real"][j]),
-                    "peak_p95": float(r["skew_peak_p95"][j]),
-                    "n_shifts": int(r["n_shifts"][j]),
-                })
     if not rows:
         print("No validation artifacts - run --validation first.")
         return
@@ -311,33 +204,6 @@ def cmd_gate(ws: Workspace, q: float = 0.05) -> None:
     else:
         print("  Nothing clears both filters.")
 
-    skew_summary = {"discovery": 0, "nominal": 0, "n_tests": 0, "discoveries": []}
-    if skew_rows:
-        sk_p = np.array([r["peak_p"] for r in skew_rows])
-        sk_rej, sk_qv = val.bh(sk_p, q)
-        for r, rej, qv in zip(skew_rows, sk_rej, sk_qv):
-            floor = 1.0 / (1.0 + r["n_shifts"]) if r["n_shifts"] else np.nan
-            r["q_value"] = None if not np.isfinite(qv) else round(float(qv), 6)
-            r["at_floor"] = bool(
-                np.isfinite(r["peak_p"]) and np.isfinite(floor) and r["peak_p"] <= floor + 1e-12
-            )
-            r["verdict"] = val.verdict(bool(rej), r["peak_p"], r["at_floor"])
-        sk_m = int(np.isfinite(sk_p).sum())
-        sk_disc = sorted({r["node"] for r in skew_rows if r["verdict"] == "discovery"})
-        skew_summary = {
-            "discovery": sum(1 for r in skew_rows if r["verdict"] == "discovery"),
-            "nominal": sum(1 for r in skew_rows if r["verdict"] == "nominal"),
-            "n_tests": sk_m,
-            "discoveries": sk_disc,
-        }
-        print("\n  ── skew (separate BH family, reported not gated) ──")
-        print(f"  BH skew discoveries : {skew_summary['discovery']:>4} / {sk_m}   over {len(sk_disc)} node(s)")
-        print(f"  nominal (p<=0.05)   : {skew_summary['nominal']:>4} / {sk_m}")
-        if sk_disc:
-            print(f"  {', '.join(sk_disc)}")
-    else:
-        print("\n  ── skew ── no skew p-values in the validation artifacts (re-run --skew then --validation --rerun)")
-
     ws.write_json(ws.cleared_path, {
         "workspace": ws.dir.name,
         "generated": datetime.now(timezone.utc).isoformat(),
@@ -352,7 +218,5 @@ def cmd_gate(ws: Workspace, q: float = 0.05) -> None:
         "summary": {"discovery": n_disc, "nominal": n_nom, "cleared": len(cleared)},
         "cleared": cleared,
         "tests": rows,
-        "skew_summary": skew_summary,
-        "skew_tests": skew_rows,
     })
     print(f"\n  wrote {ws.cleared_path.relative_to(ROOT)}")
