@@ -33,6 +33,7 @@ from engine.report_style import (
 )
 from engine.writer import feature_label
 from pipeline.runtime import loader, node_feature
+from universe import find_node
 
 
 def fig_band(ws, universe, cleared, out: Path) -> Path | None:
@@ -141,65 +142,8 @@ def fig_band(ws, universe, cleared, out: Path) -> Path | None:
     return _save(fig, out / '01_band.png')
 
 
-def fig_baseline(ws, out: Path) -> Path | None:
-    """
-    The reference every other number is read against, as a picture.
-
-    θ = 0 is dropped: it asks whether the high ever returned to the entry close, which is
-    true ~99% of the time, and keeping it would spend most of the colour range on a row
-    that carries no information.
-    """
-    cube = _full_baseline(ws)
-    surf, th, hz = cube['prob'][:, 0, :], cube['thetas'], cube['horizons']
-    keep = np.abs(th) > 1e-12
-    surf, th = surf[keep], th[keep]
-
-    fig, ax = plt.subplots(figsize=(8.4, 5.0))
-    mesh = ax.pcolormesh(hz, th * 100, surf, cmap=CMAP_SEQ, vmin=0, vmax=1,
-                         shading='nearest')
-    cs = ax.contour(hz, th * 100, surf, levels=[0.25, 0.5, 0.75],
-                    colors=[SURFACE], linewidths=0.9)
-    ax.clabel(cs, fmt=lambda v: f'{v:.0%}', fontsize=7, inline=True)
-    ax.axhline(0, color=SURFACE, linewidth=1.4)
-
-    cb = fig.colorbar(mesh, ax=ax, pad=0.02, fraction=0.04)
-    cb.set_label('P(touch θ within h)', color=INK_2, fontsize=8)
-    cb.outline.set_visible(False)
-    cb.ax.tick_params(color=GRID, labelsize=7.5)
-
-    ax.set_xlabel(f'horizon (+{ws.horizon_unit})')
-    ax.set_ylabel('barrier θ (%)')
-    for side in ('top', 'right', 'left', 'bottom'):
-        ax.spines[side].set_visible(False)
-
-    up = surf[th > 0]
-    dn = surf[th < 0]
-    j = len(hz) - 1
-    top_theta = th[th > 0][-1]
-    bot_theta = th[th < 0][0]
-    ax.annotate(f'{up[-1, j]:.1%}', (hz[j], top_theta * 100),
-                xytext=(-10, 0), textcoords='offset points', ha='right',
-                va='center', fontsize=8, fontweight='bold', color=SURFACE)
-    ax.annotate(f'{dn[0, j]:.1%}', (hz[j], bot_theta * 100),
-                xytext=(-10, 0), textcoords='offset points', ha='right',
-                va='center', fontsize=8, fontweight='bold', color=INK_2)
-    _title(fig, 'The baseline already has a direction',
-           f'With no condition at all, {_theta_pct(top_theta, ws.theta_step)} by '
-           f'+{int(hz[j])}{ws.horizon_unit} is touched {up[-1, j]:.1%} of the time; '
-           f'{_theta_pct(bot_theta, ws.theta_step)} is touched {dn[0, j]:.1%}. '
-           f'This is the reference every condition must beat.')
-    _note(fig, f'{ws.asset["ticker"]} {ws.asset.get("interval", "1d")} · '
-               f'01_surface_array/_base/baseline.npz · θ = 0 omitted (near-degenerate by '
-               f'construction)')
-    fig.subplots_adjust(top=0.80)
-    return _save(fig, out / '07_baseline_surface.png')
-
-
-def fig_shift(ws, universe, cleared, out: Path) -> Path | None:
-    """The strongest cleared node's strongest bin, as a deviation from the baseline."""
-    head = _headline_node(ws, cleared, universe)
-    if head is None:
-        return None
+def _render_shift(ws, head: dict, out_path: Path) -> Path | None:
+    """Render one cleared node's strongest bin as a deviation from the baseline."""
     cube = barrier.load_cube(ws.cube_path(head['family'], head['id']))
     base = _full_baseline(ws)['prob'][:, 0, :]
     b = int(head['cell']['bin'])
@@ -247,7 +191,32 @@ def fig_shift(ws, universe, cleared, out: Path) -> Path | None:
                f'Benjamini-Hochberg · bin holds {cell["bin_n"]} bars · '
                f'01_surface_array/{head["family"]}/{head["id"]}.npz')
     fig.subplots_adjust(top=0.80)
-    return _save(fig, out / '08_conditional_shift.png')
+    return _save(fig, out_path)
+
+
+def fig_shift(ws, universe, cleared, out: Path) -> Path | None:
+    """The strongest cleared node's strongest bin, as a deviation from the baseline."""
+    head = _headline_node(ws, cleared, universe)
+    if head is None:
+        return None
+    return _render_shift(ws, head, out / f'08_conditional_shift_{head["id"]}.png')
+
+
+def fig_shift_all(ws, universe, cleared, out: Path) -> list[Path]:
+    """Render one conditional-shift figure for every node that cleared both filters."""
+    paths: list[Path] = []
+    for row in cleared.get('cleared', []):
+        if not row.get('best_cell'):
+            continue
+        try:
+            node = find_node(universe, row['node'])
+            head = {**node, 'cell': row['best_cell'], 'gate': row}
+            path = _render_shift(ws, head, out / f'08_conditional_shift_{node["id"]}.png')
+        except Exception:
+            continue
+        if path is not None:
+            paths.append(path)
+    return paths
 
 
 def fig_atr_ladder(ws, cleared, out: Path) -> Path | None:

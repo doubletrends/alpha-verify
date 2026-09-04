@@ -7,7 +7,7 @@ import argparse
 from pipeline.composition_command import cmd_bayes
 from pipeline.inspect_commands import cmd_read, cmd_status
 from pipeline.report_command import cmd_report
-from pipeline.stat_commands import cmd_gate, cmd_validation
+from pipeline.stat_commands import cmd_gate, cmd_skew, cmd_validation
 from pipeline.surface_commands import cmd_summary, cmd_surface
 from workspace import Workspace
 
@@ -42,17 +42,18 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="3. write 03_validation_array and 03_validation_xlsx",
     )
+    g.add_argument("--skew", action="store_true", help="4. write 04_skew_array and 04_skew_xlsx")
     g.add_argument(
         "--gate",
         action="store_true",
-        help="4. correct across the sweep (BH) and intersect with the economic filter",
+        help="5. correct across the sweep and intersect with the economic filter",
     )
     g.add_argument(
         "--bayes",
         action="store_true",
-        help="5. compose conditions out of sample, 05_bayes.npz + 05_bayes.json",
+        help="6. compose conditions out of sample, 06_bayes.npz + 06_bayes.json",
     )
-    g.add_argument("--report", action="store_true", help="6. render figures into workspace result/")
+    g.add_argument("--report", action="store_true", help="7. render figures into workspace result/")
     g.add_argument("--status", action="store_true", help="Inventory by family")
     g.add_argument("--read", metavar="ID", help="Print a node surface summary")
     return parser
@@ -69,6 +70,8 @@ def main(argv: list[str] | None = None) -> None:
         cmd_summary(ws, args.family)
     elif args.validation:
         cmd_validation(ws, args.family, args.rerun)
+    elif args.skew:
+        cmd_skew(ws, args.family, args.rerun)
     elif args.gate:
         cmd_gate(ws, args.fdr)
     elif args.bayes:

@@ -21,8 +21,8 @@ the whole permutation distribution rather than a draw from it.
 obtainable is 1/(n+1) -- roughly 2.4e-4 on eleven years of daily bars. Drawing 20,000
 random shifts from a group of 4,214 and reporting p = 1/20001 claims a resolution the
 data cannot produce; it inflates significance by about 5x. Because that floor sits above
-the Bonferroni threshold for any sweep of this size, family-wise correction is
-structurally impossible here, and `bh` below controls false discovery rate instead.
+the Bonferroni threshold for this sweep size, family-wise correction is too harsh here,
+and `bh` below controls false discovery rate instead.
 
 The reference the null measures against is the node's *own* sample rate, not the baseline
 node's. Shifting leaves the marginal untouched, so the node's own rate is the quantity
@@ -106,7 +106,8 @@ def null_surface(
         n_shifts    int                usable shifts, so the p-value floor is 1/(n+1)
     `cell_p` is pointwise and nothing else. With 12,300 cells, ~615 sit below 0.05 by
     chance, so it is evidence for *reading* a surface and never a discovery criterion.
-    `peak_p` is the statistic that accounts for the search, and it is the one `bh` ranks.
+    `peak_p` is the statistic that accounts for the search, and it is the one the gate
+    corrects across.
     """
     n = touched.shape[1]
     bin_n = np.bincount(idx, minlength=n_bins).astype(float)
@@ -275,10 +276,6 @@ def peak_shift_distribution(
 def bh(p_values: np.ndarray, q: float = 0.05) -> tuple[np.ndarray, np.ndarray]:
     """
     Benjamini-Hochberg: control the false discovery rate across the whole sweep.
-
-    Bonferroni is not an option here. It needs a p-value below q/m, and with m in the
-    hundreds that threshold falls under the 1/(n+1) floor the circular-shift null can
-    reach -- so nothing could ever clear it, however strong the signal.
 
     BH compares the k-th smallest p-value against k*q/m instead, so tests sitting at the
     floor clear collectively: a hundred of them at 2.4e-4 pass a rank-100 threshold of

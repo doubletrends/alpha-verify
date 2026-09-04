@@ -1,4 +1,4 @@
-"""Stages 3-4: validation nulls and BH gate."""
+"""Stages 3-5: validation nulls, skew artifacts, and BH gate."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from pathlib import Path
 
 import numpy as np
 
-from engine import barrier, validate as val, writer
-from pipeline.runtime import loader, node_feature
+from engine import barrier, skew as skw, validate as val, writer
+from pipeline.runtime import baseline_surface, loader, node_feature
 from universe import all_in_family, all_nodes, load_universe
 from workspace import Workspace
 
@@ -103,8 +103,86 @@ def cmd_validation(ws: Workspace, family: str | None = None, rerun: bool = False
     print("  verdicts are assigned by --gate, which needs the whole sweep to correct across")
 
 
+def cmd_skew(ws: Workspace, family: str | None = None, rerun: bool = False) -> None:
+    """Stage 4: compute informative up/down asymmetry artifacts from summary cubes."""
+    universe = load_universe(ws.universe_path)
+    nodes = [
+        n for n in (all_in_family(universe, family) if family else all_nodes(universe))
+        if ws.has_summary_cube(n["family"], n["id"])
+    ]
+    if not rerun:
+        nodes = [
+            n for n in nodes
+            if not (ws.has_skew(n["family"], n["id"]) and ws.has_skew_sheet(n["family"], n["id"]))
+        ]
+    if not nodes:
+        print("Nothing to skew (use --rerun to redo, or --summary first).")
+        return
+
+    baseline = baseline_surface(ws)
+    if baseline is None:
+        print("No baseline summary array - run --summary first.")
+        return
+
+    th, hz = ws.summary_thetas, ws.summary_horizons
+    n_mag = int((len(th) - 1) // 2)
+    print(f"\n=== 4. 04_skew_array [{ws.dir.name}] - {len(nodes)} nodes ===")
+    print(f"  {n_mag} θ magnitudes x {ws.n_bins} bins x {len(hz)} horizons per node")
+    print("  conditional  P(+θ|bin) - P(-θ|bin)     excess  that - baseline skew")
+    print("  informative artifact only; validation and cleared-both stay on raw summary surfaces\n")
+
+    done_npz = 0
+    done_xlsx = 0
+    for node in nodes:
+        try:
+            cube = barrier.load_cube(ws.summary_cube_path(node["family"], node["id"]))
+            r = skw.skew_from_cube(cube, baseline)
+            skw.save(r, ws.skew_path(node["family"], node["id"]), {
+                "node": node["id"],
+                "family": node["family"],
+                "feature": node["feature"],
+                "params": node["params"],
+                "workspace": ws.dir.name,
+                "bin_labels": cube["meta"]["bin_labels"],
+                "generated": datetime.now(timezone.utc).isoformat(),
+                "note": "informative artifact derived from 02_summary_array; not validated and not gated",
+            })
+            done_npz += 1
+            writer.write_skew_xlsx(
+                r,
+                ws.skew_sheet_path(node["family"], node["id"]),
+                node["id"],
+                node["feature"],
+                node["params"],
+                ws.horizon_unit,
+            )
+            done_xlsx += 1
+        except PermissionError:
+            print(f"  {node['id']:<26} [locked] close it in Excel and re-run")
+            continue
+        except Exception as e:
+            print(f"  {node['id']:<26} [skip] {e}")
+            continue
+
+        peaks = skw.peak_by_horizon(r)
+        hit = {h: p for h, p in peaks.items() if p}
+        if hit:
+            h = max(hit, key=lambda k: abs(hit[k]["excess"]))
+            p = hit[h]
+            print(
+                f"  {node['id']:<26} peak excess {p['excess']:+5.1f}pp at +{h}"
+                f"{ws.horizon_unit}  |θ|={p['mag'] * 100:.3g}%  bin {p['bin'] + 1}  "
+                f"(cond {p['cond']:+.1f}pp)"
+            )
+        else:
+            print(f"  {node['id']:<26} no bin above the reporting threshold")
+
+    print(f"\n  wrote {done_npz} .npz artifacts under {ws.dir.relative_to(ROOT)}/04_skew_array/")
+    print(f"  wrote {done_xlsx} workbooks under {ws.dir.relative_to(ROOT)}/04_skew_xlsx/")
+
+
 def cmd_gate(ws: Workspace, q: float = 0.05) -> None:
-    """Stage 4: correct across the sweep, then intersect with the economic filter."""
+    """Stage 5: correct across the sweep, then intersect with the economic filter."""
     ev = ws.read_json(ws.eval_path)
     if not ev:
         print("No evaluation.json - run --summary first.")
@@ -153,10 +231,7 @@ def cmd_gate(ws: Workspace, q: float = 0.05) -> None:
         f"  Benjamini-Hochberg at q = {q}   |   p-value floor ~ {floor_lo:.2e} "
         "(exact null has only n distinct shifts)"
     )
-    print(
-        f"  Bonferroni would need p <= {0.05 / max(m, 1):.2e}, "
-        f"{'reachable' if 0.05 / max(m, 1) >= floor_lo else 'BELOW the floor - unusable'}\n"
-    )
+    print()
     print(f"  BH discoveries    : {n_disc:>4} / {m}")
     print(f"  nominal (p<=0.05) : {n_nom:>4} / {m}")
 
@@ -213,7 +288,7 @@ def cmd_gate(ws: Workspace, q: float = 0.05) -> None:
             "n_tests": m,
             "p_floor": floor_lo,
             "note": "circular-shift null is exact over all n shifts; the floor 1/(n+1) "
-                    "is below no Bonferroni threshold at this m, so FDR is used instead of FWER",
+                    "limits how small any reported p-value can be",
         },
         "summary": {"discovery": n_disc, "nominal": n_nom, "cleared": len(cleared)},
         "cleared": cleared,

@@ -10,7 +10,7 @@ That is different from asking where price closes. Stops, limits, liquidations an
 calls care whether a level was reached at any point inside the forward window, so the
 engine uses high/low extremes rather than close-to-close returns.
 
-The product workflow has six stages:
+The product workflow has seven stages:
 
 ```text
 01_surface_array/         --surface     compute: full theta x bins x horizons
@@ -23,14 +23,17 @@ evaluation.json           --summary     economic filter results
 03_validation_array/      --validation  compute: exact shuffled nulls
 03_validation_xlsx/       --validation  view: validation workbooks
 
-04_gate.json              --gate        BH correction + economic intersect
-05_bayes.npz              --bayes       walk-forward composition arrays
-05_bayes.json             --bayes       walk-forward composition summary
+04_skew_array/            --skew        compute: informative up/down asymmetry
+04_skew_xlsx/             --skew        view: readable skew workbooks
+
+05_gate.json              --gate        BH correction + economic intersect
+06_bayes.npz              --bayes       walk-forward composition arrays
+06_bayes.json             --bayes       walk-forward composition summary
 workspaces/<name>/result/ --report      audience-facing figures
 ```
 
-Stages 1-4 describe what happened over the whole history. Stage 5 is the out-of-sample
-composition check. Stage 6 renders figures from stored artifacts and does not remeasure.
+Stages 1-5 describe what happened over the whole history. Stage 6 is the out-of-sample
+composition check. Stage 7 renders figures from stored artifacts and does not remeasure.
 
 ## 0. Orient
 
@@ -39,8 +42,8 @@ python run.py --workspace <name> --status
 ```
 
 The status table is the funnel: nodes declared, surfaces measured, summary artifacts
-written, nulls validated, economic filter passed, and nodes that cleared both the
-economic and statistical gates.
+written, nulls validated, skew artifacts rendered, economic filter passed, and nodes
+that cleared both the economic and statistical gates.
 
 ## 1. Surface
 
@@ -133,7 +136,26 @@ honestly report a p-value below `1/(n+1)`.
 discovery criterion. The gate uses `peak_p`, which accounts for the search over the
 surface.
 
-## 4. Gate
+## 4. Skew
+
+```bash
+python run.py --workspace <name> --skew
+python run.py --workspace <name> --skew --family volatility
+```
+
+Skew is an informative product artifact derived from the summary cubes. It compares the
+mirrored barrier ladder in each condition bin:
+
+```text
+conditional skew = P(touch +theta | bin) - P(touch -theta | bin)
+excess skew      = conditional skew - baseline conditional skew
+```
+
+This stage does not remeasure price, does not run a null, and does not feed
+cleared-both. It exists so direction/asymmetry can be inspected beside the probability
+surfaces without turning it into a claim.
+
+## 5. Gate
 
 ```bash
 python run.py --workspace <name> --gate
@@ -149,7 +171,7 @@ A node clears the product claim only when both are true:
 - **Statistical:** the node's peak survives the exact shuffled-null test after FDR
   correction.
 
-The result is written to `04_gate.json`:
+The result is written to `05_gate.json`:
 
 ```text
 summary.discovery   nodes/horizons that survive the null
@@ -159,12 +181,12 @@ cleared[]           the headline rows
 tests[]             every validation test with verdict and q-value
 ```
 
-Bonferroni is intentionally not used. With hundreds of tests, its threshold often falls
-below the exact null's p-value floor, making it physically unreachable. BH controls the
-expected false-discovery share among discoveries, which is the useful correction for a
-screen of this size.
+Bonferroni is intentionally not used. With hundreds of tests, its threshold falls below
+the exact null's p-value floor, making it unreachable on these workspaces. BH controls
+the expected false-discovery share among discoveries, which is the useful correction for
+a screen of this size.
 
-## 5. Compose
+## 6. Compose
 
 ```bash
 python run.py --workspace <name> --bayes
@@ -193,15 +215,15 @@ expanding walk-forward design:
 It writes:
 
 ```text
-05_bayes.npz
-05_bayes.json
+06_bayes.npz
+06_bayes.json
 ```
 
 The report compares prior-only, all-node naive Bayes, one-node-per-family, and Platt
 scale-corrected probabilities. The point is not to claim a trading strategy; it is to
 test whether the measured conditional tables compose without leaking future data.
 
-## 6. Report
+## 7. Report
 
 ```bash
 python run.py --workspace <name> --report
@@ -213,14 +235,11 @@ from `.npz` and `.json` artifacts; they do not recompute the pipeline.
 The main product figures show:
 
 - the measured forward envelope from the latest close
-- the cleared-both landscape: economic size versus shuffled-null strength
-- where cleared effects sit by horizon
-- which families contribute cleared nodes
 - the exact null distribution behind a headline node
-- the economic/statistical funnel
-- the baseline surface
-- the strongest conditional shift from baseline
-- out-of-sample composition
+- one conditional-shift surface for every node that cleared both
+- the composition ranking grid
+- the ATR regime ladder
+- the null-gap ranking across top discoveries
 
 ## Adding a Feature
 
@@ -269,9 +288,11 @@ enough to estimate.
 | `evaluation.json` | `--summary` | economic filter results |
 | `03_validation_array/<family>/<node>.npz` | `--validation` | exact null artifacts |
 | `03_validation_xlsx/<family>/<node>.xlsx` | `--validation` | readable validation workbook |
-| `04_gate.json` | `--gate` | FDR verdicts and cleared-both rows |
-| `05_bayes.npz` | `--bayes` | pooled walk-forward predictions |
-| `05_bayes.json` | `--bayes` | walk-forward metrics and fold metadata |
+| `04_skew_array/<family>/<node>.npz` | `--skew` | informative up/down skew artifacts |
+| `04_skew_xlsx/<family>/<node>.xlsx` | `--skew` | readable skew workbook |
+| `05_gate.json` | `--gate` | FDR verdicts and cleared-both rows |
+| `06_bayes.npz` | `--bayes` | pooled walk-forward predictions |
+| `06_bayes.json` | `--bayes` | walk-forward metrics and fold metadata |
 | `workspaces/<name>/result/*.png` | `--report` | product figures |
 
 Rendered workbooks are git-ignored. The `.npz` files are the measurement record.

@@ -22,10 +22,8 @@ condition the index is in on the latest bar, how wide is the historical 50% touc
 envelope? The filled band is the current condition bin; the thin bands show the edge
 bins, so the value of conditioning is visible on the price axis.
 
-![the landscape](workspaces/nasdaq_daily/result/02_landscape.png)
-
-Every node is plotted against the two filters that decide whether it clears: practical
-effect size and shuffled-null strength. The useful result is the upper-right cluster:
+Every node is judged against the two filters that decide whether it clears: practical
+effect size and shuffled-null strength. The useful result is the cleared-both set:
 conditions that are large enough to matter and too strong to explain as alignment noise.
 
 ## What It Found
@@ -45,8 +43,6 @@ both the economic filter and the shuffled-null gate. The strongest cleared cells
 all one-bar artifacts: the peak horizons are +2d for 13 nodes, +7d for 12, +1d for 10,
 and +30d for 7.
 
-![where the edge is](workspaces/nasdaq_daily/result/03_where_the_edge_is.png)
-
 **2. The filters are strict enough to be useful.** A condition has to pass an economic
 threshold and a shuffled-null test corrected across the sweep. The point is not a large
 spreadsheet of indicators; it is a short list of conditional barrier claims that survived
@@ -54,9 +50,8 @@ both gates.
 
 **3. Cross-asset regimes matter, but they are still magnitude regimes.** VIX, Treasury
 yield and DXY features join price, volatility and trend features in the discovery set.
-The family view shows where those discoveries land by horizon.
-
-![families](workspaces/nasdaq_daily/result/04_families.png)
+The report keeps the exact null diagnostics front and center, then renders one
+conditional-shift surface for every node that cleared both.
 
 ## Why The Numbers Are Trustworthy
 
@@ -70,13 +65,11 @@ approximation.
 ![the null](workspaces/nasdaq_daily/result/05_null.png)
 
 The finest obtainable p-value is `1/(n+1)`. For the NASDAQ daily run that floor is
-`3.95e-4`; with 406 tests, Bonferroni would require `1.23e-4`, which is below the floor.
-So the gate controls false discovery rate with Benjamini-Hochberg instead of claiming an
-unreachable family-wise threshold.
+`3.95e-4`; with 406 tests, Bonferroni at `alpha=0.05` would require `1.23e-4`, which is
+below the floor. The gate therefore controls false discovery rate with
+Benjamini-Hochberg instead of exposing an unusable family-wise threshold.
 
 ### Two Filters Are Required
-
-![funnel](workspaces/nasdaq_daily/result/06_funnel.png)
 
 The economic filter requires a deviation of at least 10 percentage points, in a bin with
 at least 50 observations, across at least two adjacent barrier rows with the same sign.
@@ -85,14 +78,19 @@ correction across the sweep. Neither filter alone is treated as a claim.
 
 ### The Baseline Is A Node
 
-![baseline surface](workspaces/nasdaq_daily/result/07_baseline_surface.png)
-
 `baseline` is measured like any other node. Its single condition bin is the unconditional
 touch probability surface, and every conditional node has to beat that reference. This
 keeps the pipeline uniform and prevents special-case arithmetic from drifting away from
 the artifacts.
 
-![conditional shift](workspaces/nasdaq_daily/result/08_conditional_shift.png)
+![conditional shift](workspaces/nasdaq_daily/result/08_conditional_shift_vix_level.png)
+
+### Skew Is Informative
+
+The mirrored summary grid also produces a skew artifact:
+`P(touch +theta | bin) - P(touch -theta | bin)`, with baseline skew subtracted in the
+excess view. Skew is part of the product because it makes up/down asymmetry easy to
+inspect, but it is not validated and does not feed cleared-both.
 
 ## Do Conditions Compose?
 
@@ -104,18 +102,16 @@ logit P(touch | x1..xk)
   = logit P(touch) + sum_i [logit P(touch | xi) - logit P(touch)]
 ```
 
-Stage 5 tests that composition out of sample. Bin edges, per-bin rates, the prior and
+Stage 6 tests that composition out of sample. Bin edges, per-bin rates, the prior and
 the scale correction are all fit on an expanding training window, then applied to later
 bars with a 30-session embargo and non-overlapping scoring.
 
-![composition](workspaces/nasdaq_daily/result/09_composition.png)
-
 | model | Brier down | AUC | vs. prior |
 |---|--:|--:|--:|
-| constant prior | 0.242 | - | - |
-| naive Bayes, all 57 nodes | 0.370 | 0.579 | +52.7% worse |
-| one node per family | 0.260 | 0.573 | +7.5% worse |
-| **+ scale corrected** | **0.230** | 0.548 | **-5.0%** |
+| constant prior | 0.206 | - | - |
+| naive Bayes, all 57 nodes | 0.333 | 0.576 | +61.4% worse |
+| one node per family | 0.233 | 0.580 | +13.2% worse |
+| **+ scale corrected** | **0.197** | 0.534 | **-4.4%** |
 
 The raw model is overconfident because correlated indicators count similar evidence many
 times. Keeping one node per family removes most of the damage; a Platt scale correction
@@ -123,8 +119,8 @@ does the rest for the headline target, `P(touch -7% within 30d)`.
 
 ![composition grid](workspaces/nasdaq_daily/result/10_composition_grid.png)
 
-Across the judged grid, 80 of 83 usable targets rank above chance out of sample. The
-strongest usable target is `-5%` within `+2d`, at AUC 0.87.
+Across the judged grid, 73 of 126 usable targets beat the prior out of sample. The
+strongest ranked target is `+10%` within `+3d`, at AUC 0.99.
 
 ## Run It
 
@@ -134,9 +130,10 @@ pip install -e .
 python run.py --surface            # 1. write 01_surface_array and 01_surface_xlsx
 python run.py --summary            # 2. write 02_summary_array and 02_summary_xlsx
 python run.py --validation         # 3. write 03_validation_array and 03_validation_xlsx
-python run.py --gate               # 4. BH correction and economic/statistical intersect
-python run.py --bayes              # 5. walk-forward composition
-python run.py --report             # 6. render workspaces/nasdaq_daily/result
+python run.py --skew               # 4. write 04_skew_array and 04_skew_xlsx
+python run.py --gate               # 5. BH correction and economic/statistical intersect
+python run.py --bayes              # 6. walk-forward composition
+python run.py --report             # 7. render workspaces/nasdaq_daily/result
 
 python run.py --status
 python run.py --read vix_level
@@ -157,14 +154,16 @@ workspaces/<name>/
   02_summary_xlsx/<family>/<node>.xlsx  view     summary cube workbook
   03_validation_array/<family>/<node>.npz         compute  exact shuffled null
   03_validation_xlsx/<family>/<node>.xlsx   view     readable validation sheet
-  evaluation.json  04_gate.json  05_bayes.npz  05_bayes.json
+  04_skew_array/<family>/<node>.npz               compute  P(+theta) vs P(-theta)
+  04_skew_xlsx/<family>/<node>.xlsx         view     readable skew sheet
+  evaluation.json  05_gate.json  06_bayes.npz  06_bayes.json
                                                    verdicts and composition metrics
 workspaces/<name>/result/*.png                                report figures
 ```
 
 The `.npz` arrays are tracked because they are the measurement record. Rendered `.xlsx`
-workbooks are ignored: they are regenerated by `--surface`, `--summary`, and
-`--validation`.
+workbooks are ignored: they are regenerated by `--surface`, `--summary`, `--validation`,
+and `--skew`.
 
 ## Limits
 

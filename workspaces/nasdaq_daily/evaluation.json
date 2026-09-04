@@ -1,0 +1,861 @@
+{
+  "workspace": "nasdaq_daily",
+  "generated": "2026-09-04T04:03:46.975448+00:00",
+  "grid": {
+    "thetas": [
+      -0.15,
+      -0.1,
+      -0.07,
+      -0.05,
+      -0.03,
+      -0.02,
+      -0.015,
+      -0.01,
+      -0.005,
+      0.0,
+      0.005,
+      0.01,
+      0.015,
+      0.02,
+      0.03,
+      0.05,
+      0.07,
+      0.1,
+      0.15
+    ],
+    "horizons": [
+      1,
+      2,
+      3,
+      5,
+      7,
+      14,
+      30
+    ]
+  },
+  "criteria": {
+    "min_dev": 10.0,
+    "min_bin_n": 50,
+    "min_run": 2
+  },
+  "passed": [
+    "atr_14",
+    "bb_pct_20",
+    "bb_width_20",
+    "drawdown_14",
+    "drawdown_30",
+    "drawdown_60",
+    "drawdown_7",
+    "drawdown_recovery_7_60",
+    "dxy_ma_ratio_20",
+    "dxy_ret_1",
+    "ma_cross_10_50",
+    "ma_cross_20_100",
+    "ma_cross_50_200",
+    "ma_ratio_10",
+    "ma_ratio_100",
+    "ma_ratio_20",
+    "ma_ratio_200",
+    "ma_ratio_50",
+    "macd_12_26",
+    "macd_9_21",
+    "macd_histogram_12_26",
+    "realized_vol_14",
+    "realized_vol_21",
+    "realized_vol_30",
+    "realized_vol_7",
+    "roc_1",
+    "roc_10",
+    "roc_20",
+    "roc_3",
+    "roc_5",
+    "roc_spread_5_20",
+    "rsi_14",
+    "rsi_21",
+    "rsi_7",
+    "stoch_14",
+    "stoch_7",
+    "stoch_d_14",
+    "tnx_level",
+    "tnx_ma_ratio_20",
+    "tnx_ret_1",
+    "tnx_ret_5",
+    "vix_level",
+    "vix_ma_ratio_10",
+    "vix_ma_ratio_20",
+    "vix_ret_1",
+    "vix_ret_5",
+    "vol_ratio_7_21",
+    "volume_ratio_20",
+    "volume_ratio_50",
+    "wr_14",
+    "wr_21",
+    "wr_7",
+    "wr_spread_7_14"
+  ],
+  "nodes": {
+    "baseline": {
+      "passed": false,
+      "best": null
+    },
+    "rsi_7": {
+      "passed": true,
+      "best": {
+        "horizon": 1,
+        "bin": 0,
+        "theta": 0.01,
+        "dev": 22.804197669029236,
+        "run": 2,
+        "prob": 0.5187713503837585,
+        "base": 0.2907293736934662,
+        "bin_n": 293,
+        "hits": 152
+      }
+    },
+    "rsi_14": {
+      "passed": true,
+      "best": {
+        "horizon": 2,
+        "bin": 0,
+        "theta": 0.015,
+        "dev": 29.073309898376465,
+        "run": 3,
+        "prob": 0.57337886095047,
+        "base": 0.2826457619667053,
+        "bin_n": 293,
+        "hits": 168
+      }
+    },
+    "rsi_21": {
+      "passed": true,
+      "best": {
+        "horizon": 3,
+        "bin": 0,
+        "theta": 0.02,
+        "dev": 28.25552523136139,
+        "run": 3,
+        "prob": 0.5376712083816528,
+        "base": 0.25511595606803894,
+        "bin_n": 292,
+        "hits": 157
+      }
+    },
+    "rsi_spread_7_14": {
+      "passed": false,
+      "best": null
+    },
+    "wr_7": {
+      "passed": true,
+      "best": {
+        "horizon": 1,
+        "bin": 0,
+        "theta": 0.01,
+        "dev": 20.756414532661438,
+        "run": 2,
+        "prob": 0.49829351902008057,
+        "base": 0.2907293736934662,
+        "bin_n": 293,
+        "hits": 146
+      }
+    },
+    "wr_14": {
+      "passed": true,
+      "best": {
+        "horizon": 1,
+        "bin": 0,
+        "theta": 0.01,
+        "dev": 25.534573197364807,
+        "run": 2,
+        "prob": 0.5460751056671143,
+        "base": 0.2907293736934662,
+        "bin_n": 293,
+        "hits": 160
+      }
+    },
+    "wr_21": {
+      "passed": true,
+      "best": {
+        "horizon": 2,
+        "bin": 0,
+        "theta": 0.015,
+        "dev": 26.52994394302368,
+        "run": 3,
+        "prob": 0.5479452013969421,
+        "base": 0.2826457619667053,
+        "bin_n": 292,
+        "hits": 160
+      }
+    },
+    "wr_spread_7_14": {
+      "passed": true,
+      "best": {
+        "horizon": 2,
+        "bin": 7,
+        "theta": 0.015,
+        "dev": 18.653231859207153,
+        "run": 2,
+        "prob": 0.46917808055877686,
+        "base": 0.2826457619667053,
+        "bin_n": 292,
+        "hits": 137
+      }
+    },
+    "stoch_7": {
+      "passed": true,
+      "best": {
+        "horizon": 1,
+        "bin": 0,
+        "theta": 0.01,
+        "dev": 20.756414532661438,
+        "run": 2,
+        "prob": 0.49829351902008057,
+        "base": 0.2907293736934662,
+        "bin_n": 293,
+        "hits": 146
+      }
+    },
+    "stoch_14": {
+      "passed": true,
+      "best": {
+        "horizon": 1,
+        "bin": 0,
+        "theta": 0.01,
+        "dev": 25.534573197364807,
+        "run": 2,
+        "prob": 0.5460751056671143,
+        "base": 0.2907293736934662,
+        "bin_n": 293,
+        "hits": 160
+      }
+    },
+    "stoch_d_14": {
+      "passed": true,
+      "best": {
+        "horizon": 2,
+        "bin": 0,
+        "theta": 0.015,
+        "dev": 27.899807691574097,
+        "run": 3,
+        "prob": 0.5616438388824463,
+        "base": 0.2826457619667053,
+        "bin_n": 292,
+        "hits": 164
+      }
+    },
+    "roc_1": {
+      "passed": true,
+      "best": {
+        "horizon": 1,
+        "bin": 0,
+        "theta": 0.01,
+        "dev": 24.328425526618958,
+        "run": 2,
+        "prob": 0.5340136289596558,
+        "base": 0.2907293736934662,
+        "bin_n": 294,
+        "hits": 157
+      }
+    },
+    "roc_3": {
+      "passed": true,
+      "best": {
+        "horizon": 2,
+        "bin": 0,
+        "theta": 0.015,
+        "dev": 27.517735958099365,
+        "run": 3,
+        "prob": 0.557823121547699,
+        "base": 0.2826457619667053,
+        "bin_n": 294,
+        "hits": 164
+      }
+    },
+    "roc_5": {
+      "passed": true,
+      "best": {
+        "horizon": 2,
+        "bin": 0,
+        "theta": 0.015,
+        "dev": 31.803685426712036,
+        "run": 3,
+        "prob": 0.6006826162338257,
+        "base": 0.2826457619667053,
+        "bin_n": 293,
+        "hits": 176
+      }
+    },
+    "roc_10": {
+      "passed": true,
+      "best": {
+        "horizon": 2,
+        "bin": 0,
+        "theta": 0.015,
+        "dev": 32.48627781867981,
+        "run": 3,
+        "prob": 0.6075085401535034,
+        "base": 0.2826457619667053,
+        "bin_n": 293,
+        "hits": 178
+      }
+    },
+    "roc_20": {
+      "passed": true,
+      "best": {
+        "horizon": 7,
+        "bin": 0,
+        "theta": 0.03,
+        "dev": 31.92884922027588,
+        "run": 4,
+        "prob": 0.6095890402793884,
+        "base": 0.29030054807662964,
+        "bin_n": 292,
+        "hits": 178
+      }
+    },
+    "roc_spread_5_20": {
+      "passed": true,
+      "best": {
+        "horizon": 5,
+        "bin": 9,
+        "theta": 0.02,
+        "dev": 22.49590754508972,
+        "run": 3,
+        "prob": 0.6130136847496033,
+        "base": 0.38805460929870605,
+        "bin_n": 292,
+        "hits": 179
+      }
+    },
+    "ma_ratio_10": {
+      "passed": true,
+      "best": {
+        "horizon": 1,
+        "bin": 0,
+        "theta": 0.01,
+        "dev": 29.28883731365204,
+        "run": 2,
+        "prob": 0.5836177468299866,
+        "base": 0.2907293736934662,
+        "bin_n": 293,
+        "hits": 171
+      }
+    },
+    "ma_ratio_20": {
+      "passed": true,
+      "best": {
+        "horizon": 3,
+        "bin": 0,
+        "theta": 0.02,
+        "dev": 32.70758092403412,
+        "run": 3,
+        "prob": 0.5821917653083801,
+        "base": 0.25511595606803894,
+        "bin_n": 292,
+        "hits": 170
+      }
+    },
+    "ma_ratio_50": {
+      "passed": true,
+      "best": {
+        "horizon": 3,
+        "bin": 0,
+        "theta": 0.02,
+        "dev": 30.889788269996643,
+        "run": 3,
+        "prob": 0.5640138387680054,
+        "base": 0.25511595606803894,
+        "bin_n": 289,
+        "hits": 163
+      }
+    },
+    "ma_ratio_100": {
+      "passed": true,
+      "best": {
+        "horizon": 14,
+        "bin": 0,
+        "theta": 0.05,
+        "dev": 33.57185423374176,
+        "run": 4,
+        "prob": 0.5633803009986877,
+        "base": 0.22766175866127014,
+        "bin_n": 284,
+        "hits": 160
+      }
+    },
+    "ma_ratio_200": {
+      "passed": true,
+      "best": {
+        "horizon": 7,
+        "bin": 0,
+        "theta": 0.03,
+        "dev": 30.823957920074463,
+        "run": 3,
+        "prob": 0.5985401272773743,
+        "base": 0.29030054807662964,
+        "bin_n": 274,
+        "hits": 164
+      }
+    },
+    "ma_cross_10_50": {
+      "passed": true,
+      "best": {
+        "horizon": 7,
+        "bin": 0,
+        "theta": 0.03,
+        "dev": 28.755414485931396,
+        "run": 3,
+        "prob": 0.5778546929359436,
+        "base": 0.29030054807662964,
+        "bin_n": 289,
+        "hits": 167
+      }
+    },
+    "ma_cross_20_100": {
+      "passed": true,
+      "best": {
+        "horizon": 30,
+        "bin": 0,
+        "theta": 0.07,
+        "dev": 32.51618146896362,
+        "run": 4,
+        "prob": 0.6091549396514893,
+        "base": 0.283993124961853,
+        "bin_n": 284,
+        "hits": 173
+      }
+    },
+    "ma_cross_50_200": {
+      "passed": true,
+      "best": {
+        "horizon": 30,
+        "bin": 0,
+        "theta": -0.07,
+        "dev": 23.09383451938629,
+        "run": 2,
+        "prob": 0.45985400676727295,
+        "base": 0.22891566157341003,
+        "bin_n": 274,
+        "hits": 126
+      }
+    },
+    "macd_12_26": {
+      "passed": true,
+      "best": {
+        "horizon": 7,
+        "bin": 0,
+        "theta": 0.03,
+        "dev": 30.15362024307251,
+        "run": 3,
+        "prob": 0.5918367505073547,
+        "base": 0.29030054807662964,
+        "bin_n": 294,
+        "hits": 174
+      }
+    },
+    "macd_9_21": {
+      "passed": true,
+      "best": {
+        "horizon": 7,
+        "bin": 0,
+        "theta": 0.03,
+        "dev": 31.514161825180054,
+        "run": 4,
+        "prob": 0.6054421663284302,
+        "base": 0.29030054807662964,
+        "bin_n": 294,
+        "hits": 178
+      }
+    },
+    "macd_histogram_12_26": {
+      "passed": true,
+      "best": {
+        "horizon": 2,
+        "bin": 0,
+        "theta": 0.015,
+        "dev": 28.878283500671387,
+        "run": 3,
+        "prob": 0.5714285969734192,
+        "base": 0.2826457619667053,
+        "bin_n": 294,
+        "hits": 168
+      }
+    },
+    "realized_vol_7": {
+      "passed": true,
+      "best": {
+        "horizon": 7,
+        "bin": 9,
+        "theta": 0.03,
+        "dev": 28.64912748336792,
+        "run": 3,
+        "prob": 0.5767918229103088,
+        "base": 0.29030054807662964,
+        "bin_n": 293,
+        "hits": 169
+      }
+    },
+    "realized_vol_14": {
+      "passed": true,
+      "best": {
+        "horizon": 7,
+        "bin": 9,
+        "theta": 0.03,
+        "dev": 27.47679352760315,
+        "run": 4,
+        "prob": 0.5650684833526611,
+        "base": 0.29030054807662964,
+        "bin_n": 292,
+        "hits": 165
+      }
+    },
+    "realized_vol_21": {
+      "passed": true,
+      "best": {
+        "horizon": 7,
+        "bin": 9,
+        "theta": 0.03,
+        "dev": 30.21652102470398,
+        "run": 3,
+        "prob": 0.5924657583236694,
+        "base": 0.29030054807662964,
+        "bin_n": 292,
+        "hits": 173
+      }
+    },
+    "realized_vol_30": {
+      "passed": true,
+      "best": {
+        "horizon": 30,
+        "bin": 9,
+        "theta": 0.1,
+        "dev": 33.141107112169266,
+        "run": 4,
+        "prob": 0.4501718282699585,
+        "base": 0.11876075714826584,
+        "bin_n": 291,
+        "hits": 131
+      }
+    },
+    "atr_14": {
+      "passed": true,
+      "best": {
+        "horizon": 7,
+        "bin": 9,
+        "theta": 0.03,
+        "dev": 29.67301607131958,
+        "run": 3,
+        "prob": 0.5870307087898254,
+        "base": 0.29030054807662964,
+        "bin_n": 293,
+        "hits": 172
+      }
+    },
+    "bb_pct_20": {
+      "passed": true,
+      "best": {
+        "horizon": 2,
+        "bin": 0,
+        "theta": 0.015,
+        "dev": 27.899807691574097,
+        "run": 3,
+        "prob": 0.5616438388824463,
+        "base": 0.2826457619667053,
+        "bin_n": 292,
+        "hits": 164
+      }
+    },
+    "bb_width_20": {
+      "passed": true,
+      "best": {
+        "horizon": 7,
+        "bin": 9,
+        "theta": 0.03,
+        "dev": 28.50419282913208,
+        "run": 4,
+        "prob": 0.5753424763679504,
+        "base": 0.29030054807662964,
+        "bin_n": 292,
+        "hits": 168
+      }
+    },
+    "vol_ratio_7_21": {
+      "passed": true,
+      "best": {
+        "horizon": 5,
+        "bin": 0,
+        "theta": 0.02,
+        "dev": -12.778064608573914,
+        "run": 2,
+        "prob": 0.2602739632129669,
+        "base": 0.38805460929870605,
+        "bin_n": 292,
+        "hits": 76
+      }
+    },
+    "volume_ratio_10": {
+      "passed": false,
+      "best": null
+    },
+    "volume_ratio_20": {
+      "passed": true,
+      "best": {
+        "horizon": 2,
+        "bin": 9,
+        "theta": -0.015,
+        "dev": 11.153081059455872,
+        "run": 2,
+        "prob": 0.3938356041908264,
+        "base": 0.2823047935962677,
+        "bin_n": 292,
+        "hits": 115
+      }
+    },
+    "volume_ratio_50": {
+      "passed": true,
+      "best": {
+        "horizon": 30,
+        "bin": 9,
+        "theta": 0.05,
+        "dev": 14.476358890533447,
+        "run": 2,
+        "prob": 0.6215277910232544,
+        "base": 0.4767642021179199,
+        "bin_n": 288,
+        "hits": 179
+      }
+    },
+    "drawdown_7": {
+      "passed": true,
+      "best": {
+        "horizon": 1,
+        "bin": 0,
+        "theta": 0.01,
+        "dev": 32.70180523395538,
+        "run": 2,
+        "prob": 0.61774742603302,
+        "base": 0.2907293736934662,
+        "bin_n": 293,
+        "hits": 181
+      }
+    },
+    "drawdown_14": {
+      "passed": true,
+      "best": {
+        "horizon": 2,
+        "bin": 0,
+        "theta": 0.015,
+        "dev": 33.51016640663147,
+        "run": 3,
+        "prob": 0.61774742603302,
+        "base": 0.2826457619667053,
+        "bin_n": 293,
+        "hits": 181
+      }
+    },
+    "drawdown_30": {
+      "passed": true,
+      "best": {
+        "horizon": 7,
+        "bin": 0,
+        "theta": 0.03,
+        "dev": 31.107401847839355,
+        "run": 4,
+        "prob": 0.6013745665550232,
+        "base": 0.29030054807662964,
+        "bin_n": 291,
+        "hits": 175
+      }
+    },
+    "drawdown_60": {
+      "passed": true,
+      "best": {
+        "horizon": 7,
+        "bin": 0,
+        "theta": 0.03,
+        "dev": 34.511613845825195,
+        "run": 4,
+        "prob": 0.6354166865348816,
+        "base": 0.29030054807662964,
+        "bin_n": 288,
+        "hits": 183
+      }
+    },
+    "drawdown_recovery_7_60": {
+      "passed": true,
+      "best": {
+        "horizon": 30,
+        "bin": 5,
+        "theta": 0.07,
+        "dev": 34.44790840148926,
+        "run": 4,
+        "prob": 0.6284722089767456,
+        "base": 0.283993124961853,
+        "bin_n": 288,
+        "hits": 181
+      }
+    },
+    "vix_level": {
+      "passed": true,
+      "best": {
+        "horizon": 30,
+        "bin": 9,
+        "theta": 0.07,
+        "dev": 41.56655669212341,
+        "run": 4,
+        "prob": 0.6996586918830872,
+        "base": 0.283993124961853,
+        "bin_n": 293,
+        "hits": 205
+      }
+    },
+    "vix_ma_ratio_10": {
+      "passed": true,
+      "best": {
+        "horizon": 1,
+        "bin": 9,
+        "theta": 0.01,
+        "dev": 25.534573197364807,
+        "run": 2,
+        "prob": 0.5460751056671143,
+        "base": 0.2907293736934662,
+        "bin_n": 293,
+        "hits": 160
+      }
+    },
+    "vix_ma_ratio_20": {
+      "passed": true,
+      "best": {
+        "horizon": 2,
+        "bin": 9,
+        "theta": 0.015,
+        "dev": 28.927206993103027,
+        "run": 3,
+        "prob": 0.5719178318977356,
+        "base": 0.2826457619667053,
+        "bin_n": 292,
+        "hits": 167
+      }
+    },
+    "vix_ret_1": {
+      "passed": true,
+      "best": {
+        "horizon": 1,
+        "bin": 9,
+        "theta": 0.01,
+        "dev": 17.86583960056305,
+        "run": 2,
+        "prob": 0.4693877696990967,
+        "base": 0.2907293736934662,
+        "bin_n": 294,
+        "hits": 138
+      }
+    },
+    "vix_ret_5": {
+      "passed": true,
+      "best": {
+        "horizon": 2,
+        "bin": 9,
+        "theta": 0.015,
+        "dev": 24.97774362564087,
+        "run": 3,
+        "prob": 0.532423198223114,
+        "base": 0.2826457619667053,
+        "bin_n": 293,
+        "hits": 156
+      }
+    },
+    "tnx_level": {
+      "passed": true,
+      "best": {
+        "horizon": 30,
+        "bin": 0,
+        "theta": 0.07,
+        "dev": 37.587082386016846,
+        "run": 3,
+        "prob": 0.6598639488220215,
+        "base": 0.283993124961853,
+        "bin_n": 294,
+        "hits": 194
+      }
+    },
+    "tnx_ma_ratio_20": {
+      "passed": true,
+      "best": {
+        "horizon": 5,
+        "bin": 0,
+        "theta": 0.02,
+        "dev": 22.49590754508972,
+        "run": 3,
+        "prob": 0.6130136847496033,
+        "base": 0.38805460929870605,
+        "bin_n": 292,
+        "hits": 179
+      }
+    },
+    "tnx_ret_1": {
+      "passed": true,
+      "best": {
+        "horizon": 7,
+        "bin": 0,
+        "theta": 0.03,
+        "dev": 15.527766942977905,
+        "run": 2,
+        "prob": 0.4455782175064087,
+        "base": 0.29030054807662964,
+        "bin_n": 294,
+        "hits": 131
+      }
+    },
+    "tnx_ret_5": {
+      "passed": true,
+      "best": {
+        "horizon": 5,
+        "bin": 0,
+        "theta": 0.03,
+        "dev": 18.532423675060272,
+        "run": 3,
+        "prob": 0.3890784978866577,
+        "base": 0.203754261136055,
+        "bin_n": 293,
+        "hits": 114
+      }
+    },
+    "dxy_ret_1": {
+      "passed": true,
+      "best": {
+        "horizon": 5,
+        "bin": 9,
+        "theta": -0.02,
+        "dev": 11.638224124908447,
+        "run": 2,
+        "prob": 0.4744027256965637,
+        "base": 0.35802048444747925,
+        "bin_n": 293,
+        "hits": 139
+      }
+    },
+    "dxy_ret_5": {
+      "passed": false,
+      "best": null
+    },
+    "dxy_ma_ratio_20": {
+      "passed": true,
+      "best": {
+        "horizon": 14,
+        "bin": 1,
+        "theta": -0.03,
+        "dev": -11.590859293937683,
+        "run": 2,
+        "prob": 0.2586206793785095,
+        "base": 0.37452927231788635,
+        "bin_n": 290,
+        "hits": 75
+      }
+    },
+    "day_of_week": {
+      "passed": false,
+      "best": null
+    }
+  },
+  "skipped": {}
+}

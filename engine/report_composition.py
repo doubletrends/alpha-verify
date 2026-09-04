@@ -7,116 +7,17 @@ from pathlib import Path
 import numpy as np
 from matplotlib.colors import TwoSlopeNorm
 
-from engine import bayes
 from engine.report_common import theta_pct
 from engine.report_style import (
     CMAP_DIV,
     GRID,
     INK_2,
-    MUTED,
-    S1,
-    S2,
-    S3,
     SURFACE,
-    frame,
     note,
     plt,
     save,
     title,
 )
-
-
-def fig_calibration(ws, out: Path) -> Path | None:
-    if not ws.bayes_path.exists():
-        return None
-    z = np.load(ws.bayes_path, allow_pickle=False)
-    summary = ws.read_json(ws.bayes_summary_path)
-    m = summary.get("metrics", {})
-
-    y = z["y"]
-    n_bins = int(np.clip(len(y) // 30, 4, 10))
-    series = [
-        (f'naive Bayes, all {summary.get("design", {}).get("n_features", "")} nodes',
-         "p_all", "all_nodes", S2),
-        ("one node per family", "p_dedup", "one_per_family", S3),
-        ("  + scale corrected", "p_scaled", "one_per_family_scaled", S1),
-    ]
-
-    fig, ax = plt.subplots(figsize=(6.6, 5.6))
-    ax.plot([0, 1], [0, 1], color=MUTED, linewidth=1.0, zorder=1)
-    ax.annotate(
-        "perfectly calibrated",
-        (0.62, 0.62),
-        xytext=(4, -12),
-        textcoords="offset points",
-        color=MUTED,
-        fontsize=7.5,
-        rotation=38,
-    )
-
-    hi = 0.0
-    for label, key, mkey, colour in series:
-        c = bayes.calibration(y, z[key], n_bins)
-        if not len(c["predicted"]):
-            continue
-        ax.plot(
-            c["predicted"],
-            c["realized"],
-            color=colour,
-            linewidth=1.8,
-            marker="o",
-            markersize=6.5,
-            markerfacecolor=colour,
-            markeredgecolor=SURFACE,
-            markeredgewidth=1.6,
-            zorder=4,
-            label=f"{label.strip()}  —  Brier {m[mkey]['brier']:.3f}",
-        )
-        hi = max(hi, c["predicted"].max(), c["realized"].max())
-
-    prior = m.get("prior_only", {}).get("brier")
-    ax.axhline(
-        m.get("realized_rate", np.nan),
-        color=GRID,
-        linewidth=0.9,
-        zorder=0,
-        label=f"constant prior  —  Brier {prior:.3f}",
-    )
-
-    lim = min(1.0, hi * 1.15)
-    ax.set_xlim(0, lim)
-    ax.set_ylim(0, lim)
-    ax.set_xlabel("predicted probability (out of sample)")
-    ax.set_ylabel("realized frequency")
-    ax.legend(loc="upper left", fontsize=8, labelcolor=INK_2)
-    frame(ax, grid_axis="both")
-
-    t = summary.get("target", {})
-    d = summary.get("design", {})
-    beats = [name for name, _, mkey, _ in series if m[mkey]["brier"] < prior]
-    if not beats:
-        verdict = "no model beats it — the ranking is real (see the AUC grid) and the probabilities still are not"
-    elif len(beats) == 1:
-        verdict = f'only "{beats[0].strip()}" beats it'
-    else:
-        verdict = f"{len(beats)} of the three beat it"
-    title(
-        fig,
-        "Composing the conditions — and the price of assuming they are independent",
-        f'P(touch {theta_pct(t.get("theta", 0), ws.theta_step)} within {t.get("horizon")}'
-        f'{t.get("unit", "d")}), {d.get("folds")}-fold expanding walk forward. '
-        f"A point above the line was under-predicted, below it over-predicted. "
-        f"A constant prior scores Brier {prior:.3f}; {verdict}.",
-    )
-    note(
-        fig,
-        f'{m.get("n_scored", 0)} non-overlapping out-of-sample bars · every table, '
-        f"edge, prior and scale fit on the training window only, with a "
-        f'{d.get("embargo_bars")}-bar embargo · overconfidence factor '
-        f'{1 / summary.get("platt_a_mean", 1):.1f}x · 05_bayes.json',
-    )
-    fig.subplots_adjust(top=0.80)
-    return save(fig, out / "09_composition.png")
 
 
 def fig_composition_grid(ws, out: Path) -> Path | None:
@@ -188,7 +89,7 @@ def fig_composition_grid(ws, out: Path) -> Path | None:
         f"windows only, scored on non-overlapping bars · blank cells had fewer "
         f"than {min_events} events on one side, where AUC turns on two or three "
         f"cases · AUC is unchanged by the scale correction, which moves "
-        f"calibration and not order · 05_bayes.npz",
+        f"calibration and not order · 06_bayes.npz",
     )
     fig.subplots_adjust(top=0.82)
     return save(fig, out / "10_composition_grid.png")

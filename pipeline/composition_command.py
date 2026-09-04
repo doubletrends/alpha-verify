@@ -1,4 +1,4 @@
-"""Stage 5 command: walk-forward condition composition."""
+"""Stage 6 command: walk-forward condition composition."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def cmd_bayes(ws: Workspace) -> None:
     """
-    Stage 5: do the conditions compose, and does that survive out of sample?
+    Stage 6: do the conditions compose, and does that survive out of sample?
 
     Everything before this measures one condition at a time and over the whole history.
     This asks the only question that follows -- what happens when several hold at once --
@@ -34,7 +34,7 @@ def cmd_bayes(ws: Workspace) -> None:
     data, feats, fams = feature_panel(ws)
 
     print(
-        f"\n=== 5. Composition [{ws.dir.name}] - {len(feats)} nodes, "
+        f"\n=== 6. Composition [{ws.dir.name}] - {len(feats)} nodes, "
         f"{len(set(fams.values()))} families ==="
     )
     print(

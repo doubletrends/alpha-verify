@@ -6,7 +6,7 @@ from collections import defaultdict
 
 import numpy as np
 
-from engine import barrier, validate as val
+from engine import barrier, skew as skw, validate as val
 from pipeline.runtime import baseline_surface
 from universe import all_nodes, find_node, load_universe
 from workspace import Workspace
@@ -20,7 +20,8 @@ def cmd_status(ws: Workspace) -> None:
     disc = {t["node"] for t in cl.get("tests", []) if t.get("verdict") == "discovery"}
 
     cols = [
-        "nodes", "cube", "sheet", "sum", "sheet", "valid", "v-sheet", "econ", "cleared",
+        "nodes", "cube", "sheet", "sum", "sheet", "valid", "v-sheet", "skew", "sk-sheet",
+        "econ", "cleared",
     ]
     by_fam = defaultdict(lambda: [0] * len(cols))
     for n in all_nodes(universe):
@@ -32,8 +33,10 @@ def cmd_status(ws: Workspace) -> None:
         c[4] += bool(ws.has_summary_surface(n["family"], n["id"]))
         c[5] += bool(ws.has_validation(n["family"], n["id"]))
         c[6] += bool(ws.has_validation_sheet(n["family"], n["id"]))
-        c[7] += bool(ev.get(n["id"], {}).get("passed"))
-        c[8] += n["id"] in cleared
+        c[7] += bool(ws.has_skew(n["family"], n["id"]))
+        c[8] += bool(ws.has_skew_sheet(n["family"], n["id"]))
+        c[9] += bool(ev.get(n["id"], {}).get("passed"))
+        c[10] += n["id"] in cleared
 
     print(f"\n=== Status [{ws.dir.name}] ===")
     print(
@@ -119,6 +122,19 @@ def cmd_read(ws: Workspace, node_id: str) -> None:
         )
     else:
         print("  null          : not validated yet")
+
+    spath = ws.skew_path(node["family"], node_id)
+    if spath.exists():
+        sr = skw.load(spath)
+        peaks = skw.peak_by_horizon(sr)
+        hit = {h: p for h, p in peaks.items() if p}
+        if hit:
+            h = max(hit, key=lambda k: abs(hit[k]["excess"]))
+            p = hit[h]
+            print(
+                f"  skew          : excess {p['excess']:+.1f}pp (conditional {p['cond']:+.1f}pp) "
+                f"at |θ|={p['mag'] * 100:.3g}%, bin {p['bin'] + 1}, +{h}{ws.horizon_unit}"
+            )
 
     avail = {int(x) for x in hz}
     show = [h for h in (1, 2, 3, 5, 7, 10, 14, 21, 30) if h in avail]

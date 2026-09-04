@@ -109,7 +109,7 @@ class Workspace:
         return self.dir / 'universe.json'
 
     # Pipeline artifact folders are numbered by command:
-    # surface 01, summary 02, validation 03.
+    # surface 01, summary 02, validation 03, skew 04.
 
     def cube_path(self, family: str, node_id: str) -> Path:
         return self.dir / '01_surface_array' / family / f'{node_id}.npz'
@@ -151,21 +151,35 @@ class Workspace:
     def has_validation_sheet(self, family: str, node_id: str) -> bool:
         return self.validation_sheet_path(family, node_id).exists()
 
+    # The skew stage: the mirrored summary grid's up/down asymmetry, for reading only.
+
+    def skew_path(self, family: str, node_id: str) -> Path:
+        return self.dir / '04_skew_array' / family / f'{node_id}.npz'
+
+    def has_skew(self, family: str, node_id: str) -> bool:
+        return self.skew_path(family, node_id).exists()
+
+    def skew_sheet_path(self, family: str, node_id: str) -> Path:
+        return self.dir / '04_skew_xlsx' / family / f'{node_id}.xlsx'
+
+    def has_skew_sheet(self, family: str, node_id: str) -> bool:
+        return self.skew_sheet_path(family, node_id).exists()
+
     @property
     def baseline_cube(self) -> Path:
         return self.summary_cube_path('_base', BASELINE_NODE)
 
     @property
     def cleared_path(self) -> Path:
-        return self.dir / '04_gate.json'
+        return self.dir / '05_gate.json'
 
     @property
     def bayes_path(self) -> Path:
-        return self.dir / '05_bayes.npz'
+        return self.dir / '06_bayes.npz'
 
     @property
     def bayes_summary_path(self) -> Path:
-        return self.dir / '05_bayes.json'
+        return self.dir / '06_bayes.json'
 
     @property
     def result_dir(self) -> Path:

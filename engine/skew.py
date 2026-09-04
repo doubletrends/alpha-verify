@@ -1,5 +1,5 @@
 """
-Stage three: the up/down asymmetry the mirrored summary grid is built for.
+Stage four: the up/down asymmetry the mirrored summary grid is built for.
 
 The summary theta ladder is mirrored magnitudes -- +theta and -theta sit at matching
 distances from entry -- so that P(touch +theta) and P(touch -theta) can be read against
@@ -14,7 +14,7 @@ Two quantities, both in percentage points, shaped (n_mag, n_bins, n_h):
 
   excess skew        conditional skew - the baseline node's conditional skew
                      drift removed, so what is left is the asymmetry *this condition*
-                     introduces. This is the quantity --validation null-tests.
+                     introduces. This is informative and not part of the validation gate.
 
 Nothing here re-measures anything: it is arithmetic on the summary cube's own `prob`
 array, so a skew cell and the two probability cells it came from can never disagree.
@@ -27,8 +27,8 @@ from pathlib import Path
 
 import numpy as np
 
-# One threshold, defined by the module that does the binning, so measurement, skew and
-# validation partition the sample identically.
+# One threshold, defined by the module that does the binning, so measurement and skew
+# partition the sample identically.
 from engine.barrier import MIN_BIN_N
 
 
@@ -95,8 +95,7 @@ def baseline_cond_skew(baseline_cube: dict) -> np.ndarray:
     """
     (n_mag, n_h) conditional skew of the baseline node's single bin.
 
-    This is the drift term --validation feeds into the circular-shift null: shifting the
-    feature leaves the baseline untouched, so this stays fixed under the null.
+    This is the drift term removed from each condition's mirrored up/down comparison.
     """
     surface = baseline_cube['prob'][:, 0, :]
     return skew_from_cube(baseline_cube, surface)['cond_skew'][:, 0, :]
