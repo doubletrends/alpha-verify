@@ -5,10 +5,8 @@ write_barrier_xlsx renders a cube as one tab per condition bin. Each tab is that
 whole (θ x horizon) face, so the workbook holds every value the cube holds -- it is
 a faithful view of the measurement, not a summary of it.
 
-Cells are the raw conditional probability. Nothing is subtracted, so a cell reads on its
-own terms -- "under this condition a -5% touch within 7 days happens 50% of the time" --
-and the colour bands show where the probability actually lives rather than where it
-differs from an average the reader cannot see.
+Stage 1 workbooks show raw conditional probabilities. Stage 2 shift workbooks show the
+same full grid after subtracting the unconditional baseline.
 """
 
 from __future__ import annotations
@@ -29,6 +27,7 @@ _PP_FMT = '+0.0;-0.0;0.0'
 _PVAL_FMT = '0.0000'
 
 _WHITE, _AMBER, _RED = 'FFFFFF', 'FFD166', 'C00000'
+_BLUE = '2A78D6'
 _GREEN = '00875A'
 _FILL_ROW1 = PatternFill('solid', start_color='666666', end_color='666666')
 _FILL_ROW2 = PatternFill('solid', start_color='B2B2B2', end_color='B2B2B2')
@@ -192,8 +191,8 @@ def write_barrier_xlsx(
     wb.save(path)
 
 
-def write_skew_xlsx(
-    result:  dict,
+def write_shift_xlsx(
+    cube:    dict,
     path:    Path,
     node_id: str,
     feature: str,
@@ -201,91 +200,85 @@ def write_skew_xlsx(
     unit:    str = 'd',
 ) -> None:
     """
-    Human-readable skew artifact: the mirrored grid's up/down asymmetry.
+    One tab per condition bin; each tab is the full baseline-subtracted surface.
 
-    The first sheet is the per-horizon peak excess skew. The remaining sheets render,
-    per condition bin, the conditional skew and the excess skew after subtracting the
-    baseline node's own up/down asymmetry. This is an informative view, not a gate.
+    Values are percentage-point deviations from the baseline node. The color scale is
+    centered at zero: blue means the barrier is touched less often than unconditional,
+    red means more often.
     """
-    cond = result['cond_skew']
-    excess = result['excess_skew']
-    mags = result['mags']
-    horizons = result['horizons']
-    bin_n = result['bin_n']
-    labels = result['meta']['bin_labels']
-    n_mag, n_bins, _ = excess.shape
+    values   = cube['shift']
+    thetas   = cube['thetas']
+    horizons = cube['horizons']
+    bin_n    = cube['bin_n']
+    labels   = cube['meta']['bin_labels']
+    n_th, n_bins, n_h = values.shape
+
+    order = np.argsort(thetas)[::-1]
+    end = get_column_letter(1 + n_h)
+    lim = float(np.nanmax(np.abs(values))) if np.isfinite(values).any() else 1.0
+    lim = max(lim, 1.0)
 
     wb = Workbook()
-    ws = wb.active
-    ws.title = 'summary'
-    end = 'F'
-    _write_headers(
-        ws,
-        f'{feature_label(node_id)} — skew summary',
-        'Peak excess skew by horizon; informative, not used by --gate',
-        f'node {node_id}   params={params}   '
-        'excess skew = P(+θ|bin) - P(-θ|bin) minus the baseline node same difference',
-        merge_end=end,
-    )
-    headers = ['horizon', 'peak excess pp', 'at |θ|', 'bin', 'cond skew pp', 'n']
-    for col, header in enumerate(headers, 1):
-        c = ws.cell(row=_COL_ROW, column=col, value=header)
-        c.font, c.alignment = Font(bold=True), _CENTER
-    for j, h in enumerate(horizons):
-        face = np.abs(excess[:, :, j]).copy()
-        for b in range(n_bins):
-            if bin_n[b, j] < MIN_BIN_N:
-                face[:, b] = np.nan
-        r = _COL_ROW + 1 + j
-        if np.isfinite(face).any():
-            k = int(np.nanargmax(face))
-            mi, bi = divmod(k, n_bins)
-            row = [
-                f'+{int(h)}{unit}',
-                float(excess[mi, bi, j]),
-                float(mags[mi]),
-                bi + 1,
-                float(cond[mi, bi, j]),
-                int(bin_n[bi, j]),
-            ]
-        else:
-            row = [f'+{int(h)}{unit}', None, None, None, None, None]
-        for col, v in enumerate(row, 1):
-            c = ws.cell(row=r, column=col, value=v)
-            if col in (2, 5):
-                c.number_format = _PP_FMT
-            if col == 3:
-                c.number_format = '0.0%'
-            c.alignment = _CENTER
-    for col, width in enumerate([10, 15, 9, 8, 13, 8], 1):
-        ws.column_dimensions[get_column_letter(col)].width = width
-    ws.freeze_panes = f'A{_COL_ROW + 1}'
+    wb.remove(wb.active)
 
-    used = {'summary'}
+    unconditional = n_bins == 1 and labels[0] == 'all'
     names = _sheet_names(list(labels))
+
     for b in range(n_bins):
-        common = (f'node {node_id}   bin {b + 1} of {n_bins}: {labels[b]}   '
-                  'rows: barrier magnitude |θ|, largest at the top   columns: horizon')
-        _write_validation_matrix(
-            wb, used, f'skew {names[b]}',
-            cond[:, b, :], mags, horizons,
-            f'{feature_label(node_id)} — conditional skew',
-            'P(+θ | condition) - P(-θ | condition), percentage points; carries drift',
-            common,
-            _PP_FMT,
-            unit,
-            pvalue_scale=False,
+        ws = wb.create_sheet(names[b])
+        title = (f'{feature_label(node_id)} — unconditional baseline shift'
+                 if unconditional else
+                 f'{feature_label(node_id)} — condition: {feature} in {labels[b]}')
+        _write_headers(
+            ws,
+            title,
+            'P(price touches θ within h | condition) minus baseline, percentage points',
+            f'node {node_id}   params={params}   bin {b + 1} of {n_bins}   '
+            f'rows: barrier θ, highest at the top   columns: horizon   '
+            'red = more frequent than baseline, blue = less frequent',
+            merge_end=end,
         )
-        _write_validation_matrix(
-            wb, used, f'excess {names[b]}',
-            excess[:, b, :], mags, horizons,
-            f'{feature_label(node_id)} — excess skew',
-            'Conditional skew minus the baseline node skew; drift removed',
-            common,
-            _PP_FMT,
-            unit,
-            pvalue_scale=False,
-        )
+
+        c = ws.cell(row=_COL_ROW, column=1, value='θ')
+        c.font, c.alignment = Font(bold=True), _CENTER
+        for j, h in enumerate(horizons):
+            c = ws.cell(row=_COL_ROW, column=2 + j, value=f'+{int(h)}{unit}')
+            c.font, c.alignment = Font(bold=True), _CENTER
+
+        c = ws.cell(row=_N_ROW, column=1, value='n =')
+        c.font, c.fill = Font(bold=True, italic=True, size=9), _FILL_NBAND
+        for j in range(n_h):
+            c = ws.cell(row=_N_ROW, column=2 + j, value=int(bin_n[b, j]))
+            c.font, c.fill, c.alignment = Font(italic=True, size=9), _FILL_NBAND, _CENTER
+
+        for r_off, i in enumerate(order):
+            r = _DATA_ROW + r_off
+            th = float(thetas[i])
+            is_zero = abs(th) < 1e-12
+            tc = ws.cell(row=r, column=1, value=th)
+            tc.number_format = '+0%;-0%;0%'
+            tc.font, tc.alignment = Font(bold=True), _CENTER
+            if is_zero:
+                tc.fill = _FILL_MID
+            for j in range(n_h):
+                v = values[i, b, j]
+                cell = ws.cell(row=r, column=2 + j,
+                               value=None if not np.isfinite(v) else round(float(v), 2))
+                cell.number_format = _PP_FMT
+                if not np.isfinite(v):
+                    cell.fill = _FILL_NA
+
+        rng = f'B{_DATA_ROW}:{end}{_DATA_ROW + n_th - 1}'
+        ws.conditional_formatting.add(
+            rng,
+            ColorScaleRule(start_type='num', start_value=-lim, start_color=_BLUE,
+                           mid_type='num', mid_value=0, mid_color=_WHITE,
+                           end_type='num', end_value=lim, end_color=_RED))
+
+        ws.column_dimensions['A'].width = 8
+        for j in range(n_h):
+            ws.column_dimensions[get_column_letter(2 + j)].width = 8.5
+        ws.freeze_panes = f'B{_DATA_ROW}'
 
     path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(path)
@@ -378,10 +371,10 @@ def write_validation_xlsx(
     """
     Human-readable validation artifact.
 
-    The first sheet is the horizon-level search statistic used by the gate. The
+    The first sheet is the horizon-level node search statistic. The
     remaining sheets render the per-cell signed deviation and pointwise p-value for
     each condition bin. Pointwise p-values are for reading the surface; discoveries are
-    still assigned only by --gate across the whole sweep.
+    still assigned only by --gate across the selected sheet/horizon sweep.
     """
     thetas = result['thetas']
     horizons = result['horizons']

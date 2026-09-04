@@ -10,8 +10,7 @@ from universe import all_nodes, load_universe
 
 _CAPTIONS = {
     '01_band.png': 'The measured forward envelope starts at the last close.',
-    '05_null.png': 'The exact circular-shift null as a distribution, and its resolution '
-                   'floor.',
+    '05_null.png': 'The exact circular-shift null threshold and its resolution floor.',
     '10_composition_grid.png': 'Where the composed ranking survives out of sample.',
     '11_atr_regime_ladder.png': 'ATR turns one barrier into a visible risk ladder.',
     '12_null_gap_ranking.png': 'The strongest discoveries sit far beyond their own '

@@ -7,8 +7,9 @@ import argparse
 from pipeline.composition_command import cmd_bayes
 from pipeline.inspect_commands import cmd_read, cmd_status
 from pipeline.report_command import cmd_report
-from pipeline.stat_commands import cmd_gate, cmd_skew, cmd_validation
-from pipeline.surface_commands import cmd_summary, cmd_surface
+from pipeline.selection_command import cmd_selection
+from pipeline.stat_commands import cmd_gate, cmd_validation
+from pipeline.surface_commands import cmd_shift, cmd_surface
 from workspace import Workspace
 
 
@@ -16,7 +17,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Barrier-touch pipeline: P(price reaches theta within h | condition), "
-            "measured on a full grid and judged on a coarse one."
+            "measured on a full grid and judged after subtracting the baseline."
         )
     )
     parser.add_argument("--workspace", metavar="NAME", default="nasdaq_daily")
@@ -33,29 +34,33 @@ def build_parser() -> argparse.ArgumentParser:
     g = parser.add_mutually_exclusive_group()
     g.add_argument("--surface", action="store_true", help="1. write 01_surface_array and 01_surface_xlsx")
     g.add_argument(
-        "--summary",
+        "--shift",
         action="store_true",
-        help="2. write 02_summary_array and 02_summary_xlsx; runs the economic filter",
+        help="2. write 02_shift_array and 02_shift_xlsx",
+    )
+    g.add_argument(
+        "--selection",
+        action="store_true",
+        help="3. write 03_selection_array and 03_selection_xlsx",
     )
     g.add_argument(
         "--validation",
         action="store_true",
-        help="3. write 03_validation_array and 03_validation_xlsx",
+        help="4. write 04_validation_array and 04_validation_xlsx for selected sheets",
     )
-    g.add_argument("--skew", action="store_true", help="4. write 04_skew_array and 04_skew_xlsx")
     g.add_argument(
         "--gate",
         action="store_true",
-        help="5. correct across the sweep and intersect with the economic filter",
+        help="5. correct selected-sheet validation tests with Benjamini-Hochberg",
     )
     g.add_argument(
         "--bayes",
         action="store_true",
-        help="6. compose conditions out of sample, 06_bayes.npz + 06_bayes.json",
+        help="6. compose selected conditions out of sample, 06_bayes.npz + 06_bayes.json",
     )
     g.add_argument("--report", action="store_true", help="7. render figures into workspace result/")
     g.add_argument("--status", action="store_true", help="Inventory by family")
-    g.add_argument("--read", metavar="ID", help="Print a node surface summary")
+    g.add_argument("--read", metavar="ID", help="Print a node shift surface")
     return parser
 
 
@@ -66,12 +71,12 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.surface:
         cmd_surface(ws, args.family, args.rerun)
-    elif args.summary:
-        cmd_summary(ws, args.family)
+    elif args.shift:
+        cmd_shift(ws, args.family)
+    elif args.selection:
+        cmd_selection(ws, args.family)
     elif args.validation:
         cmd_validation(ws, args.family, args.rerun)
-    elif args.skew:
-        cmd_skew(ws, args.family, args.rerun)
     elif args.gate:
         cmd_gate(ws, args.fdr)
     elif args.bayes:

@@ -1,5 +1,5 @@
 """
-Stage four: is a node's surface more than the search that found it?
+Stage three: is a node's surface more than the search that found it?
 
 A cube is 41 barrier levels x 10 bins x 30 horizons. Reading the largest cell off that
 and calling it an edge measures how many cells were searched, not whether the feature
@@ -120,7 +120,10 @@ def null_surface(
     n_use = int(usable.sum())
     if n_use < 50:
         nan2 = np.full(signed.shape[:2], np.nan)
+        nan1 = np.full(n_bins, np.nan)
         return {'cell_real': nan2, 'cell_p': nan2.copy(), 'cell_p95': nan2.copy(),
+                'sheet_peak_real': nan1, 'sheet_peak_p': nan1.copy(),
+                'sheet_peak_p95': nan1.copy(),
                 'peak_real': np.nan, 'peak_p': np.nan, 'peak_p95': np.nan, 'n_shifts': 0}
 
     # the reported deviation keeps its sign -- which way the condition moves the barrier
@@ -146,10 +149,26 @@ def null_surface(
     peak_null = peak_by_shift[usable]
     peak_p = float((1.0 + (peak_null >= peak_real).sum()) / (1.0 + n_use))
 
+    with np.errstate(invalid='ignore'), warnings.catch_warnings():
+        warnings.simplefilter('ignore', category=RuntimeWarning)
+        sheet_peak_by_shift = np.nanmax(dev, axis=0)
+    sheet_real = sheet_peak_by_shift[:, 0]
+    sheet_null = sheet_peak_by_shift[:, usable]
+    sheet_p = np.full(n_bins, np.nan)
+    sheet_p95 = np.full(n_bins, np.nan)
+    for b in range(n_bins):
+        if not np.isfinite(sheet_real[b]):
+            continue
+        sheet_p[b] = (1.0 + (sheet_null[b] >= sheet_real[b]).sum()) / (1.0 + n_use)
+        sheet_p95[b] = np.percentile(sheet_null[b], 95)
+
     return {
         'cell_real': real_signed,
         'cell_p':    cell_p,
         'cell_p95':  cell_p95,
+        'sheet_peak_real': sheet_real,
+        'sheet_peak_p': sheet_p,
+        'sheet_peak_p95': sheet_p95,
         'peak_real': peak_real,
         'peak_p':    peak_p,
         'peak_p95':  float(np.percentile(peak_null, 95)),
@@ -185,6 +204,8 @@ def validate_node(
            for k in ('cell_real', 'cell_p', 'cell_p95')}
     for k in ('peak_real', 'peak_p', 'peak_p95'):
         out[k] = np.full(n_h, np.nan)
+    for k in ('sheet_peak_real', 'sheet_peak_p', 'sheet_peak_p95'):
+        out[k] = np.full((n_bins, n_h), np.nan)
     out['n_shifts'] = np.zeros(n_h, dtype=np.int32)
 
     for j, h in enumerate(horizons):
@@ -202,6 +223,8 @@ def validate_node(
         r = null_surface(touched, idx, n_bins, min_n, guard)
         for k in ('cell_real', 'cell_p', 'cell_p95'):
             out[k][:, :, j] = r[k]
+        for k in ('sheet_peak_real', 'sheet_peak_p', 'sheet_peak_p95'):
+            out[k][:, j] = r[k]
         for k in ('peak_real', 'peak_p', 'peak_p95'):
             out[k][j] = r[k]
         out['n_shifts'][j] = r['n_shifts']
@@ -220,12 +243,14 @@ def peak_shift_distribution(
     horizon:  int,
     thetas:   np.ndarray,
     edges:    np.ndarray,
+    bin_index: int | None = None,
     min_n:    int = MIN_BIN_N,
     guard:    int = EDGE_GUARD,
 ) -> dict:
     """
     The whole null for one horizon, not just its summary: max |deviation| over the
-    surface for every usable circular shift, beside the observed value.
+    surface, or over one selected bin sheet, for every usable circular shift beside the
+    observed value.
 
     `null_surface` reduces this to three numbers because that is all the gate needs. The
     distribution itself is what makes the stage legible -- a histogram of ~3,800 shifts
@@ -252,6 +277,10 @@ def peak_shift_distribution(
 
     signed = _dev_all_shifts(touched, idx, bin_n, n_bins)
     signed[:, bin_n < min_n, :] = np.nan
+    if bin_index is not None:
+        keep = np.zeros(n_bins, dtype=bool)
+        keep[int(bin_index)] = True
+        signed[:, ~keep, :] = np.nan
 
     usable = _usable_shifts(len(xs), guard)
     with np.errstate(invalid='ignore'), warnings.catch_warnings():
@@ -344,6 +373,9 @@ def save(result: dict, path: Path, meta: dict) -> None:
         cell_real=result['cell_real'].astype(np.float32),
         cell_p=result['cell_p'].astype(np.float32),
         cell_p95=result['cell_p95'].astype(np.float32),
+        sheet_peak_real=result['sheet_peak_real'].astype(np.float32),
+        sheet_peak_p=result['sheet_peak_p'].astype(np.float64),
+        sheet_peak_p95=result['sheet_peak_p95'].astype(np.float32),
         peak_real=result['peak_real'].astype(np.float32),
         peak_p=result['peak_p'].astype(np.float64),
         peak_p95=result['peak_p95'].astype(np.float32),

@@ -5,14 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
-from engine import barrier, validate as val
-from engine.report_common import headline_node as _headline_node
+from engine import selection, shift, validate as val
 from engine.report_style import (
-    FAINT,
     INK,
     INK_2,
-    MUTED,
     S1,
     SEQ,
     SURFACE,
@@ -23,7 +21,6 @@ from engine.report_style import (
     title as _title,
 )
 from engine.writer import feature_label
-from pipeline.runtime import loader, node_feature
 from workspace import BASELINE_NODE
 
 
@@ -44,9 +41,10 @@ def fig_null_gap_ranking(ws, cleared, out: Path) -> Path | None:
         if r.get('verdict') != 'discovery' or not r.get('peak_p95') or r['node'] == BASELINE_NODE:
             continue
         ratio = float(r['peak_real']) / float(r['peak_p95'])
-        cur = best.get(r['node'])
+        key = (r['node'], int(r.get('bin', -1)))
+        cur = best.get(key)
         if cur is None or ratio > cur[0]:
-            best[r['node']] = (ratio, r)
+            best[key] = (ratio, r)
     rows = sorted(best.values(), key=lambda x: x[0], reverse=True)[:12]
     if len(rows) < 3:
         return None
@@ -70,7 +68,7 @@ def fig_null_gap_ranking(ws, cleared, out: Path) -> Path | None:
                     textcoords='offset points', ha='left', va='center',
                     fontsize=8.2, fontweight='bold', color=S1)
 
-    labels = [f'{feature_label(r["node"])}  +{r["horizon"]}{ws.horizon_unit}'
+    labels = [f'{feature_label(r["node"])} D{int(r.get("bin_number", 0))}  +{r["horizon"]}{ws.horizon_unit}'
               for r in tests_top]
     ax.set_yticks(y)
     ax.set_yticklabels(labels, fontsize=8.2)
@@ -86,57 +84,121 @@ def fig_null_gap_ranking(ws, cleared, out: Path) -> Path | None:
            f'the shuffled-null p95; blue dots are the observed peak. {at_floor} of these '
            f'{len(rows)} are already at the exact p-value floor.')
     _note(fig, f'{ws.dir.name} · ranked from 05_gate.json tests · one best discovered '
-               f'horizon per node, so repeated variants do not fill the chart')
+               f'horizon per selected sheet')
     fig.subplots_adjust(top=1 - 0.95 / fig_h, left=0.25, bottom=0.14)
     return _save(fig, out / '12_null_gap_ranking.png')
 
 
-def fig_null(ws, universe, cleared, out: Path) -> Path | None:
-    """
-    The exact null as a distribution rather than a p-value.
+def _null_distribution_for_gate_row(ws, gate_row: dict) -> dict | None:
+    """Recompute one cleared selected sheet's null distribution from saved arrays."""
+    b = int(gate_row.get('bin', gate_row.get('best_cell', {}).get('bin', 0)))
+    sel = ws.read_json(ws.selection_path).get('selected', [])
+    row = next((x for x in sel
+                if x.get('node') == gate_row['node'] and int(x.get('bin', -1)) == b), None)
+    artifact = None
+    if row and ws.has_selection_array(row):
+        artifact = selection.load_sheet(ws.selection_array_path(row))
+    elif ws.shift_cube_path(gate_row['family'], gate_row['node']).exists():
+        artifact = shift.load(ws.shift_cube_path(gate_row['family'], gate_row['node']))
 
-    Every shift is a world in which the feature carries nothing but keeps its own
-    autocorrelation. The observed surface either sits inside that cloud or it does not,
-    and the width of the cloud is the honest answer to "how big is big".
-    """
-    head = _headline_node(ws, cleared, universe)
-    if head is None:
+    if artifact is None or any(k not in artifact for k in ('feature_values', 'high', 'low', 'close')):
         return None
-    cube = barrier.load_cube(ws.summary_cube_path(head['family'], head['id']))
-    h = int(head['gate']['horizon'])
 
-    get_data = loader(ws)
-    data, feat = node_feature(ws, head, get_data)
-    d = val.peak_shift_distribution(data, feat, h, cube['thetas'], cube['edges'])
+    data = pd.DataFrame(
+        {k: artifact[k].astype(float) for k in ('high', 'low', 'close')},
+        index=pd.to_datetime(artifact['index']) if 'index' in artifact else None,
+    )
+    feat = pd.Series(artifact['feature_values'].astype(float), index=data.index)
+    source_bin = int(artifact['source_bin']) if 'source_bin' in artifact else b
+    return val.peak_shift_distribution(
+        data,
+        feat,
+        int(gate_row['horizon']),
+        artifact['thetas'],
+        artifact['edges'],
+        bin_index=source_bin,
+        min_n=ws.min_bin_n,
+    )
 
-    fig, ax = plt.subplots(figsize=(8.0, 4.0))
-    ax.hist(d['null'], bins=48, color=FAINT, linewidth=0)
-    ax.axvline(d['p95'], color=INK_2, linewidth=1.2)
-    ax.axvline(d['observed'], color=S1, linewidth=2.2)
 
-    ymax = ax.get_ylim()[1]
-    ax.annotate(f'observed  {d["observed"]:.1f} pp', (d['observed'], ymax * 0.92),
-                xytext=(-8, 0), textcoords='offset points', color=S1,
-                fontsize=9, fontweight='bold', ha='right', va='top')
-    ax.annotate(f'null p95  {d["p95"]:.1f} pp', (d['p95'], ymax * 0.60),
-                xytext=(8, 0), textcoords='offset points', color=INK_2,
-                fontsize=8, ha='left', va='top')
+def fig_null(ws, universe, cleared, out: Path) -> Path | None:
+    """The pooled exact null distribution behind every cleared selected sheet."""
+    rows = [r for r in cleared.get('cleared', [])
+            if r.get('best_cell') and r.get('node') != BASELINE_NODE]
+    if not rows:
+        return None
 
-    ax.set_xlabel('peak |deviation| over the surface (pp)')
-    ax.set_ylabel('circular shifts')
-    _frame(ax, grid_axis='y')
+    dists = []
+    for row in rows:
+        try:
+            dist = _null_distribution_for_gate_row(ws, row)
+        except Exception:
+            continue
+        if not dist:
+            continue
+        null = np.asarray(dist['null'], dtype=float)
+        null = null[np.isfinite(null)]
+        if null.size >= 50:
+            dists.append({**dist, 'null': null, 'row': row})
+    if not dists:
+        return None
 
-    at_floor = d['p_value'] <= d['floor'] + 1e-12
-    _title(fig, 'The null is exact, and its floor is real',
-           f'{feature_label(head["id"])} at +{h}{ws.horizon_unit}. Every one of '
-           f'{d["n_shifts"]:,} usable circular shifts, from a single FFT.\n'
-           f'p = {d["p_value"]:.2g}'
-           + (f' — the floor 1/(n+1), the strongest this test can physically report.'
-              if at_floor else '.'))
+    null = np.concatenate([d['null'] for d in dists])
+    observed_all = np.array([float(d['observed']) for d in dists])
+    floors = np.array([float(d['floor']) for d in dists])
+    n_shifts = int(sum(int(d['n_shifts']) for d in dists))
+    strongest = dists[int(np.nanargmax(observed_all))]
+    strong_row = strongest['row']
+    observed = float(strongest['observed'])
+    p99 = float(np.percentile(null, 99))
+
+    fig, ax = plt.subplots(figsize=(8.4, 4.6))
+    counts, edges, _ = ax.hist(
+        null,
+        bins=64,
+        density=True,
+        color='#d8d7d2',
+        edgecolor=SURFACE,
+        linewidth=0.55,
+        label='pooled circular-shift null',
+    )
+    ymax = float(np.nanmax(counts)) if np.isfinite(counts).any() else 1.0
+    ax.axvline(p99, color=INK_2, linewidth=1.5, linestyle='--', label='pooled null p99')
+
+    ax.axvline(observed, color=S1, linewidth=2.3, label='strongest observed')
+    ax.annotate(
+        f"{feature_label(strong_row['node'])} D{int(strong_row.get('bin_number', 0))} "
+        f"+{int(strong_row['horizon'])}{ws.horizon_unit}  {observed:.1f} pp",
+        (observed, ymax * 0.84),
+        xytext=(8, 0),
+        textcoords='offset points',
+        color=S1,
+        fontsize=8.8,
+        fontweight='bold',
+        ha='left',
+        va='center',
+    )
+    ax.annotate(f'p99 {p99:.1f} pp', (p99, ymax * 0.48),
+                xytext=(-8, 0), textcoords='offset points', color=INK_2,
+                fontsize=8, ha='right', va='center')
+
+    ax.set_xlabel('peak |deviation| over each selected sheet (pp)')
+    ax.set_ylabel('density')
+    ax.set_xlim(0, max(float(observed_all.max()), float(null.max())) * 1.12)
+    ax.set_ylim(0, ymax * 1.15)
+    _frame(ax, grid_axis='x')
+    ax.legend(loc='upper right', fontsize=8, labelcolor=INK_2)
+
+    _title(fig, 'The cleared sheets sit beyond the shuffled null',
+           f'Grey histogram pools the exact null draws for all {len(dists)} selected '
+           f'and filtered sheets. The dashed line is the pooled p99 null threshold; '
+           f'the blue tick is the strongest observed sheet peak.')
     _note(fig, f'A shift keeps the feature\'s autocorrelation and destroys only its '
-               f'alignment with the future · there are exactly {d["n_shifts"]:,} of them, '
-               f'so no p-value below {d["floor"]:.2g} exists · this is why the gate '
-               f'controls FDR and not family-wise error')
+               f'alignment with the future · histogram recomputed in Stage 7 from saved '
+               f'03_selection_array / 02_shift_array histories · {n_shifts:,} pooled '
+               f'usable shifts across {len(dists)} cleared sheets · strongest observed '
+               f'p = {float(strongest["p_value"]):.2g}, per-sheet floor '
+               f'{float(np.nanmin(floors)):.2g}')
     fig.subplots_adjust(top=0.78)
     return _save(fig, out / '05_null.png')
 

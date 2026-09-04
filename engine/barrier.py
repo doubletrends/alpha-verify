@@ -371,17 +371,20 @@ def save_cube(cube: dict, path: Path, meta: dict) -> None:
     matters because there is one per node.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(
-        path,
-        prob=cube['prob'].astype(np.float32),
-        hits=cube['hits'],
-        bin_n=cube['bin_n'],
-        n_obs=cube['n_obs'],
-        thetas=cube['thetas'],
-        horizons=cube['horizons'],
-        edges=cube['edges'],
-        meta=np.array(json.dumps(meta)),
-    )
+    payload = {
+        'prob': cube['prob'].astype(np.float32),
+        'hits': cube['hits'],
+        'bin_n': cube['bin_n'],
+        'n_obs': cube['n_obs'],
+        'thetas': cube['thetas'],
+        'horizons': cube['horizons'],
+        'edges': cube['edges'],
+        'meta': np.array(json.dumps(meta)),
+    }
+    for key in ('index', 'feature_values', 'open', 'high', 'low', 'close', 'volume'):
+        if key in cube:
+            payload[key] = np.asarray(cube[key], dtype=str) if key == 'index' else cube[key]
+    np.savez_compressed(path, **payload)
 
 
 def load_cube(path: Path) -> dict:

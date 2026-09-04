@@ -9,15 +9,16 @@ from pathlib import Path
 import numpy as np
 
 from engine import bayes
-from pipeline.runtime import baseline_surface, feature_panel
-from workspace import Workspace
+from engine import shift
+from pipeline.runtime import artifact_feature_panel
+from workspace import BASELINE_NODE, Workspace
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def cmd_bayes(ws: Workspace) -> None:
     """
-    Stage 6: do the conditions compose, and does that survive out of sample?
+    Stage 6: do the selected conditions compose, and does that survive out of sample?
 
     Everything before this measures one condition at a time and over the whole history.
     This asks the only question that follows -- what happens when several hold at once --
@@ -25,16 +26,21 @@ def cmd_bayes(ws: Workspace) -> None:
     tables, the bin edges, the prior and the scale correction are all estimated on a
     training window and applied to a later one the fit never saw.
     """
-    baseline = baseline_surface(ws)
-    if baseline is None:
-        print("No baseline summary array - run --summary first.")
+    baseline_path = ws.shift_cube_path("_base", BASELINE_NODE)
+    if not baseline_path.exists():
+        print("No baseline shift array - run --shift first.")
         return
 
+    baseline = shift.load(baseline_path)["base"]
     theta, horizon = ws.bayes_target(baseline)
-    data, feats, fams = feature_panel(ws)
+    try:
+        data, feats, fams = artifact_feature_panel(ws)
+    except ValueError as e:
+        print(f"Cannot run composition from artifacts: {e}")
+        return
 
     print(
-        f"\n=== 6. Composition [{ws.dir.name}] - {len(feats)} nodes, "
+        f"\n=== 6. Composition [{ws.dir.name}] - {len(feats)} selected nodes, "
         f"{len(set(fams.values()))} families ==="
     )
     print(
@@ -73,9 +79,9 @@ def cmd_bayes(ws: Workspace) -> None:
         f"{1 / a_mean:.1f}x"
     )
 
-    th, hz = ws.summary_thetas, ws.summary_horizons
+    th, hz = ws.shift_thetas, ws.shift_horizons
     targets = [(float(t), int(h)) for t in th if abs(t) > 1e-12 for h in hz]
-    print(f"\n  sweeping the summary grid: {len(targets)} targets", end="", flush=True)
+    print(f"\n  sweeping the full shift grid: {len(targets)} targets", end="", flush=True)
     grid = []
     for t, h in targets:
         try:

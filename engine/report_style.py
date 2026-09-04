@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import textwrap
+import time
 from pathlib import Path
 
 import matplotlib
@@ -139,6 +140,15 @@ def place_labels(ax, x, items: list, min_gap_frac: float = 0.055) -> None:
 
 def save(fig, path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(path, bbox_inches="tight", pad_inches=0.28)
-    plt.close(fig)
+    try:
+        for attempt in range(3):
+            try:
+                fig.savefig(path, bbox_inches="tight", pad_inches=0.28)
+                break
+            except OSError:
+                if attempt == 2:
+                    raise
+                time.sleep(0.2)
+    finally:
+        plt.close(fig)
     return path

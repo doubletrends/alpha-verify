@@ -34,8 +34,8 @@ class Workspace:
         interval = self.asset.get('interval', '1d')
         self.horizon_unit = 'h' if interval.endswith('h') else 'd'
 
-        # The cube measures every horizon in this ladder; the summary grid below
-        # selects the few that everything is judged on.
+        # The cube measures every horizon in this ladder. Stage 2 keeps this full grid
+        # and subtracts the baseline surface from it.
         hz = meta.get('horizons', {})
         self.h_min = hz.get('min', 1)
         self.h_max = hz.get('max', 30)
@@ -51,10 +51,9 @@ class Workspace:
 
         self.n_bins = meta.get('n_bins', 10)
 
-        # The summary is the grid everything is *judged* on: a coarse subset of the
-        # full ladder, chosen so adjacent cells are genuinely different measurements.
-        # theta is given as magnitudes and mirrored, which guarantees the ladder stays
-        # symmetric and 0 appears exactly once.
+        # Legacy workspace declarations may still carry a `summary` section. Stage 2
+        # now uses the full grid, so those values are kept only for reading older
+        # workspace files and no longer define the judged surface.
         sm = meta.get('summary', {})
         self.summary_theta_abs = sm.get('theta_abs',
                                         [0, 0.01, 0.02, 0.03, 0.05, 0.07, 0.10, 0.15, 0.20])
@@ -68,7 +67,10 @@ class Workspace:
         self.bayes_horizon = by.get('horizon')
         self.bayes_folds   = by.get('folds', 5)
 
-        # Economic filter.
+        # Selection and economic filter.
+        se = meta.get('selection', {})
+        self.selection_top_k = se.get('top_k', 20)
+
         ec = meta.get('evaluate', {})
         self.min_dev   = ec.get('min_dev', 10.0)
         self.min_bin_n = ec.get('min_bin_n', 50)
@@ -89,18 +91,17 @@ class Workspace:
         return np.arange(self.h_min, self.h_max + 1)
 
     @property
-    def summary_thetas(self) -> np.ndarray:
-        a = sorted({round(abs(float(v)), 10) for v in self.summary_theta_abs})
-        return np.array([-v for v in reversed(a) if v > 0] + [v for v in a], dtype=float)
-
-    @property
-    def summary_horizons(self) -> np.ndarray:
-        return np.array(sorted(int(h) for h in self.summary_h), dtype=int)
-
-    @property
     def thetas(self) -> np.ndarray:
         from engine import barrier
         return barrier.theta_levels(self.theta_min, self.theta_max, self.theta_step)
+
+    @property
+    def shift_thetas(self) -> np.ndarray:
+        return self.thetas
+
+    @property
+    def shift_horizons(self) -> np.ndarray:
+        return self.horizons
 
     # ── paths ─────────────────────────────────────────────────────────────────
 
@@ -109,7 +110,7 @@ class Workspace:
         return self.dir / 'universe.json'
 
     # Pipeline artifact folders are numbered by command:
-    # surface 01, summary 02, validation 03, skew 04.
+    # surface 01, shift 02, selection 03, validation 04.
 
     def cube_path(self, family: str, node_id: str) -> Path:
         return self.dir / '01_surface_array' / family / f'{node_id}.npz'
@@ -123,51 +124,57 @@ class Workspace:
     def has_surface(self, family: str, node_id: str) -> bool:
         return self.surface_path(family, node_id).exists()
 
-    def summary_cube_path(self, family: str, node_id: str) -> Path:
-        return self.dir / '02_summary_array' / family / f'{node_id}.npz'
+    def shift_cube_path(self, family: str, node_id: str) -> Path:
+        return self.dir / '02_shift_array' / family / f'{node_id}.npz'
 
-    def has_summary_cube(self, family: str, node_id: str) -> bool:
-        return self.summary_cube_path(family, node_id).exists()
+    def has_shift_cube(self, family: str, node_id: str) -> bool:
+        return self.shift_cube_path(family, node_id).exists()
 
-    def summary_surface_path(self, family: str, node_id: str) -> Path:
-        return self.dir / '02_summary_xlsx' / family / f'{node_id}.xlsx'
+    def shift_surface_path(self, family: str, node_id: str) -> Path:
+        return self.dir / '02_shift_xlsx' / family / f'{node_id}.xlsx'
 
-    def has_summary_surface(self, family: str, node_id: str) -> bool:
-        return self.summary_surface_path(family, node_id).exists()
+    def has_shift_surface(self, family: str, node_id: str) -> bool:
+        return self.shift_surface_path(family, node_id).exists()
 
     @property
-    def eval_path(self) -> Path:
-        return self.dir / 'evaluation.json'
+    def selection_path(self) -> Path:
+        return self.dir / '03_selection_array' / 'selection.json'
+
+    def selection_array_path(self, row: dict) -> Path:
+        rank = int(row['rank'])
+        return (
+            self.dir / '03_selection_array' / row['family']
+            / f'rank_{rank:03d}__{row["node"]}__bin_{int(row["bin_number"]):02d}.npz'
+        )
+
+    def has_selection_array(self, row: dict) -> bool:
+        return self.selection_array_path(row).exists()
+
+    def selection_surface_path(self, row: dict) -> Path:
+        rank = int(row['rank'])
+        return (
+            self.dir / '03_selection_xlsx' / row['family']
+            / f'rank_{rank:03d}__{row["node"]}__bin_{int(row["bin_number"]):02d}.xlsx'
+        )
+
+    def has_selection_surface(self, row: dict) -> bool:
+        return self.selection_surface_path(row).exists()
 
     def validation_path(self, family: str, node_id: str) -> Path:
-        return self.dir / '03_validation_array' / family / f'{node_id}.npz'
+        return self.dir / '04_validation_array' / family / f'{node_id}.npz'
 
     def has_validation(self, family: str, node_id: str) -> bool:
         return self.validation_path(family, node_id).exists()
 
     def validation_sheet_path(self, family: str, node_id: str) -> Path:
-        return self.dir / '03_validation_xlsx' / family / f'{node_id}.xlsx'
+        return self.dir / '04_validation_xlsx' / family / f'{node_id}.xlsx'
 
     def has_validation_sheet(self, family: str, node_id: str) -> bool:
         return self.validation_sheet_path(family, node_id).exists()
 
-    # The skew stage: the mirrored summary grid's up/down asymmetry, for reading only.
-
-    def skew_path(self, family: str, node_id: str) -> Path:
-        return self.dir / '04_skew_array' / family / f'{node_id}.npz'
-
-    def has_skew(self, family: str, node_id: str) -> bool:
-        return self.skew_path(family, node_id).exists()
-
-    def skew_sheet_path(self, family: str, node_id: str) -> Path:
-        return self.dir / '04_skew_xlsx' / family / f'{node_id}.xlsx'
-
-    def has_skew_sheet(self, family: str, node_id: str) -> bool:
-        return self.skew_sheet_path(family, node_id).exists()
-
     @property
     def baseline_cube(self) -> Path:
-        return self.summary_cube_path('_base', BASELINE_NODE)
+        return self.cube_path('_base', BASELINE_NODE)
 
     @property
     def cleared_path(self) -> Path:
@@ -196,12 +203,12 @@ class Workspace:
         from the grid rather than hard-coding a percentage is what lets the same rule
         serve BTC and NASDAQ without either being a special case.
         """
-        hz = self.summary_horizons
+        hz = self.shift_horizons
         h = int(self.bayes_horizon) if self.bayes_horizon is not None else int(hz[len(hz) // 2])
         if self.bayes_theta is not None:
             return float(self.bayes_theta), h
 
-        th = self.summary_thetas
+        th = self.shift_thetas
         j = int(np.flatnonzero(hz == h)[0])
         down = np.flatnonzero(th < 0)
         rates = baseline[down, j]

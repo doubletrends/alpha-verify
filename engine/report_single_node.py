@@ -8,8 +8,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.colors import TwoSlopeNorm
 
-from engine import barrier
-from engine.report_common import full_baseline as _full_baseline
+from engine import barrier, shift
 from engine.report_common import headline_node as _headline_node
 from engine.report_common import theta_pct as _theta_pct
 from engine.report_style import (
@@ -32,7 +31,6 @@ from engine.report_style import (
     title as _title,
 )
 from engine.writer import feature_label
-from pipeline.runtime import loader, node_feature
 from universe import find_node
 
 
@@ -53,22 +51,27 @@ def fig_band(ws, universe, cleared, out: Path) -> Path | None:
     head = _headline_node(ws, cleared, universe)
     if head is None:
         return None
-    cube = barrier.load_cube(ws.cube_path(head['family'], head['id']))
+    cube = shift.load(ws.shift_cube_path(head['family'], head['id']))
+    needed = ("index", "feature_values", "close")
+    if any(k not in cube for k in needed):
+        return None
     prob, th, hz = cube['prob'], cube['thetas'], cube['horizons']
     n_bins = prob.shape[1]
     if n_bins < 2:
         return None
 
-    # the live condition: where the feature sits on the last bar it can be computed for
-    data, feat = node_feature(ws, head, loader(ws))
-    valid = feat.dropna()
-    if valid.empty:
+    idx = pd.to_datetime(cube["index"])
+    panel = pd.DataFrame(
+        {"price": cube["close"].astype(float), "feature": cube["feature_values"].astype(float)},
+        index=idx,
+    ).dropna()
+    if panel.empty:
         return None
-    now_val = float(valid.iloc[-1])
+    now_val = float(panel["feature"].iloc[-1])
     now_bin = int(np.searchsorted(cube['edges'], now_val)) if len(cube['edges']) else 0
     now_bin = int(np.clip(now_bin, 0, n_bins - 1))
 
-    price = data['close'].reindex(valid.index).dropna()
+    price = panel["price"]
     n_hist = int(min(len(price), max(40, 6 * int(hz.max()))))
     hist = price.iloc[-n_hist:]
     last = float(hist.iloc[-1])
@@ -135,7 +138,7 @@ def fig_band(ws, universe, cleared, out: Path) -> Path | None:
            f'The thin pairs show the calmest and widest bins, so the spread is the '
            f'visible effect of conditioning.')
     _note(fig, f'{ws.asset["ticker"]} through {hist.index[-1].date()} · not a forecast · '
-               f'50% touch probability, inverted from 01_surface_array/{head["family"]}/'
+               f'50% touch probability, inverted from 02_shift_array/{head["family"]}/'
                f'{head["id"]}.npz over +1..+{int(hz[j])}{ws.horizon_unit} · current bin '
                f'holds {int(cube["bin_n"][now_bin, j])} bars')
     fig.subplots_adjust(top=0.78, right=0.78, bottom=0.10)
@@ -144,13 +147,12 @@ def fig_band(ws, universe, cleared, out: Path) -> Path | None:
 
 def _render_shift(ws, head: dict, out_path: Path) -> Path | None:
     """Render one cleared node's strongest bin as a deviation from the baseline."""
-    cube = barrier.load_cube(ws.cube_path(head['family'], head['id']))
-    base = _full_baseline(ws)['prob'][:, 0, :]
+    cube = shift.load(ws.shift_cube_path(head['family'], head['id']))
     b = int(head['cell']['bin'])
 
     th, hz = cube['thetas'], cube['horizons']
     keep = np.abs(th) > 1e-12
-    dev = (cube['prob'][:, b, :] - base)[keep] * 100.0
+    dev = cube['shift'][:, b, :][keep]
     th = th[keep]
     lim = float(np.nanmax(np.abs(dev)))
 
@@ -189,7 +191,7 @@ def _render_shift(ws, head: dict, out_path: Path) -> Path | None:
     _note(fig, f'{cube["meta"]["bin_labels"][b]} · ring at +{cell["horizon"]}'
                f'{ws.horizon_unit}, q = {head["gate"]["q_value"]:.2g} after '
                f'Benjamini-Hochberg · bin holds {cell["bin_n"]} bars · '
-               f'01_surface_array/{head["family"]}/{head["id"]}.npz')
+               f'02_shift_array/{head["family"]}/{head["id"]}.npz')
     fig.subplots_adjust(top=0.80)
     return _save(fig, out_path)
 
@@ -211,7 +213,8 @@ def fig_shift_all(ws, universe, cleared, out: Path) -> list[Path]:
         try:
             node = find_node(universe, row['node'])
             head = {**node, 'cell': row['best_cell'], 'gate': row}
-            path = _render_shift(ws, head, out / f'08_conditional_shift_{node["id"]}.png')
+            suffix = f'{node["id"]}_bin{int(row.get("bin_number", row["best_cell"]["bin"] + 1))}'
+            path = _render_shift(ws, head, out / f'08_conditional_shift_{suffix}.png')
         except Exception:
             continue
         if path is not None:
@@ -228,7 +231,7 @@ def fig_atr_ladder(ws, cleared, out: Path) -> Path | None:
     does the event rate move as ATR moves from calm to wide?
     """
     family, node_id = 'volatility', 'atr_14'
-    path = ws.cube_path(family, node_id)
+    path = ws.shift_cube_path(family, node_id)
     if not path.exists():
         return None
 
@@ -239,14 +242,13 @@ def fig_atr_ladder(ws, cleared, out: Path) -> Path | None:
     row = max(rows, key=lambda r: abs(r['best_cell']['dev']))
     cell = row['best_cell']
 
-    cube = barrier.load_cube(path)
-    base_cube = _full_baseline(ws)
+    cube = shift.load(path)
     th, hz = cube['thetas'], cube['horizons']
     i = int(np.argmin(np.abs(th - float(cell['theta']))))
     j = int(np.argmin(np.abs(hz - int(cell['horizon']))))
 
     probs = cube['prob'][i, :, j]
-    base = float(base_cube['prob'][i, 0, j])
+    base = float(cube['base'][i, j])
     labels = cube['meta']['bin_labels']
     x = np.arange(len(probs))
     dev = probs - base
@@ -297,7 +299,7 @@ def fig_atr_ladder(ws, cleared, out: Path) -> Path | None:
            f'risk ladder: the calmest bin is {probs[lo]:.1%}, the unconditional rate is '
            f'{base:.1%}, and the widest bin is {probs[hi]:.1%}.')
     _note(fig, f'{ws.dir.name} · {labels[lo]} vs {labels[hi]} · '
-               f'01_surface_array/{family}/{node_id}.npz + 01_surface_array/_base/baseline.npz')
+               f'02_shift_array/{family}/{node_id}.npz')
     fig.subplots_adjust(top=0.78, right=0.84, bottom=0.15)
     return _save(fig, out / '11_atr_regime_ladder.png')
 
