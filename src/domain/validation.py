@@ -1,5 +1,5 @@
 """
-Stage three: is a node's surface more than the search that found it?
+Stage four: is a selected node statistically real and economically useful?
 
 A cube is 41 barrier levels x 10 bins x 30 horizons. Reading the largest cell off that
 and calling it an edge measures how many cells were searched, not whether the feature
@@ -27,8 +27,8 @@ and `bh` below controls false discovery rate instead.
 The reference the null measures against is the node's *own* sample rate, not the baseline
 node's. Shifting leaves the marginal untouched, so the node's own rate is the quantity
 that stays fixed under the null and the only one the test can be built on. The economic
-filter in `barrier.evaluate` asks a different question -- is this unusual against the
-workspace reference -- and correctly uses the baseline node for it.
+filter below asks a different question -- is this unusual against the workspace
+reference -- and correctly uses the baseline node for it.
 """
 
 from __future__ import annotations
@@ -106,7 +106,7 @@ def null_surface(
         n_shifts    int                usable shifts, so the p-value floor is 1/(n+1)
     `cell_p` is pointwise and nothing else. With 12,300 cells, ~615 sit below 0.05 by
     chance, so it is evidence for *reading* a surface and never a discovery criterion.
-    `peak_p` is the statistic that accounts for the search, and it is the one the gate
+    `peak_p` is the statistic that accounts for the search, and it is the one validation
     corrects across.
     """
     n = touched.shape[1]
@@ -252,7 +252,7 @@ def peak_shift_distribution(
     surface, or over one selected bin sheet, for every usable circular shift beside the
     observed value.
 
-    `null_surface` reduces this to three numbers because that is all the gate needs. The
+    `null_surface` reduces this to three numbers because that is all the verdict needs. The
     distribution itself is what makes the stage legible -- a histogram of ~3,800 shifts
     with the real surface sitting outside all of them says in one glance what a p-value
     at the resolution floor means, and why that floor exists at all.
@@ -297,6 +297,68 @@ def peak_shift_distribution(
         'p_value': float((1.0 + (null >= observed).sum()) / (1.0 + n_use)),
         'n_shifts': n_use,
         'floor': 1.0 / (1.0 + n_use),
+    }
+
+
+# ── economic validation ───────────────────────────────────────────────────────
+
+def economic_filter_sheet(
+    cube: dict,
+    bin_index: int,
+    min_dev: float,
+    min_bin_n: int,
+    min_run: int,
+) -> dict:
+    """Apply the product-effect filter to one selected representative-bin sheet."""
+    dev = np.asarray(cube["shift"], dtype=float)
+    prob = np.asarray(cube["prob"], dtype=float)
+    base = np.asarray(cube["base"], dtype=float)
+    bin_n = np.asarray(cube["bin_n"])
+    Δs = np.asarray(cube["Δs"], dtype=float)
+    horizons = np.asarray(cube["horizons"], dtype=int)
+
+    best = None
+    for j, horizon in enumerate(horizons):
+        if bin_n[bin_index, j] < min_bin_n:
+            continue
+        col = dev[:, bin_index, j]
+        run, start = 0, None
+        for i, value in enumerate(col):
+            if np.isnan(value) or abs(value) < min_dev:
+                run, start = 0, None
+                continue
+            if start is not None and np.sign(value) != np.sign(col[start]):
+                run, start = 1, i
+            else:
+                if start is None:
+                    start = i
+                run += 1
+            if run < min_run:
+                continue
+            k = int(start + np.argmax(np.abs(col[start:i + 1])))
+            candidate = {
+                "horizon": int(horizon),
+                "bin": int(bin_index),
+                "bin_number": int(bin_index + 1),
+                "Δ": float(Δs[k]),
+                "dev": float(col[k]),
+                "run": int(run),
+                "prob": float(prob[k, bin_index, j]),
+                "base": float(base[k, j]),
+                "bin_n": int(bin_n[bin_index, j]),
+                "hits": int(cube["hits"][k, bin_index, j]),
+            }
+            if best is None or abs(candidate["dev"]) > abs(best["dev"]):
+                best = candidate
+
+    return {
+        "passed": best is not None,
+        "best": best,
+        "criteria": {
+            "min_dev": min_dev,
+            "min_bin_n": min_bin_n,
+            "min_run": min_run,
+        },
     }
 
 
@@ -346,9 +408,15 @@ def bh(p_values: np.ndarray, q: float = 0.05) -> tuple[np.ndarray, np.ndarray]:
     return rejected, qvals
 
 
-def verdict(rejected: bool, p_value: float, at_floor: bool) -> str:
+def verdict(
+    rejected: bool,
+    p_value: float,
+    at_floor: bool,
+    null_pass: bool | None = None,
+) -> str:
     """
-    discovery  cleared BH at the configured q -- the only claim that survives the sweep
+    discovery  passed the raw node-null threshold and BH at the configured q
+    fdr_only   cleared BH, but not the stricter raw node-null threshold
     nominal    p <= 0.05 on its own, which a single-node view would call an edge
     noise      indistinguishable from the null
 
@@ -357,8 +425,10 @@ def verdict(rejected: bool, p_value: float, at_floor: bool) -> str:
     """
     if not np.isfinite(p_value):
         return 'insufficient'
-    if rejected:
+    if rejected and (null_pass is None or null_pass):
         return 'discovery'
+    if rejected:
+        return 'fdr_only'
     if p_value <= 0.05:
         return 'nominal'
     return 'noise'
@@ -383,6 +453,10 @@ def save(result: dict, path: Path, meta: dict) -> None:
         'horizons': result['horizons'],
         'meta': np.array(json.dumps(meta)),
     }
+    for key in ('node_peak_real', 'node_peak_p', 'node_peak_p95'):
+        if key in result:
+            dtype = np.float64 if key.endswith('_p') else np.float32
+            payload[key] = np.asarray(result[key], dtype=dtype)
     for key in ('source_bin', 'source_bin_number', 'selection_rank', 'selection_score'):
         if key in result:
             payload[key] = result[key]
@@ -402,6 +476,11 @@ def sheet_from_node_result(result: dict, row: dict) -> dict:
         "peak_real": result["sheet_peak_real"][b, :],
         "peak_p": result["sheet_peak_p"][b, :],
         "peak_p95": result["sheet_peak_p95"][b, :],
+        # The displayed sheet is one representative bin, but node selection searched
+        # all bins. Retain the whole-node peak so validation can account for that search.
+        "node_peak_real": result["peak_real"],
+        "node_peak_p": result["peak_p"],
+        "node_peak_p95": result["peak_p95"],
         "n_shifts": result["n_shifts"],
         "Δs": result["Δs"],
         "horizons": result["horizons"],

@@ -10,6 +10,7 @@ from pipeline.step_02_shift import cmd_shift
 from pipeline.step_03_selection import cmd_selection
 from pipeline.step_04_validation import cmd_validation
 from pipeline.step_05_gate import cmd_gate
+from pipeline.step_05_redundancy import cmd_redundancy
 from pipeline.step_06_composition import cmd_bayes
 from pipeline.step_07_report import cmd_report
 from pipeline.step_08_inspect import cmd_read, cmd_status
@@ -30,7 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=0.05,
         metavar="Q",
-        help="Benjamini-Hochberg false-discovery rate for --gate (default 0.05)",
+        help="Benjamini-Hochberg false-discovery rate for --validation (default 0.05)",
     )
 
     g = parser.add_mutually_exclusive_group()
@@ -48,17 +49,23 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument(
         "--validation",
         action="store_true",
-        help="4. write 04_validation_array and 04_validation_xlsx for selected sheets",
+        help=("4. validate selected nodes, apply BH/economic verdicts, write "
+              "04_validation_array/04_validation.json"),
     )
     g.add_argument(
         "--gate",
         action="store_true",
-        help="5. correct selected-sheet validation tests with Benjamini-Hochberg",
+        help="deprecated alias: finalize existing validation arrays",
+    )
+    g.add_argument(
+        "--redundancy",
+        action="store_true",
+        help="5. write redundancy NPZ, workbook, and manifest for cleared nodes",
     )
     g.add_argument(
         "--bayes",
         action="store_true",
-        help="6. compose selected conditions out of sample, 06_bayes.npz + 06_bayes.json",
+        help="6. evaluate weighted Bayes and write its current probability workbook",
     )
     g.add_argument("--report", action="store_true", help="7. render figures into workspace result/")
     g.add_argument("--status", action="store_true", help="Inventory by family")
@@ -78,9 +85,11 @@ def main(argv: list[str] | None = None) -> None:
     elif args.selection:
         cmd_selection(ws, args.family)
     elif args.validation:
-        cmd_validation(ws, args.family, args.rerun)
+        cmd_validation(ws, args.family, args.rerun, args.fdr)
     elif args.gate:
         cmd_gate(ws, args.fdr)
+    elif args.redundancy:
+        cmd_redundancy(ws)
     elif args.bayes:
         cmd_bayes(ws)
     elif args.report:

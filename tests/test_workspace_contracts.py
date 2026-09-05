@@ -19,6 +19,9 @@ class WorkspaceContractTests(unittest.TestCase):
         self.assertEqual(len(self.workspace.catalog.all_nodes()), 58)
         self.assertEqual(self.workspace.catalog.find("vix_level")["family"], "vix")
         self.assertNotIn("summary", self.workspace.catalog.meta)
+        self.assertEqual(self.workspace.null_alpha, 0.01)
+        self.assertEqual(self.workspace.demonstration_date, "2025-03-28")
+        self.assertEqual(Workspace("btc_daily").demonstration_date, "2021-07-07")
 
     def test_composition_targets_cover_the_real_grid(self) -> None:
         targets = composition_targets(self.workspace)
@@ -39,6 +42,36 @@ class WorkspaceContractTests(unittest.TestCase):
         self.assertEqual(
             self.workspace.validation_surface_path(row).as_posix().split("/")[-3:],
             ["04_validation_xlsx", "vix", "rank_007__vix_level__bin_03.xlsx"],
+        )
+        self.assertEqual(
+            self.workspace.redundancy_path.as_posix().split("/")[-2:],
+            ["05_redundancy_array", "05_redundancy.json"],
+        )
+        self.assertEqual(
+            self.workspace.redundancy_array_path.as_posix().split("/")[-2:],
+            ["05_redundancy_array", "redundancy.npz"],
+        )
+        self.assertEqual(
+            self.workspace.redundancy_workbook_path.as_posix().split("/")[-2:],
+            ["05_redundancy_xlsx", "redundancy.xlsx"],
+        )
+        self.assertEqual(
+            self.workspace.validation_summary_path.as_posix().split("/")[-2:],
+            ["04_validation_array", "04_validation.json"],
+        )
+        self.assertEqual(self.workspace.cleared_path, self.workspace.validation_summary_path)
+        self.assertEqual(self.workspace.legacy_gate_path.name, "05_gate.json")
+        self.assertEqual(
+            self.workspace.bayes_workbook_path.as_posix().split("/")[-2:],
+            ["06_bayes_xlsx", "bayes.xlsx"],
+        )
+        self.assertEqual(
+            self.workspace.bayes_path.as_posix().split("/")[-2:],
+            ["06_bayes_array", "06_bayes.npz"],
+        )
+        self.assertEqual(
+            self.workspace.bayes_summary_path.as_posix().split("/")[-2:],
+            ["06_bayes_array", "06_bayes.json"],
         )
 
     def test_artifact_history_helpers_align_feature_to_valid_prices(self) -> None:

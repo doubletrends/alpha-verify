@@ -36,52 +36,68 @@ from presentation.workbooks import feature_label
 SHIFT_CMAP_LIMIT_PP = 30.0
 
 
-def fig_band(ws, universe, cleared, out: Path) -> Path | None:
+def fig_band(ws, out: Path) -> Path | None:
     """
-    The cube, inverted and anchored to the price it describes.
+    The configured historical weighted-Bayes face, inverted onto its realized price path.
 
     A surface of touch probabilities is the honest object but not a legible one. Turned
     around -- *how far does price get, at what odds* -- and hung off the last close of a
     real price series, it becomes the thing the measurement was always about: a forward
-    envelope, drawn on the chart it belongs to.
-
-    The condition is read from the last bar, so the band shown is the one that applies to
-    the regime the asset is actually in. That is emphatically not a forecast: it is the
-    historical frequency with which price reached each level under the decile the feature
-    currently sits in, and nothing in it knows anything about the future.
+    envelope, drawn on the chart it belongs to. Stage 6 fits this complete face using only
+    outcomes completed by the configured demonstration date; Stage 7 only renders it.
     """
-    head = _headline_node(ws, cleared, universe)
-    if head is None:
-        return None
-    cube = shift.load(ws.shift_cube_path(head['family'], head['id']))
-    needed = ("index", "feature_values", "close")
-    if any(k not in cube for k in needed):
-        return None
-    prob, th, ts = cube['prob'], cube['Δs'], cube['horizons']
-    n_bins = prob.shape[1]
-    if n_bins < 2:
+    if not ws.bayes_path.exists() or ws.demonstration_date is None:
         return None
 
+    with np.load(ws.bayes_path, allow_pickle=False) as artifact:
+        needed = (
+            "demonstration_probability",
+            "demonstration_as_of",
+            "current_Δ",
+            "current_horizon",
+            "current_node_ids",
+        )
+        if any(key not in artifact for key in needed):
+            return None
+        current_surface = artifact["demonstration_probability"].astype(float)
+        as_of = str(np.asarray(artifact["demonstration_as_of"]).item())
+        th = artifact["current_Δ"].astype(float)
+        ts = artifact["current_horizon"].astype(int)
+        n_nodes = len(artifact["current_node_ids"])
+        fallback_cells = int(np.asarray(
+            artifact["demonstration_ridge_fallback_cells"]
+            if "demonstration_ridge_fallback_cells" in artifact else 0
+        ).item())
+
+    if current_surface.shape != (len(th), len(ts)) or not as_of:
+        return None
+    if as_of != ws.demonstration_date:
+        raise ValueError(
+            f"Bayes demonstration is {as_of}, expected {ws.demonstration_date}; rerun --bayes"
+        )
+
+    cube = shift.load(ws.shift_cube_path("_base", "baseline"))
+    if "index" not in cube or "close" not in cube:
+        return None
     idx = pd.to_datetime(cube["index"])
-    panel = pd.DataFrame(
-        {"price": cube["close"].astype(float), "feature": cube["feature_values"].astype(float)},
-        index=idx,
-    ).dropna()
-    if panel.empty:
+    price = pd.Series(cube["close"].astype(float), index=idx).dropna()
+    matches = np.flatnonzero(price.index == pd.Timestamp(as_of))
+    if not len(matches):
         return None
-    now_val = float(panel["feature"].iloc[-1])
-    now_bin = int(np.searchsorted(cube['edges'], now_val)) if len(cube['edges']) else 0
-    now_bin = int(np.clip(now_bin, 0, n_bins - 1))
+    anchor_index = int(matches[-1])
 
-    price = panel["price"]
     n_hist = int(min(len(price), max(40, 6 * int(ts.max()))))
-    hist = price.iloc[-n_hist:]
+    hist = price.iloc[max(0, anchor_index - n_hist + 1):anchor_index + 1]
     last = float(hist.iloc[-1])
-    step = pd.Series(hist.index).diff().median()
-    fwd = [hist.index[-1] + step * int(t) for t in ts]
+    if anchor_index + int(ts.max()) < len(price):
+        fwd = [price.index[anchor_index + int(t)] for t in ts]
+    else:
+        step = pd.Series(hist.index).diff().median()
+        fwd = [hist.index[-1] + step * int(t) for t in ts]
+    realized = price.iloc[
+        anchor_index:min(len(price), anchor_index + int(ts.max()) + 1)
+    ]
 
-    labels = cube['meta']['bin_labels']
-    current_surface = prob[:, now_bin, :]
     bands = [
         (0.25, *barrier.touch_band(current_surface, th, 0.25), SEQ[2]),
         (0.50, *barrier.touch_band(current_surface, th, 0.50), SEQ[8]),
@@ -92,8 +108,8 @@ def fig_band(ws, universe, cleared, out: Path) -> Path | None:
     # history
     ax.plot(hist.index, hist.to_numpy(), color=INK, linewidth=1.4, zorder=6)
 
-    # Draw only the current condition bin. Lower touch probabilities imply farther
-    # barriers, so the wider 25% envelope goes down first and the 50% band sits inside.
+    # Lower touch probabilities imply farther barriers, so the wider 25% envelope goes
+    # down first and the 50% band sits inside.
     for z, (q, up, dn, colour) in enumerate(bands, start=1):
         ax.fill_between(fwd, last * (1 - dn), last * (1 + up),
                         color=colour, alpha=0.16, linewidth=0, zorder=2 + z)
@@ -101,6 +117,8 @@ def fig_band(ws, universe, cleared, out: Path) -> Path | None:
             ax.plot(fwd, arm, color=SURFACE, linewidth=3.0, zorder=3 + z)
             ax.plot(fwd, arm, color=colour, linewidth=1.35, zorder=4 + z)
 
+    if len(realized) > 1:
+        ax.plot(realized.index, realized.to_numpy(), color=S2, linewidth=1.5, zorder=7)
     ax.axvline(hist.index[-1], color=MUTED, linewidth=0.9, zorder=2)
     ax.plot([hist.index[-1]], [last], marker='o', markersize=5.5, color=INK,
             markeredgecolor=SURFACE, markeredgewidth=1.4, zorder=8)
@@ -111,7 +129,8 @@ def fig_band(ws, universe, cleared, out: Path) -> Path | None:
     j = len(ts) - 1
     ax.annotate(f'{last:,.0f}', (hist.index[-1], last), xytext=(-8, 11),
                 textcoords='offset points', ha='right', fontsize=8.5,
-                fontweight='bold', color=INK)
+                fontweight='bold', color=INK,
+                bbox={"facecolor": SURFACE, "edgecolor": "none", "pad": 1.2, "alpha": 0.9})
 
     end_labels = []
     for q, up, dn, colour in bands:
@@ -124,19 +143,21 @@ def fig_band(ws, universe, cleared, out: Path) -> Path | None:
 
     up_max = [float(np.nanmax(up)) for _, up, _, _ in bands if np.isfinite(up).any()]
     dn_max = [float(np.nanmax(dn)) for _, _, dn, _ in bands if np.isfinite(dn).any()]
-    hi_y = max(float(hist.max()), last * (1 + max(up_max, default=0.0)))
-    lo_y = min(float(hist.min()), last * (1 - max(dn_max, default=0.0)))
+    hi_y = max(float(hist.max()), float(realized.max()),
+               last * (1 + max(up_max, default=0.0)))
+    lo_y = min(float(hist.min()), float(realized.min()),
+               last * (1 - max(dn_max, default=0.0)))
     pad = (hi_y - lo_y) * 0.07
     ax.set_ylim(lo_y - pad, hi_y + pad)
 
-    _title(fig, f'Probability forecast demonstration using today\'s {feature_label(head["id"])} condition',
-           f'The bands are the 25% and 50% historical touch envelopes when '
-           f'{feature_label(head["id"])} sits in today\'s bin: {labels[now_bin]}. '
-           f'Each envelope is measured from the same current condition bin.')
-    _note(fig, f'{ws.asset["ticker"]} through {hist.index[-1].date()} · not a forecast · '
-               f'25% / 50% touch probabilities, inverted from 02_shift_array/{head["family"]}/'
-               f'{head["id"]}.npz over +1..+{int(ts[j])}{ws.horizon_unit} · current bin '
-               f'holds {int(cube["bin_n"][now_bin, j])} bars')
+    _title(fig, f'Full Bayes probability band as of {hist.index[-1].date()}',
+           f'The 25% and 50% touch envelopes combine all {n_nodes} validation-cleared '
+           f'nodes in their states on that date. The orange line is the path realized '
+           f'after the model cutoff.')
+    _note(fig, f'{ws.asset["ticker"]} · +1..+{int(ts[j])}{ws.horizon_unit} · model fit '
+               f'only with outcomes completed by {as_of} · coherent surface from '
+               f'06_bayes_array/06_bayes.npz · {fallback_cells}/{current_surface.size} '
+               f'sparse cells use their historical prior · demonstration date selected retrospectively')
     fig.subplots_adjust(top=0.78, right=0.78, bottom=0.10)
     return _save(fig, out / 'A_band.png')
 
@@ -200,7 +221,7 @@ def fig_shift(ws, universe, cleared, out: Path) -> Path | None:
 
 
 def fig_shift_all(ws, universe, cleared, out: Path) -> list[Path]:
-    """Render one conditional-shift figure for every node that cleared both filters."""
+    """Render one conditional-shift figure for every node that cleared all three filters."""
     paths: list[Path] = []
     for row in cleared.get('cleared', []):
         if not row.get('best_cell'):

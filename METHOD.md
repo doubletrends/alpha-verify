@@ -19,26 +19,35 @@ The product workflow has seven stages:
 02_shift_array/           --shift       compute: full baseline-subtracted shift cube
 02_shift_xlsx/            --shift       view: red/blue shift workbooks
 
-03_selection_array/       --selection   compute: top skew-ranked node/bin sheets
-03_selection_xlsx/        --selection   view: selected shift sheet workbooks
+03_selection_array/       --selection   compute: top node-ranked representative sheets
+03_selection_xlsx/        --selection   view: selected representative-bin workbooks
 
 04_validation_array/      --validation  compute: exact shuffled nulls
 04_validation_xlsx/       --validation  view: validation workbooks
+04_validation_array/04_validation.json
+                          --validation  raw null + BH + economic intersection
 
-05_gate.json              --gate        BH correction + economic intersect
-06_bayes.npz              --bayes       walk-forward composition arrays
-06_bayes.json             --bayes       walk-forward composition summary
+05_redundancy_array/      --redundancy  numerical conditional-NMI matrix
+05_redundancy_xlsx/       --redundancy  readable redundancy workbook
+05_redundancy_array/05_redundancy.json
+                          --redundancy  compact manifest and cluster summary
+06_bayes_array/06_bayes.npz
+                          --bayes       walk-forward composition arrays
+06_bayes_array/06_bayes.json
+                          --bayes       walk-forward composition summary
+06_bayes_xlsx/bayes.xlsx  --bayes       current weighted probability surface
 workspaces/<name>/result/ --report      audience-facing figures
 ```
 
-Stages 1-4 build the measured, selected and validated surfaces. Stage 5 applies the discovery
-gate. Stage 6 is the out-of-sample composition check. Stage 7 renders figures from
+Stages 1-4 build the measured, selected and validated surfaces and assign final
+validation verdicts. Stage 5 maps redundancy, Stage 6 is the out-of-sample composition
+check, and Stage 7 renders figures from
 stored artifacts and does not remeasure.
 
-The dependency chain is one-way: shift reads surface artifacts, selection copies the
-top-ranked sheet artifacts from shift, validation reads selection artifacts for the tested sheets, gate
-reads validation artifacts, Bayes reads selected shift artifacts for its ordered feature
-panel, and report reads the stored artifacts produced
+The dependency chain is one-way: shift reads surface artifacts, selection copies each
+top-ranked node's representative-bin artifact from shift, validation reads those
+selection artifacts, validation finalizes its own global verdicts, redundancy maps the cleared nodes,
+Bayes ranks its full candidate panel within each training fold, and report reads the stored artifacts produced
 by those stages. Validation is the one exception that may
 recompute the circular-shift null from source data, because the null needs ordered
 feature alignment rather than only aggregate cube rates.
@@ -59,8 +68,8 @@ volatility-matrix --workspace <name> --status
 ```
 
 The status table is the funnel: nodes declared, surfaces measured, shift artifacts
-written, selected sheets copied, nulls validated, selected-sheet economics passed, and
-sheets that cleared both the economic and statistical gates.
+written, selected representative bins copied, nulls validated, representative-bin
+economics passed, and nodes that cleared all three validation gates.
 
 ## 1. Surface
 
@@ -114,17 +123,8 @@ shift = 100 * (P(price touches Δ within t | bin) - P(price touches Δ within t)
 The shift stage does not judge nodes. It writes the full baseline-subtracted cube that
 selection, validation and reporting read.
 
-The economic filter is applied after sheet selection. A selected sheet passes the
-economic filter when it has a cell that:
-
-- deviates from the baseline by at least `min_dev` percentage points
-- has at least `min_bin_n` observations in the bin
-- persists across at least `min_run` adjacent Δ rows with the same sign
-
 The workbook uses a diverging scale centered at zero: red cells mean the barrier is
-reached more often than baseline, blue cells mean less often. The adjacency requirement
-is important. A single extreme cell can be a search artifact; a band of adjacent
-barriers is closer to something a reader could actually use.
+reached more often than baseline, blue cells mean less often.
 
 ## 3. Selection
 
@@ -133,30 +133,49 @@ volatility-matrix --workspace <name> --selection
 volatility-matrix --workspace <name> --selection --family volatility
 ```
 
-Selection reads the Stage 2 shift cubes and treats every condition bin as its own
-Δ-by-horizon sheet. For each sheet it scores symmetric upside/downside skew:
+Selection ranks one *node* per predictor, rather than allowing several decile sheets
+from one predictor to consume the shortlist. It uses the workspace's Bayes target
+`P(touch Δ within t)`, and scores the full conditional table:
 
 ```text
-score = max |shift(+Δ, t) - shift(-Δ, t)|
+score = Σ_bin P(bin) × KL(Bernoulli(P(touch | bin)) || Bernoulli(P(touch)))
 ```
 
-Only positive `Δ` rows are paired with their matching negative rows, and horizons
-where the bin has fewer than `min_bin_n` observations are ignored. The stage ranks all
-node/bin sheets globally, applies the economic filter to those sheets, and writes the
-top `selection.top_k` rows, defaulting to 20, to
-`03_selection_array/selection.json`, with one copied `.npz` per selected sheet under
-`03_selection_array/<family>/` and one matching workbook under `03_selection_xlsx/<family>/`.
+This is expected log-loss improvement per observation, also called mutual information
+in nats. A strong effect confined to one decile receives credit only for the bars in
+that decile; a weak but useful gradient receives credit from every bin. Conditional
+rates use the same 25-pseudo-observation shrinkage as Bayes.
 
-## 4. Validation
+The stage ranks all nodes globally and writes the top `selection.top_k` rows, defaulting
+to 20, to `03_selection_array/selection.json`. Each selected row records its highest-
+contributing **representative bin** and its effective number of contributing bins; that
+bin is copied to `03_selection_array/<family>/` and rendered under
+`03_selection_xlsx/<family>/`. Stage 3 contains no economic verdict: a broad, modest
+table can rank well even when no individual bin meets a product-effect threshold.
+
+## 4. Validation and Decision
 
 ```bash
 volatility-matrix --workspace <name> --validation
 volatility-matrix --workspace <name> --validation --family volatility
+volatility-matrix --workspace <name> --validation --fdr 0.05
 ```
 
-Validation tests the selected node/bin sheets against an exact circular-shift null. The
-feature is shifted against the price history, preserving its autocorrelation while
-destroying its alignment with the future.
+Validation tests every selected node against an exact circular-shift null. The workbook
+still displays its representative bin, but the decision statistic takes the peak over every
+bin in that node, accounting for the bin search used to select it. The feature is shifted
+against the price history, preserving its autocorrelation while destroying its alignment
+with the future.
+
+Stage 4 also applies the economic filter to the representative bin selected by Stage 3.
+It passes when a cell:
+
+- deviates from the baseline by at least `min_dev` percentage points
+- has at least `min_bin_n` observations in the bin
+- persists across at least `min_run` adjacent Δ rows with the same sign
+
+The adjacency requirement prevents one extreme cell from qualifying on its own; a band
+of adjacent barriers is closer to something a reader could actually use.
 
 For each horizon, validation stores:
 
@@ -165,12 +184,12 @@ For each horizon, validation stores:
 | `cell_real` | Δ x bin x t | signed deviation from the node's own sample rate |
 | `cell_p` | Δ x bin x t | pointwise p-value for reading a surface |
 | `cell_p95` | Δ x bin x t | each cell's null 95th percentile |
-| `sheet_peak_real` | bin x t | max absolute deviation over one selected sheet |
-| `sheet_peak_p` | bin x t | p-value of that sheet search statistic |
-| `sheet_peak_p95` | bin x t | null 95th percentile of that sheet statistic |
-| `peak_real` | t | max absolute deviation over the surface |
-| `peak_p` | t | p-value of that max search statistic |
-| `peak_p95` | t | null 95th percentile of that max statistic |
+| `sheet_peak_real` | bin x t | max absolute deviation in the displayed representative bin |
+| `sheet_peak_p` | bin x t | p-value for reading that displayed bin |
+| `sheet_peak_p95` | bin x t | null 95th percentile for that displayed bin |
+| `node_peak_real` | t | max absolute deviation over all bins in the selected node |
+| `node_peak_p` | t | p-value of that node-wide search statistic |
+| `node_peak_p95` | t | null 95th percentile of that node-wide statistic |
 | `n_shifts` | t | usable shifts, giving the p-value floor `1/(n+1)` |
 
 The exact null is fast because counts by circular shift are a cross-correlation. One FFT
@@ -178,34 +197,32 @@ returns every shift. The floor matters: with only `n` distinct shifts, no method
 honestly report a p-value below `1/(n+1)`.
 
 `cell_p` is pointwise. It helps read where a surface is unusual, but it is not a
-discovery criterion. The gate uses `sheet_peak_p` for the sheets selected by
-`03_selection_array/selection.json`, which accounts for the search over each 2D sheet.
+discovery criterion. Validation uses `node_peak_p` for the nodes selected by
+`03_selection_array/selection.json`, which accounts for the search over their bins and
+2D sheets.
 
-## 5. Gate
+Once every selected node has a current null artifact, validation applies a raw
+`node_peak_p <= validation.null_alpha` gate, then Benjamini-Hochberg correction across
+the selected node/horizon sweep, then intersects those results with the economic filter
+it calculated from the Stage 2 shift cube.
 
-```bash
-volatility-matrix --workspace <name> --gate
-volatility-matrix --workspace <name> --gate --fdr 0.05
-```
+A selected node clears the product claim only when all three are true at one horizon:
 
-The gate applies Benjamini-Hochberg correction across the selected sheet/horizon sweep,
-then intersects those discoveries with the economic filter stored in
-`03_selection_array/selection.json`.
-
-A selected sheet clears the product claim only when both are true:
-
+- **Raw null:** the node-wide shuffled-null p-value is at most `0.01` by default.
+- **FDR:** the test survives Benjamini-Hochberg at `q = 0.05` by default.
 - **Economic:** a stable, useful-size deviation from the baseline exists.
-- **Statistical:** the sheet's peak survives the exact shuffled-null test after FDR
-  correction.
 
-The result is written to `05_gate.json`:
+The result is written to `04_validation_array/04_validation.json`:
 
 ```text
-summary.discovery   selected sheets/horizons that survive the null
+summary.null_pass    selected node/horizons passing the raw null threshold
+summary.fdr_pass     selected node/horizons surviving BH correction
+summary.discovery   selected node/horizons passing both statistical gates
 summary.nominal     pointwise p <= 0.05 before FDR
-summary.cleared     selected sheets that cleared both filters
+summary.cleared     selected nodes that cleared all three gates
+economics[]          Stage 4 economic result for every selected node
 cleared[]           the headline rows
-tests[]             every validation test with verdict and q-value
+tests[]             every test with null_pass, fdr_pass, economic_pass, and cleared
 ```
 
 Bonferroni is intentionally not used. With hundreds of tests, its threshold falls below
@@ -213,14 +230,46 @@ the exact null's p-value floor, making it unreachable on these workspaces. BH co
 the expected false-discovery share among discoveries, which is the useful correction for
 a screen of this size.
 
+Partial `--family` runs may refresh individual null artifacts, but cannot publish a
+smaller correction universe. Until every selected node is current,
+`04_validation_array/04_validation.json` records `complete: false` and the missing nodes. The deprecated
+`--gate` compatibility alias can only finalize already-complete null artifacts; it is
+not a separate pipeline stage.
+
+## 5. Redundancy
+
+`--redundancy` maps the validation-cleared nodes using normalized
+conditional mutual information between their ten-bin states:
+
+```text
+I(bin_i ; bin_j | touch outcome)
+```
+
+Pairs above the threshold form connected clusters. This is a research-facing map, not
+a hard deletion rule: it exposes where Naive Bayes' conditional-independence assumption
+is weakest while leaving partial information available to the weighted model.
+
+Stage 5 writes three synchronized artifacts. `05_redundancy_array/redundancy.npz` is
+the numerical source of truth: ordered node ids, information scores, the square
+conditional-NMI matrix, cluster ids, representative flags, target, threshold, sample
+count and outcome rate. `05_redundancy_xlsx/redundancy.xlsx` renders Overview, Matrix,
+Clusters, Nodes, Pairs and Definitions sheets. `05_redundancy_array/05_redundancy.json`
+is written last as a
+compact manifest; `complete: true` certifies that both larger artifacts exist and match
+the current Stage 4 validation fingerprint.
+
+```bash
+volatility-matrix --workspace <name> --redundancy
+```
+
 ## 6. Compose
 
 ```bash
 volatility-matrix --workspace <name> --bayes
 ```
 
-Stages 1-5 evaluate one selected condition sheet at a time. Composition asks whether the
-selected conditions can be combined out of sample.
+Stages 1-5 evaluate one selected condition sheet at a time. Composition asks whether
+the best whole-node conditional tables can be combined out of sample.
 
 Under conditional independence, log-odds add:
 
@@ -235,9 +284,12 @@ expanding walk-forward design:
 
 1. Fit bin edges, per-bin rates and prior on the training window only.
 2. Embargo the last `horizon` training bars so labels do not reach into test data.
-3. Keep one feature per family based only on training-window separation.
-4. Predict the test block.
-5. Score every `horizon`th bar so forward windows do not overlap.
+3. Score every complete bin table by training-window information and retain the top nodes.
+4. Cross-fit their log-odds contributions inside the training window.
+5. Fit non-negative ridge-logistic reliability weights, tuning ridge strength on a later
+   chronological calibration slice.
+6. Predict the test block.
+7. Score every `horizon`th bar so forward windows do not overlap.
 
 After the configured headline target, Stage 6 evaluates every non-zero barrier/horizon
 pair in the workspace grid. A sweep row is always one explicit `(Delta, horizon)` pair;
@@ -245,16 +297,36 @@ the zero barrier is excluded because its touch event is near-degenerate. The res
 grid is a diagnostic surface, not a collection of automatically publishable claims:
 rare-event rows must be interpreted with their realized rate and scored-bar count.
 
+Stage 6 separately fits a deployment-side forecast for the latest jointly available
+feature state. For every barrier/horizon cell, it trains on completed outcomes only,
+uses the Stage 4 validation-cleared nodes, cross-fits their contributions, and learns
+target-specific non-negative ridge weights. This is a current forecast, not an average
+of the walk-forward predictions. Because separately estimated cells can contain sampling
+reversals, a final isotonic projection enforces the defining nesting rules: farther
+barriers cannot be more likely than nearer barriers, and longer horizons cannot be less
+likely than shorter horizons. The raw fitted face remains in the NPZ for auditability.
+
 It writes:
 
 ```text
-06_bayes.npz
-06_bayes.json
+06_bayes_array/06_bayes.npz
+06_bayes_array/06_bayes.json
+06_bayes_xlsx/bayes.xlsx
 ```
 
-`06_bayes.json` records prior-only, all-node naive Bayes, one-node-per-family, and Platt
-scale-corrected metrics. The point is not to claim a trading strategy; it is to test
-whether the measured conditional tables compose without leaking future data.
+`06_bayes_array/06_bayes.json` records prior-only, raw top-node Naive Bayes,
+one-node-per-family,
+Platt-scaled, and redundancy-aware weighted metrics. Every outer fold records its node
+weights, ridge strength, and fold-local redundancy clusters. The point is not to claim a
+trading strategy; it is to test whether the measured conditional tables compose without
+leaking future data. The NPZ additionally stores the current `Delta x horizon`
+probability face and its observation counts. When `report.demonstration_date` is set in
+`universe.json`, it also stores a leakage-safe historical face fit from the node states
+and completed outcomes available on that date. Historical cells without enough
+cross-fitted labels to learn reliability weights fall back to that target's historical
+prior, rather than silently presenting unit-weight Naive Bayes. The single-sheet
+workbook renders the current face with exactly the same layout, percentage format,
+fixed color scale, and frozen panes as a Stage 1 probability sheet.
 
 ## 7. Report
 
@@ -263,13 +335,15 @@ volatility-matrix --workspace <name> --report
 ```
 
 The report renders `workspaces/<name>/result/*.png` plus a local index. Figures read
-from `.npz` and `.json` artifacts; they do not recompute the pipeline.
+from `.npz` and `.json` artifacts; they do not recompute the pipeline. Plot A uses the
+historical full-Bayes face produced by Stage 6 for `report.demonstration_date` and
+overlays the subsequently realized price path.
 
 The main product figures show:
 
-- the measured forward envelope from the latest close
+- the full weighted-Bayes envelope from the configured demonstration date
 - the exact null distribution behind a headline node
-- one conditional-shift surface for every node that cleared both
+- one conditional-shift surface for every node that cleared all three
 - the ATR regime ladder
 - the null-gap ranking across top discoveries
 
@@ -303,6 +377,7 @@ There is no progress field. Progress is inferred from artifacts on disk.
 | `Δ` | full barrier ladder |
 | `n_bins` | condition bins per feature |
 | `evaluate` | economic filter thresholds |
+| `validation` | raw node-null threshold, default `null_alpha: 0.01` |
 | `bayes` | composition target and fold count |
 
 Scale `Δ` to the asset and horizon. BTC daily can support wider barriers than a
@@ -318,14 +393,18 @@ enough to estimate.
 | `01_surface_xlsx/<family>/<node>.xlsx` | `--surface` | readable full workbook |
 | `02_shift_array/<family>/<node>.npz` | `--shift` | full baseline-subtracted shift cube |
 | `02_shift_xlsx/<family>/<node>.xlsx` | `--shift` | red/blue shift workbook |
-| `03_selection_array/selection.json` | `--selection` | ranking index for selected sheets |
-| `03_selection_array/<family>/rank_*.npz` | `--selection` | copied selected shift sheet arrays |
-| `03_selection_xlsx/<family>/rank_*.xlsx` | `--selection` | readable selected shift sheet workbooks |
+| `03_selection_array/selection.json` | `--selection` | ranking index for selected nodes |
+| `03_selection_array/<family>/rank_*.npz` | `--selection` | copied representative-bin arrays |
+| `03_selection_xlsx/<family>/rank_*.xlsx` | `--selection` | representative-bin workbooks |
 | `04_validation_array/<family>/<node>.npz` | `--validation` | exact null artifacts |
 | `04_validation_xlsx/<family>/<node>.xlsx` | `--validation` | readable validation workbook |
-| `05_gate.json` | `--gate` | FDR verdicts and cleared-both rows |
-| `06_bayes.npz` | `--bayes` | pooled walk-forward predictions |
-| `06_bayes.json` | `--bayes` | walk-forward metrics and fold metadata |
+| `04_validation_array/04_validation.json` | `--validation` | three-gate verdicts and cleared rows |
+| `05_redundancy_array/redundancy.npz` | `--redundancy` | numerical conditional-NMI matrix and clusters |
+| `05_redundancy_xlsx/redundancy.xlsx` | `--redundancy` | six-sheet readable redundancy map |
+| `05_redundancy_array/05_redundancy.json` | `--redundancy` | compact manifest and cluster summary |
+| `06_bayes_array/06_bayes.npz` | `--bayes` | pooled walk-forward predictions |
+| `06_bayes_array/06_bayes.json` | `--bayes` | walk-forward metrics and fold metadata |
+| `06_bayes_xlsx/bayes.xlsx` | `--bayes` | one-sheet current weighted probability surface |
 | `workspaces/<name>/result/*.png` | `--report` | product figures |
 
 Rendered workbooks are git-ignored. The `.npz` files are the measurement record.

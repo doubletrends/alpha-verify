@@ -8,38 +8,26 @@ import numpy as np
 
 from domain import shift, validation as val
 from infrastructure.workspaces.workspace import Workspace
-from pipeline.step_04_validation import _validation_matches_selection
-
-
-def _gate_is_current(ws: Workspace, cleared: dict) -> bool:
-    if not cleared:
-        return False
-    sel = ws.read_json(ws.selection_path)
-    selected = [r for r in sel.get("selected", []) if ws.has_selection_array(r)]
-    if not selected:
-        return False
-    valid_sheets = set()
-    for row in selected:
-        if not _validation_matches_selection(ws, row):
-            continue
-        valid_sheets.add((row["node"], int(row["bin"])))
-    tests = cleared.get("tests", [])
-    if not valid_sheets:
-        return False
-    expected = len(valid_sheets) * len(ws.shift_horizons)
-    if len(tests) != expected:
-        return False
-    return all((t.get("node"), int(t.get("bin", -1))) in valid_sheets for t in tests)
+from pipeline.step_04_validation import (
+    _validation_matches_selection,
+    validation_summary_is_current,
+)
+from pipeline.step_05_redundancy import redundancy_artifacts_are_current
 
 
 def cmd_status(ws: Workspace) -> None:
     sel = ws.read_json(ws.selection_path)
     selected = [r for r in sel.get("selected", []) if ws.has_selection_array(r)]
-    cl = ws.read_json(ws.cleared_path)
-    gate_current = _gate_is_current(ws, cl)
-    cleared_rows = cl.get("cleared", []) if gate_current else []
-    cleared = {c["node"] for c in cleared_rows}
-    disc = {t["node"] for t in cl.get("tests", []) if t.get("verdict") == "discovery"} if gate_current else set()
+    validation = ws.read_json(ws.validation_summary_path)
+    redundancy = ws.read_json(ws.redundancy_path)
+    validation_current = validation_summary_is_current(ws, validation)
+    cleared_rows = validation.get("cleared", []) if validation_current else []
+    economic_nodes = {
+        row["node"] for row in validation.get("economics", []) if row.get("passed")
+    } if validation_current else set()
+    tests = validation.get("tests", []) if validation_current else []
+    null_nodes = {row["node"] for row in tests if row.get("null_pass")}
+    fdr_nodes = {row["node"] for row in tests if row.get("fdr_pass")}
 
     cols = [
         "nodes", "cube", "sheet", "shift", "sheet", "select", "s-sheet", "valid", "v-sheet", "econ", "cleared",
@@ -58,7 +46,7 @@ def cmd_status(ws: Workspace) -> None:
         valid_rows = [r for r in selected_rows if _validation_matches_selection(ws, r)]
         c[7] += len(valid_rows)
         c[8] += sum(1 for r in valid_rows if ws.has_validation_surface(r))
-        c[9] += sum(1 for r in selected_rows if r.get("economic", {}).get("passed"))
+        c[9] += sum(1 for r in selected_rows if r["node"] in economic_nodes)
         c[10] += sum(1 for r in cleared_rows if r.get("node") == n["id"])
 
     print(f"\n=== Status [{ws.dir.name}] ===")
@@ -67,14 +55,25 @@ def cmd_status(ws: Workspace) -> None:
         f"horizons +{ws.horizons[0]}{ws.horizon_unit}..+{ws.horizons[-1]}{ws.horizon_unit}   "
         f"{ws.n_bins} bins"
     )
-    if cl and gate_current:
-        meth = cl.get("method", {})
+    if validation and validation_current:
+        meth = validation.get("method", {})
         print(
-            f"  gate: BH q={meth.get('q')} over {meth.get('n_tests')} tests, "
-            f"{len(disc)} nodes with a discovery, {len(cleared_rows)} cleared selected sheets"
+            f"  validation: raw p<={meth.get('null_alpha')} {len(null_nodes)} nodes | "
+            f"BH q={meth.get('q')} {len(fdr_nodes)} | economic {len(economic_nodes)} | "
+            f"all three {len(cleared_rows)}"
         )
-    elif cl:
-        print("  gate: stale for current selection - run --validation, then --gate")
+    elif validation:
+        missing = validation.get("missing_nodes", [])
+        detail = f" ({len(missing)} missing nodes)" if missing else ""
+        print(f"  validation: incomplete or stale{detail} - run --validation")
+    redundancy_current = redundancy_artifacts_are_current(ws, validation, redundancy)
+    if redundancy_current:
+        print(
+            f"  redundancy: {len(redundancy.get('nodes', []))} cleared nodes in "
+            f"{len(redundancy.get('clusters', []))} conditional-dependence clusters"
+        )
+    elif redundancy:
+        print("  redundancy: stale for current validation - run --redundancy")
     print()
     hdr = f"  {'family':<15}" + "".join(f"{name:>9}" for name in cols)
     print(hdr)
@@ -86,7 +85,7 @@ def cmd_status(ws: Workspace) -> None:
     print(f"  {'TOTAL':<15}" + "".join(f"{v:>9}" for v in tot))
     print(
         f"\n  full grid {len(ws.deltas)}Δ x {len(ws.horizons)}t   |   "
-        f"03_selection keeps top {len(selected)} node/bin sheets"
+        f"03_selection keeps top {len(selected)} nodes and one representative bin each"
     )
 
 

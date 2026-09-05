@@ -1,4 +1,4 @@
-"""Stage 3 command: select the strongest skew sheets from Stage 2 artifacts."""
+"""Stage 3 command: select the strongest whole-node Bayes predictors."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
-from domain import selection, shift
+from domain import bayes, selection, shift
 from infrastructure.workspaces.workspace import BASELINE_NODE, Workspace
 
 
@@ -24,7 +24,7 @@ def _copy_selected_workbook_sheet(source: Path, target: Path, bin_index: int) ->
 
 
 def cmd_selection(ws: Workspace, family: str | None = None) -> None:
-    """Stage 3: score every node/bin shift sheet and select the global top-k."""
+    """Stage 3: score every node's full bin table and retain top distinct nodes."""
     nodes = [
         n for n in (ws.catalog.in_family(family) if family else ws.catalog.all_nodes())
         if n["id"] != BASELINE_NODE and ws.has_shift_cube(n["family"], n["id"])
@@ -36,13 +36,18 @@ def cmd_selection(ws: Workspace, family: str | None = None) -> None:
     def load_cube(node: dict) -> dict:
         return shift.load(ws.shift_cube_path(node["family"], node["id"]))
 
-    result = selection.rank_shift_sheets(
+    baseline_path = ws.shift_cube_path("_base", BASELINE_NODE)
+    if not baseline_path.exists():
+        print("No baseline shift array - run --shift first.")
+        return
+    delta, horizon = ws.bayes_target(shift.load(baseline_path)["base"])
+    result = selection.rank_nodes(
         nodes,
         load_cube,
-        ws.min_dev,
-        ws.min_bin_n,
-        ws.min_run,
         ws.selection_top_k,
+        delta,
+        horizon,
+        bayes.SHRINK_K,
     )
     result["workspace"] = ws.dir.name
     result["families"] = sorted({n["family"] for n in nodes})
@@ -68,7 +73,6 @@ def cmd_selection(ws: Workspace, family: str | None = None) -> None:
                 "score": row["score"],
                 "method": result["method"]["score"],
             },
-            "economic": row["economic"],
         }
         selection.save_sheet(sheet, ws.selection_array_path(row), meta)
         copied_npz += 1
@@ -80,26 +84,29 @@ def cmd_selection(ws: Workspace, family: str | None = None) -> None:
             copied_xlsx += 1
         except PermissionError:
             print(f"  rank {row['rank']:>3} {row['node']:<26} [locked] close it in Excel and re-run")
+        except FileNotFoundError:
+            print(f"  rank {row['rank']:>3} {row['node']:<26} [no shift workbook] run --shift to render it")
 
     ws.write_json(ws.selection_path, result)
 
     print(f"\n=== 3. Selection [{ws.dir.name}] ===")
     print(
-        f"  scored {len(result['candidates'])} node/bin sheets from 02_shift_array; "
-        f"selected top {len(selected)} by upside-vs-downside skew"
+        f"  scored {len(result['candidates'])} whole nodes from 02_shift_array; "
+        f"selected top {len(selected)} distinct nodes by conditional information"
     )
-    print(f"  score = max |shift(+Δ,t) - shift(-Δ,t)|, min bin n = {ws.min_bin_n}\n")
+    print(
+        f"  target = P(touch {delta:+.0%} within {horizon}{ws.horizon_unit})  |  "
+        "score = weighted information across all bins\n"
+    )
     if selected:
-        print(f"  {'rank':>4}  {'node':<26}{'family':<13}{'bin':>5}  {'score':>7}  {'econ':>5}  best skew cell")
-        print(f"  {'-'*4}  {'-'*26}{'-'*13}{'-'*5}  {'-'*7}  {'-'*5}  {'-'*42}")
+        print(f"  {'rank':>4}  {'node':<26}{'family':<13}{'bin':>5}  {'bits':>7}  {'cover':>5}  representative bin")
+        print(f"  {'-'*4}  {'-'*26}{'-'*13}{'-'*5}  {'-'*7}  {'-'*5}  {'-'*37}")
         for row in selected:
             c = row["best_cell"]
-            econ = "yes" if row["economic"]["passed"] else "no"
             print(
                 f"  {row['rank']:>4}  {row['node']:<26}{row['family']:<13}"
-                f"{row['bin_number']:>5}  {row['score']:>6.1f}  {econ:>5}  "
-                f"|Δ|={c['Δ_abs']:+.0%} +{c['horizon']}{ws.horizon_unit} "
-                f"skew={c['skew']:+.1f}pp n={c['bin_n']}"
+                f"{row['bin_number']:>5}  {row['score_bits']:>7.4f}  {row['effective_bins']:>5.1f}  "
+                f"dev={c['dev']:+.1f}pp n={c['bin_n']}"
             )
 
     print(f"\n  wrote {copied_npz} .npz artifacts under {ws.dir.relative_to(ws.root_dir)}/03_selection_array/")

@@ -21,7 +21,9 @@ class WorkspaceConfig:
     bayes_delta: float | None
     bayes_horizon: int | None
     bayes_folds: int
+    demonstration_date: str | None
     selection_top_k: int
+    null_alpha: float
     min_dev: float
     min_bin_n: int
     min_run: int
@@ -32,7 +34,9 @@ class WorkspaceConfig:
         horizons = meta.get("horizons", {})
         barriers = meta.get("Delta", meta.get("\u0394", {}))
         bayes = meta.get("bayes", {})
+        report = meta.get("report", {})
         selection = meta.get("selection", {})
+        validation = meta.get("validation", {})
         evaluate = meta.get("evaluate", {})
         bayes_delta = bayes.get("Delta", bayes.get("\u0394"))
         return cls(
@@ -48,7 +52,12 @@ class WorkspaceConfig:
             bayes_delta=None if bayes_delta is None else float(bayes_delta),
             bayes_horizon=None if bayes.get("horizon") is None else int(bayes["horizon"]),
             bayes_folds=int(bayes.get("folds", 5)),
+            demonstration_date=(
+                None if report.get("demonstration_date") is None
+                else str(report["demonstration_date"])
+            ),
             selection_top_k=int(selection.get("top_k", 20)),
+            null_alpha=float(validation.get("null_alpha", 0.01)),
             min_dev=float(evaluate.get("min_dev", 10.0)),
             min_bin_n=int(evaluate.get("min_bin_n", 50)),
             min_run=int(evaluate.get("min_run", 2)),

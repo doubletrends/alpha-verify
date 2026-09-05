@@ -1,4 +1,4 @@
-"""Stage 3 selection: rank node/bin sheets by upside-vs-downside skew."""
+"""Stage 3 selection: rank whole predictors by their conditional information."""
 
 from __future__ import annotations
 
@@ -7,6 +7,16 @@ import json
 from pathlib import Path
 
 import numpy as np
+
+
+_EPS = 1e-9
+
+
+def _bernoulli_kl(p: np.ndarray, q: float) -> np.ndarray:
+    """KL(Bernoulli(p) || Bernoulli(q)), in nats."""
+    p = np.clip(np.asarray(p, dtype=float), _EPS, 1.0 - _EPS)
+    q = float(np.clip(q, _EPS, 1.0 - _EPS))
+    return p * np.log(p / q) + (1.0 - p) * np.log((1.0 - p) / (1.0 - q))
 
 
 def score_sheet(cube: dict, bin_index: int, min_bin_n: int) -> dict | None:
@@ -71,88 +81,103 @@ def score_sheet(cube: dict, bin_index: int, min_bin_n: int) -> dict | None:
     }
 
 
-def economic_filter_sheet(
+def score_node_information(
     cube: dict,
-    bin_index: int,
-    min_dev: float,
-    min_bin_n: int,
-    min_run: int,
-) -> dict:
-    """Economic filter scoped to one selected node/bin sheet."""
-    dev = np.asarray(cube["shift"], dtype=float)
-    prob = np.asarray(cube["prob"], dtype=float)
-    base = np.asarray(cube["base"], dtype=float)
-    bin_n = np.asarray(cube["bin_n"])
-    Δs = np.asarray(cube["Δs"], dtype=float)
+    delta: float,
+    horizon: int,
+    shrink_k: float,
+) -> dict | None:
+    """
+    Score one node's complete conditional table for a Bayes target.
+
+    The score is the sample-weighted KL divergence between the ten conditional
+    Bernoulli rates and the unconditional rate.  It is also the expected log-loss
+    improvement (in nats per observation) from knowing the node's bin.  Consequently
+    a dramatic decile receives credit only for the observations it covers, while a
+    small but persistent gradient accumulates credit across its bins.
+    """
+    deltas = np.asarray(cube["Δs"], dtype=float)
     horizons = np.asarray(cube["horizons"], dtype=int)
+    delta_hits = np.flatnonzero(np.isclose(deltas, delta, atol=1e-12))
+    horizon_hits = np.flatnonzero(horizons == horizon)
+    if len(delta_hits) != 1 or len(horizon_hits) != 1:
+        return None
 
-    best = None
-    for j, t in enumerate(horizons):
-        if bin_n[bin_index, j] < min_bin_n:
-            continue
-        col = dev[:, bin_index, j]
-        run, start = 0, None
-        for i, v in enumerate(col):
-            if np.isnan(v) or abs(v) < min_dev:
-                run, start = 0, None
-                continue
-            if start is not None and np.sign(v) != np.sign(col[start]):
-                run, start = 1, i
-            else:
-                if start is None:
-                    start = i
-                run += 1
-            if run >= min_run:
-                k = int(start + np.argmax(np.abs(col[start:i + 1])))
-                cand = {
-                    "horizon": int(t),
-                    "bin": int(bin_index),
-                    "bin_number": int(bin_index + 1),
-                    "Δ": float(Δs[k]),
-                    "dev": float(col[k]),
-                    "run": int(run),
-                    "prob": float(prob[k, bin_index, j]),
-                    "base": float(base[k, j]),
-                    "bin_n": int(bin_n[bin_index, j]),
-                    "hits": int(cube["hits"][k, bin_index, j]),
-                }
-                if best is None or abs(cand["dev"]) > abs(best["dev"]):
-                    best = cand
+    i, j = int(delta_hits[0]), int(horizon_hits[0])
+    n = np.asarray(cube["bin_n"], dtype=float)[:, j]
+    hits = np.asarray(cube["hits"], dtype=float)[i, :, j]
+    prior = float(np.asarray(cube["base"], dtype=float)[i, j])
+    usable = np.isfinite(n) & np.isfinite(hits) & (n > 0)
+    if usable.sum() < 2 or not np.isfinite(prior):
+        return None
 
+    weights = np.zeros_like(n, dtype=float)
+    weights[usable] = n[usable] / n[usable].sum()
+    rates = np.full_like(n, np.nan, dtype=float)
+    rates[usable] = (hits[usable] + shrink_k * prior) / (n[usable] + shrink_k)
+    contribution = np.zeros_like(n, dtype=float)
+    contribution[usable] = weights[usable] * _bernoulli_kl(rates[usable], prior)
+    best_bin = int(np.nanargmax(contribution))
+
+    positive = contribution[contribution > 0]
+    if len(positive):
+        share = positive / positive.sum()
+        effective_bins = float(np.exp(-np.sum(share * np.log(share))))
+    else:
+        effective_bins = 0.0
+
+    labels = cube.get("meta", {}).get("bin_labels", [])
     return {
-        "passed": best is not None,
-        "best": best,
-        "criteria": {"min_dev": min_dev, "min_bin_n": min_bin_n, "min_run": min_run},
+        "score": float(contribution.sum()),
+        "score_bits": float(contribution.sum() / np.log(2.0)),
+        "effective_bins": effective_bins,
+        "bin": best_bin,
+        "bin_number": best_bin + 1,
+        "bin_label": labels[best_bin] if best_bin < len(labels) else f"bin {best_bin + 1}",
+        "bin_information": [float(value) for value in contribution],
+        "best_cell": {
+            "bin": best_bin,
+            "Δ": float(delta),
+            "Δ_abs": abs(float(delta)),
+            "horizon": int(horizon),
+            "dev": float((rates[best_bin] - prior) * 100.0),
+            "prob": float(rates[best_bin]),
+            "base": prior,
+            "bin_n": int(n[best_bin]),
+            "hits": int(hits[best_bin]),
+            "information": float(contribution[best_bin]),
+            "information_share": float(contribution[best_bin] / contribution.sum())
+            if contribution.sum() else 0.0,
+        },
     }
 
 
-def rank_shift_sheets(
+def rank_nodes(
     nodes: list[dict],
     load_cube,
-    min_dev: float,
-    min_bin_n: int,
-    min_run: int,
     top_k: int,
+    delta: float,
+    horizon: int,
+    shrink_k: float,
 ) -> dict:
-    """Return every scored sheet plus the global top-k selection."""
+    """Return one full-table information score and representative bin per node."""
     candidates = []
     for node in nodes:
         cube = load_cube(node)
         n_bins = int(cube["shift"].shape[1])
         if n_bins < 2:
             continue
-        for b in range(n_bins):
-            row = score_sheet(cube, b, min_bin_n)
-            if row is None:
-                continue
-            candidates.append({
-                "node": node["id"],
-                "family": node["family"],
-                "feature": node["feature"],
-                "params": node["params"],
-                "economic": economic_filter_sheet(cube, b, min_dev, min_bin_n, min_run),
-                **row,
-            })
+        row = score_node_information(cube, delta, horizon, shrink_k)
+        if row is None:
+            continue
+        b = int(row["bin"])
+        candidates.append({
+            "node": node["id"],
+            "family": node["family"],
+            "feature": node["feature"],
+            "params": node["params"],
+            **row,
+        })
 
     candidates.sort(key=lambda r: (-r["score"], r["family"], r["node"], r["bin"]))
     for rank, row in enumerate(candidates, 1):
@@ -164,12 +189,11 @@ def rank_shift_sheets(
         "artifact": "03_selection",
         "source": "02_shift_array",
         "method": {
-            "score": "max |shift(+Δ,t) - shift(-Δ,t)| over Δ>0 and horizons",
-            "unit": "percentage points",
-            "economic": "|dev| >= min_dev across adjacent same-sign Δ rows in the selected bin",
-            "min_dev": min_dev,
-            "min_bin_n": min_bin_n,
-            "min_run": min_run,
+            "score": "sample-weighted KL(Bernoulli(P(touch | bin)) || Bernoulli(P(touch))) across all bins",
+            "unit": "nats per observation",
+            "target": {"Δ": delta, "horizon": horizon},
+            "shrinkage_k": shrink_k,
+            "representative_bin": "largest per-bin contribution to the node information score",
             "top_k": top_k,
         },
         "selected": candidates[:top_k],

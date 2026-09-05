@@ -17,41 +17,41 @@ for equity-index moves.
 
 ![conditional band](workspaces/nasdaq_daily/result/A_band.png)
 
-The figure above inverts the measured cube into the form people actually use: given the
-condition the index is in on the latest bar, how wide are the historical 25% and 50%
-touch envelopes? Both bands use the current condition bin, so the current regime is
-visible directly on the price axis.
+The figure above inverts the complete weighted-Bayes surface into the form people
+actually use: as of the configured historical demonstration date, how wide were the 25%
+and 50% touch envelopes? All validation-cleared nodes contribute in their states on that
+date, and the subsequent realized path is overlaid for an honest case study.
 
-Every node is judged against the two filters that decide whether it clears: practical
-effect size and shuffled-null strength. The useful result is the cleared-both set:
-conditions that are large enough to matter and too strong to explain as alignment noise.
+Every node is judged against three explicit gates: a raw node-wide null threshold,
+false-discovery correction across the sweep, and practical effect size. The useful
+result is the cleared set: conditions that pass all three.
 
 ## What It Found
 
 | | `nasdaq_daily` | `btc_daily` |
 |---|--:|--:|
 | Nodes measured | 58 | 66 |
-| Null tests (node x horizon) | 406 | 462 |
-| Economically usable | 53 | 55 |
-| Nodes with a BH discovery | 53 | 51 |
-| **Cleared both** | **51** | **50** |
+| Nodes shortlisted | 20 | 20 |
+| Null tests (node x horizon) | 600 | 600 |
+| Nodes passing raw null | 18 | 17 |
+| Nodes passing BH/FDR | 19 | 17 |
+| Economically usable | 19 | 20 |
+| **Cleared all three** | **17** | **17** |
 
 Three findings carry the front page.
 
-**1. Barrier probability is widely predictable.** On NASDAQ daily, 51 of 58 nodes clear
-both the economic filter and the shuffled-null gate. The strongest cleared cells are not
-all one-bar artifacts: the peak horizons are +2d for 13 nodes, +7d for 12, +1d for 10,
-and +30d for 7.
+**1. Barrier probability is widely predictable.** On NASDAQ daily, 17 of the 20
+whole-node information leaders clear all three validation gates. Their strongest
+discoveries are concentrated at short horizons: 16 at +1d and one at +2d.
 
-**2. The filters are strict enough to be useful.** A condition has to pass an economic
-threshold and a shuffled-null test corrected across the sweep. The point is not a large
-spreadsheet of indicators; it is a short list of conditional barrier claims that survived
-both gates.
+**2. The filters are strict enough to be useful.** A condition has to pass raw
+`node_peak_p ≤ 0.01`, BH/FDR `q ≤ 0.05`, and the economic threshold. The point is not a
+large spreadsheet of indicators; it is a short list of claims that survived all three.
 
 **3. Cross-asset regimes matter, but they are still magnitude regimes.** VIX, Treasury
 yield and DXY features join price, volatility and trend features in the discovery set.
 The report keeps the exact null diagnostics front and center, then renders one
-conditional-shift surface for every node that cleared both.
+conditional-shift surface for every node that cleared all three.
 
 ## Why The Numbers Are Trustworthy
 
@@ -65,16 +65,16 @@ approximation.
 ![the null](workspaces/nasdaq_daily/result/B_null.png)
 
 The finest obtainable p-value is `1/(n+1)`. For the NASDAQ daily run that floor is
-`3.95e-4`; with 406 tests, Bonferroni at `alpha=0.05` would require `1.23e-4`, which is
-below the floor. The gate therefore controls false discovery rate with
+`3.95e-4`; with 600 tests, Bonferroni at `alpha=0.05` would require `8.33e-5`, which is
+below the floor. Validation therefore controls false discovery rate with
 Benjamini-Hochberg instead of exposing an unusable family-wise threshold.
 
-### Two Filters Are Required
+### Three Gates Are Required
 
-The economic filter requires a deviation of at least 10 percentage points, in a bin with
-at least 50 observations, across at least two adjacent barrier rows with the same sign.
-The statistical filter requires the surface peak to clear the shuffled null after
-correction across the sweep. Neither filter alone is treated as a claim.
+Stage 3 only ranks information. Stage 4 requires `node_peak_p ≤ 0.01`, BH/FDR
+`q ≤ 0.05`, and an economic deviation of at least 10 percentage points in the selected
+representative bin, with at least 50 observations and at least two adjacent barrier rows
+sharing the same sign. Only all three together constitute a cleared claim.
 
 ### The Baseline Is A Node
 
@@ -93,26 +93,30 @@ logit P(touch | x1..xk)
   = logit P(touch) + sum_i [logit P(touch | xi) - logit P(touch)]
 ```
 
-Stage 6 tests that composition out of sample. Bin edges, per-bin rates, the prior and
-the scale correction are all fit on an expanding training window, then applied to later
-bars with a 30-session embargo and non-overlapping scoring.
+Stage 6 tests that composition out of sample. Each training fold ranks all complete
+ten-bin node tables, keeps its top 20, and cross-fits their log-odds contributions.
+Non-negative ridge-logistic weights then reduce duplicated evidence without discarding
+the residual information in overlapping nodes. All fitting happens before the test
+window, with a 30-session embargo and non-overlapping scoring.
 
 | model | Brier down | AUC | vs. prior |
 |---|--:|--:|--:|
 | constant prior | 0.214 | - | - |
-| naive Bayes, all selected nodes | 0.231 | 0.619 | +8.1% worse |
-| one node per family | 0.235 | 0.460 | +9.9% worse |
-| + scale corrected | 0.228 | 0.430 | +6.6% worse |
+| naive Bayes, fold-selected nodes | 0.279 | 0.614 | +30.3% worse |
+| one node per family | 0.231 | 0.580 | +8.2% worse |
+| + scale corrected | 0.194 | 0.561 | 9.2% better |
+| weighted redundancy-aware | 0.254 | 0.616 | +18.9% worse |
 
 The raw model is overconfident because correlated indicators count similar evidence many
-times. For the headline target, `P(touch -7% within 30d)`, both the family reduction
-and Platt correction still trail the constant prior out of sample. That result is useful:
-the single-condition measurements do not automatically compose into a better forecast.
+times. For the NASDAQ headline target, `P(touch -7% within 30d)`, scale correction beats
+the constant prior while learned node weights do not. On BTC, the weighted model does
+best (Brier 0.197 versus 0.213 for the prior). The contrast is useful: retaining partial
+information improves one workspace, but weighting is not automatically superior.
 
-Across the complete composition sweep, 458 of 1,200 barrier/horizon targets beat the
+Across the complete NASDAQ composition sweep, 456 of 1,200 barrier/horizon targets beat the
 prior after correction. The sweep includes rare-event targets, so its extreme AUC cells
 are diagnostics rather than headline claims; inspect realized rates and scored counts in
-`06_bayes.json` before interpreting any individual cell.
+`06_bayes_array/06_bayes.json` before interpreting any individual cell.
 
 ## Run It
 
@@ -122,9 +126,9 @@ pip install -e .
 volatility-matrix --surface        # 1. write 01_surface_array and 01_surface_xlsx
 volatility-matrix --shift          # 2. write 02_shift_array and 02_shift_xlsx
 volatility-matrix --selection      # 3. write 03_selection_array and 03_selection_xlsx
-volatility-matrix --validation     # 4. write 04_validation_array and 04_validation_xlsx
-volatility-matrix --gate           # 5. BH correction and selected-sheet economic intersect
-volatility-matrix --bayes          # 6. walk-forward composition
+volatility-matrix --validation     # 4. exact nulls + BH/economic final verdicts
+volatility-matrix --redundancy     # 5. write redundancy NPZ, XLSX, and manifest
+volatility-matrix --bayes          # 6. evaluate composition + write current probability sheet
 volatility-matrix --report         # 7. render workspaces/nasdaq_daily/result
 
 volatility-matrix --status
@@ -133,7 +137,7 @@ volatility-matrix --read vix_level
 
 `volatility-matrix` defaults to `nasdaq_daily`. Pass `--workspace btc_daily` to rerun
 the BTC comparison workspace. `--family <name>` restricts a stage, `--rerun` rebuilds
-existing artifacts, and `--fdr Q` sets the Benjamini-Hochberg rate used by `--gate`.
+existing artifacts, and `--fdr Q` sets the Benjamini-Hochberg rate used by `--validation`.
 
 ### What Lands On Disk
 
@@ -143,18 +147,24 @@ workspaces/<name>/
   01_surface_xlsx/<family>/<node>.xlsx          view     full cube workbook
   02_shift_array/<family>/<node>.npz        compute  full baseline-subtracted shift cube
   02_shift_xlsx/<family>/<node>.xlsx    view     red/blue shift workbook
-  03_selection_array/selection.json         compute  ranking index for selected sheets
+  03_selection_array/selection.json         compute  ranking index for selected nodes
   03_selection_array/<family>/rank_*.npz    compute  copied selected shift sheet arrays
   03_selection_xlsx/<family>/rank_*.xlsx    view     selected shift sheet workbook
   04_validation_array/<family>/<node>.npz         compute  exact shuffled null
   04_validation_xlsx/<family>/<node>.xlsx   view     readable validation sheet
-  05_gate.json  06_bayes.npz  06_bayes.json
-                                                   verdicts and composition metrics
+  04_validation_array/04_validation.json     three-gate verdicts and cleared nodes
+  05_redundancy_array/redundancy.npz         numerical conditional-NMI matrix
+  05_redundancy_xlsx/redundancy.xlsx         readable redundancy workbook
+  05_redundancy_array/05_redundancy.json     redundancy manifest and cluster summary
+  06_bayes_array/06_bayes.npz                 numerical predictions and surfaces
+  06_bayes_array/06_bayes.json                composition metrics and metadata
+  06_bayes_xlsx/bayes.xlsx                    current weighted probability surface
 workspaces/<name>/result/*.png                                report figures
 ```
 
 The `.npz` arrays are tracked because they are the measurement record. Rendered `.xlsx`
-workbooks are ignored: they are regenerated by `--surface`, `--shift`, and `--validation`.
+workbooks are ignored: they are regenerated by `--surface`, `--shift`, `--validation`,
+`--redundancy`, and `--bayes`.
 
 ## Limits
 

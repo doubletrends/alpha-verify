@@ -56,16 +56,41 @@ class ArtifactPaths:
         )
 
     @property
+    def validation_summary_path(self) -> Path:
+        return self.workspace_dir / "04_validation_array" / "04_validation.json"
+
+    @property
     def cleared_path(self) -> Path:
+        """Compatibility alias for consumers of the final validation verdicts."""
+        return self.validation_summary_path
+
+    @property
+    def legacy_gate_path(self) -> Path:
         return self.workspace_dir / "05_gate.json"
 
     @property
+    def redundancy_path(self) -> Path:
+        return self.workspace_dir / "05_redundancy_array" / "05_redundancy.json"
+
+    @property
+    def redundancy_array_path(self) -> Path:
+        return self.workspace_dir / "05_redundancy_array" / "redundancy.npz"
+
+    @property
+    def redundancy_workbook_path(self) -> Path:
+        return self.workspace_dir / "05_redundancy_xlsx" / "redundancy.xlsx"
+
+    @property
     def bayes_path(self) -> Path:
-        return self.workspace_dir / "06_bayes.npz"
+        return self.workspace_dir / "06_bayes_array" / "06_bayes.npz"
 
     @property
     def bayes_summary_path(self) -> Path:
-        return self.workspace_dir / "06_bayes.json"
+        return self.workspace_dir / "06_bayes_array" / "06_bayes.json"
+
+    @property
+    def bayes_workbook_path(self) -> Path:
+        return self.workspace_dir / "06_bayes_xlsx" / "bayes.xlsx"
 
     @property
     def result_dir(self) -> Path:

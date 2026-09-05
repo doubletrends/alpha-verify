@@ -1,0 +1,275 @@
+{
+  "artifact": "05_redundancy",
+  "workspace": "btc_daily",
+  "generated": "2026-09-05T16:00:13.296015+00:00",
+  "complete": true,
+  "source_validation_fingerprint": "b281f8e75eb3195b50e77a7a3f1effff6e6b5b2fe28d1b1e34ff48fa174b555f",
+  "target": {
+    "\u0394": -0.1,
+    "horizon": 14,
+    "unit": "d"
+  },
+  "method": {
+    "similarity": "normalized I(bin_i; bin_j | touch outcome)",
+    "threshold": 0.3,
+    "clustering": "connected components at or above threshold",
+    "representative": "greatest individual target information within cluster"
+  },
+  "files": {
+    "array": "05_redundancy_array/redundancy.npz",
+    "workbook": "05_redundancy_xlsx/redundancy.xlsx"
+  },
+  "summary": {
+    "nodes": 17,
+    "clusters": 8,
+    "pairs": 136,
+    "pairs_above_threshold": 10,
+    "n_observations": 4053,
+    "outcome_rate": 0.29064890204786575
+  },
+  "nodes": [
+    {
+      "node": "roc_3",
+      "family": "roc",
+      "information": 0.012266023200634846,
+      "cluster": 1,
+      "representative": true
+    },
+    {
+      "node": "ma_ratio_7",
+      "family": "ma",
+      "information": 0.01064137384011005,
+      "cluster": 1,
+      "representative": false
+    },
+    {
+      "node": "ma_ratio_14",
+      "family": "ma",
+      "information": 0.01069077026694369,
+      "cluster": 2,
+      "representative": false
+    },
+    {
+      "node": "ma_ratio_21",
+      "family": "ma",
+      "information": 0.009582291841412752,
+      "cluster": 2,
+      "representative": false
+    },
+    {
+      "node": "ma_ratio_100",
+      "family": "ma",
+      "information": 0.014958979039604015,
+      "cluster": 3,
+      "representative": false
+    },
+    {
+      "node": "ma_ratio_200",
+      "family": "ma",
+      "information": 0.026060936872156028,
+      "cluster": 3,
+      "representative": true
+    },
+    {
+      "node": "ma_cross_14_50",
+      "family": "ma",
+      "information": 0.0102273056096692,
+      "cluster": 4,
+      "representative": true
+    },
+    {
+      "node": "ma_cross_50_200",
+      "family": "ma",
+      "information": 0.026003036716321235,
+      "cluster": 3,
+      "representative": false
+    },
+    {
+      "node": "ma_ratio_30",
+      "family": "ma",
+      "information": 0.011123070605217396,
+      "cluster": 2,
+      "representative": true
+    },
+    {
+      "node": "realized_vol_7",
+      "family": "volatility",
+      "information": 0.022105878442908143,
+      "cluster": 5,
+      "representative": false
+    },
+    {
+      "node": "realized_vol_14",
+      "family": "volatility",
+      "information": 0.019895888535433625,
+      "cluster": 5,
+      "representative": false
+    },
+    {
+      "node": "realized_vol_21",
+      "family": "volatility",
+      "information": 0.01765069782947919,
+      "cluster": 5,
+      "representative": false
+    },
+    {
+      "node": "realized_vol_30",
+      "family": "volatility",
+      "information": 0.021279614159938745,
+      "cluster": 5,
+      "representative": false
+    },
+    {
+      "node": "atr_14",
+      "family": "volatility",
+      "information": 0.030693553248805207,
+      "cluster": 5,
+      "representative": true
+    },
+    {
+      "node": "bb_width_20",
+      "family": "volatility",
+      "information": 0.02532155281290847,
+      "cluster": 6,
+      "representative": true
+    },
+    {
+      "node": "drawdown_60",
+      "family": "drawdown",
+      "information": 0.012592072167515284,
+      "cluster": 7,
+      "representative": true
+    },
+    {
+      "node": "mvrv",
+      "family": "on_chain",
+      "information": 0.02288149635936864,
+      "cluster": 8,
+      "representative": true
+    }
+  ],
+  "clusters": [
+    {
+      "cluster": 1,
+      "representative": "roc_3",
+      "members": [
+        "roc_3",
+        "ma_ratio_7"
+      ],
+      "families": [
+        "ma",
+        "roc"
+      ],
+      "size": 2,
+      "representative_information": 0.012266023200634846,
+      "mean_internal_nmi": 0.33991203579803375,
+      "max_internal_nmi": 0.33991203579803375
+    },
+    {
+      "cluster": 2,
+      "representative": "ma_ratio_30",
+      "members": [
+        "ma_ratio_14",
+        "ma_ratio_21",
+        "ma_ratio_30"
+      ],
+      "families": [
+        "ma"
+      ],
+      "size": 3,
+      "representative_information": 0.011123070605217396,
+      "mean_internal_nmi": 0.3980182526156741,
+      "max_internal_nmi": 0.4798343766942848
+    },
+    {
+      "cluster": 3,
+      "representative": "ma_ratio_200",
+      "members": [
+        "ma_ratio_100",
+        "ma_ratio_200",
+        "ma_cross_50_200"
+      ],
+      "families": [
+        "ma"
+      ],
+      "size": 3,
+      "representative_information": 0.026060936872156028,
+      "mean_internal_nmi": 0.2886453593926452,
+      "max_internal_nmi": 0.3574706775616295
+    },
+    {
+      "cluster": 4,
+      "representative": "ma_cross_14_50",
+      "members": [
+        "ma_cross_14_50"
+      ],
+      "families": [
+        "ma"
+      ],
+      "size": 1,
+      "representative_information": 0.0102273056096692,
+      "mean_internal_nmi": 0.0,
+      "max_internal_nmi": 0.0
+    },
+    {
+      "cluster": 5,
+      "representative": "atr_14",
+      "members": [
+        "realized_vol_7",
+        "realized_vol_14",
+        "realized_vol_21",
+        "realized_vol_30",
+        "atr_14"
+      ],
+      "families": [
+        "volatility"
+      ],
+      "size": 5,
+      "representative_information": 0.030693553248805207,
+      "mean_internal_nmi": 0.3065736991619915,
+      "max_internal_nmi": 0.4562649984335026
+    },
+    {
+      "cluster": 6,
+      "representative": "bb_width_20",
+      "members": [
+        "bb_width_20"
+      ],
+      "families": [
+        "volatility"
+      ],
+      "size": 1,
+      "representative_information": 0.02532155281290847,
+      "mean_internal_nmi": 0.0,
+      "max_internal_nmi": 0.0
+    },
+    {
+      "cluster": 7,
+      "representative": "drawdown_60",
+      "members": [
+        "drawdown_60"
+      ],
+      "families": [
+        "drawdown"
+      ],
+      "size": 1,
+      "representative_information": 0.012592072167515284,
+      "mean_internal_nmi": 0.0,
+      "max_internal_nmi": 0.0
+    },
+    {
+      "cluster": 8,
+      "representative": "mvrv",
+      "members": [
+        "mvrv"
+      ],
+      "families": [
+        "on_chain"
+      ],
+      "size": 1,
+      "representative_information": 0.02288149635936864,
+      "mean_internal_nmi": 0.0,
+      "max_internal_nmi": 0.0
+    }
+  ]
+}

@@ -68,7 +68,7 @@ def baseline_surface(ws: Workspace) -> np.ndarray | None:
 
 def artifact_feature_panel(ws: Workspace) -> tuple[pd.DataFrame, dict, dict]:
     """
-    Feature panel reconstructed from Stage 2 shift artifacts.
+    Full candidate feature panel reconstructed from Stage 2 shift artifacts.
 
     This keeps composition downstream of the artifact chain after regeneration: Stage 1
     stores the ordered market and feature arrays, Stage 2 copies them into the shift
@@ -83,16 +83,9 @@ def artifact_feature_panel(ws: Workspace) -> tuple[pd.DataFrame, dict, dict]:
     except ValueError as error:
         raise ValueError(f"baseline {error} - rerun --surface and --shift") from error
 
-    selected = [r for r in ws.read_json(ws.selection_path).get("selected", []) if ws.has_selection_array(r)]
-    selected_ids = {r["node"] for r in selected}
-    if not selected_ids:
-        raise ValueError("missing selection artifact - run --selection first")
-
     feats, fams = {}, {}
     for node in ws.catalog.all_nodes():
         if node["id"] == BASELINE_NODE:
-            continue
-        if node["id"] not in selected_ids:
             continue
         path = ws.shift_cube_path(node["family"], node["id"])
         if not path.exists():

@@ -1,7 +1,15 @@
+from pathlib import Path
 from typing import Callable
 
 import pandas as pd
 import yfinance as yf
+
+
+# yfinance persists timezone and cookie SQLite databases. Keep them inside the project
+# so clean pipeline runs also work in restricted environments with a read-only profile.
+_YFINANCE_CACHE = Path(__file__).resolve().parents[3] / ".yfinance-cache"
+_YFINANCE_CACHE.mkdir(parents=True, exist_ok=True)
+yf.set_tz_cache_location(str(_YFINANCE_CACHE))
 
 class SourceRegistry:
     """Explicit source registry and per-run market-data cache."""

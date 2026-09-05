@@ -96,8 +96,16 @@ class Workspace:
         return self.config.bayes_folds
 
     @property
+    def demonstration_date(self) -> str | None:
+        return self.config.demonstration_date
+
+    @property
     def selection_top_k(self) -> int:
         return self.config.selection_top_k
+
+    @property
+    def null_alpha(self) -> float:
+        return self.config.null_alpha
 
     @property
     def min_dev(self) -> float:
@@ -120,12 +128,36 @@ class Workspace:
         return self.artifacts.cleared_path
 
     @property
+    def validation_summary_path(self) -> Path:
+        return self.artifacts.validation_summary_path
+
+    @property
+    def legacy_gate_path(self) -> Path:
+        return self.artifacts.legacy_gate_path
+
+    @property
+    def redundancy_path(self) -> Path:
+        return self.artifacts.redundancy_path
+
+    @property
+    def redundancy_array_path(self) -> Path:
+        return self.artifacts.redundancy_array_path
+
+    @property
+    def redundancy_workbook_path(self) -> Path:
+        return self.artifacts.redundancy_workbook_path
+
+    @property
     def bayes_path(self) -> Path:
         return self.artifacts.bayes_path
 
     @property
     def bayes_summary_path(self) -> Path:
         return self.artifacts.bayes_summary_path
+
+    @property
+    def bayes_workbook_path(self) -> Path:
+        return self.artifacts.bayes_workbook_path
 
     @property
     def result_dir(self) -> Path:
