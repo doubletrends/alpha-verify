@@ -6,7 +6,7 @@ from collections import defaultdict
 
 from infrastructure.workspaces.workspace import Workspace
 from pipeline.step_04_validation import (
-    _validation_matches_selection,
+    validation_artifact_is_current,
     validation_summary_is_current,
 )
 from pipeline.step_05_redundancy import redundancy_artifacts_are_current
@@ -59,7 +59,7 @@ def cmd_status(ws: Workspace) -> None:
         counts[5] += sum(1 for row in selected_rows if ws.has_selection_array(row))
         counts[6] += sum(1 for row in selected_rows if ws.has_selection_surface(row))
         valid_rows = [
-            row for row in selected_rows if _validation_matches_selection(ws, row)
+            row for row in selected_rows if validation_artifact_is_current(ws, row)
         ]
         counts[7] += len(valid_rows)
         counts[8] += sum(1 for row in valid_rows if ws.has_validation_surface(row))

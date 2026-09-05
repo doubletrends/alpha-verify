@@ -38,7 +38,7 @@ class _IncompleteWorkspace:
 class CombinedValidationTests(unittest.TestCase):
     def test_incomplete_null_set_cannot_publish_final_verdicts(self) -> None:
         workspace = _IncompleteWorkspace()
-        with patch("pipeline.step_04_validation._validation_matches_selection", return_value=False):
+        with patch("pipeline.step_04_validation.validation_artifact_is_current", return_value=False):
             complete = finalize_validation(workspace)
 
         self.assertFalse(complete)

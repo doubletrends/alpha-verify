@@ -1,4 +1,4 @@
-"""Compatibility facade over workspace configuration, catalog, and artifacts."""
+"""Workspace configuration, node catalog, and artifact namespace."""
 
 from __future__ import annotations
 
@@ -27,10 +27,6 @@ class Workspace:
         return self.dir.parent.parent
 
     @property
-    def universe_path(self) -> Path:
-        return self.artifacts.universe_path
-
-    @property
     def asset(self) -> dict:
         return self.config.asset
 
@@ -55,27 +51,6 @@ class Workspace:
         return self.config.deltas
 
     @property
-    def shift_deltas(self) -> np.ndarray:
-        return self.config.deltas
-
-    @property
-    def shift_horizons(self) -> np.ndarray:
-        return self.config.horizons
-
-    # Compatibility aliases retain the artifact contract while callers migrate.
-    @property
-    def Δs(self) -> np.ndarray:
-        return self.deltas
-
-    @property
-    def shift_Δs(self) -> np.ndarray:
-        return self.shift_deltas
-
-    @property
-    def Δ_step(self) -> float:
-        return self.config.delta_step
-
-    @property
     def delta_step(self) -> float:
         return self.config.delta_step
 
@@ -84,7 +59,7 @@ class Workspace:
         return self.config.n_bins
 
     @property
-    def bayes_Δ(self) -> float | None:
+    def bayes_delta(self) -> float | None:
         return self.config.bayes_delta
 
     @property
@@ -122,10 +97,6 @@ class Workspace:
     @property
     def baseline_cube(self) -> Path:
         return self.cube_path("_base", BASELINE_NODE)
-
-    @property
-    def cleared_path(self) -> Path:
-        return self.artifacts.cleared_path
 
     @property
     def validation_summary_path(self) -> Path:
@@ -216,12 +187,12 @@ class Workspace:
         return self.validation_surface_path(row).exists()
 
     def bayes_target(self, baseline: np.ndarray) -> tuple[float, int]:
-        horizons = self.shift_horizons
+        horizons = self.horizons
         horizon = self.bayes_horizon or int(horizons[len(horizons) // 2])
-        if self.bayes_Δ is not None:
-            return self.bayes_Δ, horizon
+        if self.bayes_delta is not None:
+            return self.bayes_delta, horizon
         horizon_index = int(np.flatnonzero(horizons == horizon)[0])
-        deltas = self.shift_deltas
+        deltas = self.deltas
         downside = np.flatnonzero(deltas < 0)
         rates = baseline[downside, horizon_index]
         delta_index = int(downside[int(np.nanargmin(np.abs(rates - 0.30)))])

@@ -33,19 +33,6 @@ import pandas as pd
 MIN_BIN_N = 30
 
 
-def Δ_levels(lo: float = -0.20, hi: float = 0.20, step: float = 0.01) -> np.ndarray:
-    """
-    Barrier levels for the rows of a surface, ascending, including 0.
-
-    Δ = 0 is near-degenerate -- it asks whether the high ever returned to the entry
-    close, which is almost always true -- but it is kept so the ladder is complete and
-    symmetric, and so the row above and below it are read against a real boundary
-    rather than a gap.
-    """
-    n = int(round((hi - lo) / step)) + 1
-    return np.round(np.linspace(lo, hi, n), 10)
-
-
 def bin_edges(feature: pd.Series, n_bins: int = 10) -> np.ndarray:
     """
     Interior quantile edges of the feature, so each bin holds ~1/n_bins of the sample.
@@ -184,49 +171,6 @@ def touch_tensor(
             'edges': np.asarray(edges, dtype=float)}
 
 
-def summarize(cube: dict, Δs: np.ndarray, horizons: np.ndarray,
-              tol: float = 1e-9) -> dict:
-    """
-    Select a coarse sub-grid of a full cube, without re-measuring anything.
-
-    The full cube is the faithful record: 41 barrier levels a percentage point apart,
-    every horizon from 1 to 30. Adjacent rows and adjacent columns of that are very
-    nearly the same measurement, which matters when the surface is *judged* rather than
-    read -- a peak taken over 12,300 cells carries a large noise ceiling by construction,
-    and counting those cells as 12,300 independent tests overstates the size of the
-    search in both directions at once.
-
-    The summary keeps the same three axes and the same format, so the renderer and the
-    null both work on it unchanged. It is pure index selection: every requested value
-    must already exist in the full cube, or this raises rather than interpolating.
-    Silently interpolating would make the summary a second measurement, and then the two
-    could disagree.
-    """
-    def pick(want: np.ndarray, have: np.ndarray, name: str) -> np.ndarray:
-        idx = []
-        for v in want:
-            hits = np.flatnonzero(np.abs(have - v) <= tol)
-            if not len(hits):
-                raise ValueError(
-                    f'summary {name} {v!r} is not on the full grid '
-                    f'({have.min()}..{have.max()}); it must be a subset, not an interpolation')
-            idx.append(int(hits[0]))
-        return np.array(idx, dtype=int)
-
-    ti = pick(np.asarray(Δs, float), cube['Δs'], 'Δ')
-    hi = pick(np.asarray(horizons, float), cube['horizons'].astype(float), 'horizon')
-
-    return {
-        'prob':     cube['prob'][np.ix_(ti, range(cube['prob'].shape[1]), hi)],
-        'hits':     cube['hits'][np.ix_(ti, range(cube['hits'].shape[1]), hi)],
-        'bin_n':    cube['bin_n'][:, hi],
-        'n_obs':    cube['n_obs'][hi],
-        'Δs':   cube['Δs'][ti],
-        'horizons': cube['horizons'][hi],
-        'edges':    cube['edges'],
-    }
-
-
 def touch_band(surface: np.ndarray, Δs: np.ndarray, q: float) -> tuple[np.ndarray, np.ndarray]:
     """
     Invert a (n_Δ, n_h) probability surface into the barrier levels touched with
@@ -240,13 +184,9 @@ def touch_band(surface: np.ndarray, Δs: np.ndarray, q: float) -> tuple[np.ndarr
     P(touch Δ) falls monotonically in |Δ|, so each arm is a decreasing curve and the
     crossing of q is found by linear interpolation between the two bracketing rows.
 
-    **This interpolates, and everything else in the pipeline refuses to.** The refusal
-    applies to `summarize`, where an interpolated cell would be a second measurement
-    that could disagree with the first and would then be judged and counted as a test.
-    Nothing here is judged: this runs on the full cube, for rendering only, and the
-    interpolation is between two measured rows one percentage point apart. A level that
-    reaches the end of the ladder without crossing q is clipped to the last Δ measured
-    and flagged, rather than extrapolated into a range the cube never saw.
+    This interpolation is for rendering only: it runs on the full cube and never feeds
+    a judged measurement. The interpolation is between two measured rows one percentage
+    point apart.
 
     Returns (up, down) as positive magnitudes in Δ units, and NaN in the two places the
     ladder cannot answer: where even the nearest rung is reached less often than q, so

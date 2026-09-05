@@ -83,7 +83,6 @@ class WorkspaceContractTests(unittest.TestCase):
             self.workspace.validation_summary_path.as_posix().split("/")[-2:],
             ["04_validation", "validation.json"],
         )
-        self.assertEqual(self.workspace.cleared_path, self.workspace.validation_summary_path)
         self.assertEqual(
             self.workspace.bayes_workbook_path.as_posix().split("/")[-2:],
             ["06_bayes", "bayes.xlsx"],

@@ -2,30 +2,24 @@
 
 from __future__ import annotations
 
-from pipeline.step_04_validation import validation_summary_is_current
 from presentation.reports.diagnostics import fig_null, fig_null_gap_ranking
 from presentation.reports.single_node import fig_band, fig_shift_all
 
 
-def build(ws) -> None:
-    """Render every figure this workspace has the artifacts for."""
+def build(ws, validation: dict) -> None:
+    """Render figures from a validation summary accepted by the pipeline."""
     out = ws.result_dir
     universe = ws.catalog.raw
-    cleared = ws.read_json(ws.validation_summary_path)
-
-    if not validation_summary_is_current(ws, cleared):
-        print('No current complete 04_validation/validation.json - run validation first.')
-        return
 
     print(f"\n=== 7. Report [{ws.dir.name}] ===")
     print(f"  rendering from artifacts on disk; nothing here re-measures\n")
 
     jobs = [
         ('A band', 'A_band.png', lambda: fig_band(ws, out)),
-        ('B null', 'B_null.png', lambda: fig_null(ws, universe, cleared, out)),
-        ('C shifts', None, lambda: fig_shift_all(ws, universe, cleared, out)),
+        ('B null', 'B_null.png', lambda: fig_null(ws, universe, validation, out)),
+        ('C shifts', None, lambda: fig_shift_all(ws, universe, validation, out)),
         ('D null gap ranking', 'D_null_gap_ranking.png',
-         lambda: fig_null_gap_ranking(ws, cleared, out)),
+         lambda: fig_null_gap_ranking(ws, validation, out)),
     ]
 
     expected = {filename for _, filename, _ in jobs if filename}

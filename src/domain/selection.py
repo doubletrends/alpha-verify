@@ -19,68 +19,6 @@ def _bernoulli_kl(p: np.ndarray, q: float) -> np.ndarray:
     return p * np.log(p / q) + (1.0 - p) * np.log((1.0 - p) / (1.0 - q))
 
 
-def score_sheet(cube: dict, bin_index: int, min_bin_n: int) -> dict | None:
-    """
-    Score one 2D shift sheet by the strongest symmetric barrier skew.
-
-    For each positive Δ and horizon, compare the baseline-subtracted upside shift
-    with the matching downside shift:
-
-        skew = shift(+Δ, t) - shift(-Δ, t)
-
-    The sheet score is max(abs(skew)) over cells whose bin has enough observations.
-    """
-    dev = np.asarray(cube["shift"], dtype=float)
-    Δs = np.asarray(cube["Δs"], dtype=float)
-    horizons = np.asarray(cube["horizons"], dtype=int)
-    bin_n = np.asarray(cube["bin_n"])
-    labels = cube["meta"].get("bin_labels", [])
-
-    pos = np.flatnonzero(Δs > 1e-12)
-    pairs = []
-    for i_pos in pos:
-        hits = np.flatnonzero(np.isclose(Δs, -Δs[i_pos], atol=1e-12))
-        if len(hits):
-            pairs.append((i_pos, int(hits[0])))
-    if not pairs:
-        return None
-
-    skew = np.full((len(pairs), len(horizons)), np.nan)
-    valid_h = bin_n[bin_index, :] >= min_bin_n
-    for r, (i_pos, i_neg) in enumerate(pairs):
-        skew[r, valid_h] = dev[i_pos, bin_index, valid_h] - dev[i_neg, bin_index, valid_h]
-    if not np.isfinite(skew).any():
-        return None
-
-    r_best, j_best = np.unravel_index(int(np.nanargmax(np.abs(skew))), skew.shape)
-    i_pos, i_neg = pairs[int(r_best)]
-    up_shift = float(dev[i_pos, bin_index, j_best])
-    down_shift = float(dev[i_neg, bin_index, j_best])
-    signed_Δ = float(Δs[i_pos] if abs(up_shift) >= abs(down_shift) else Δs[i_neg])
-    signed_dev = up_shift if abs(up_shift) >= abs(down_shift) else down_shift
-
-    finite = np.abs(skew[np.isfinite(skew)])
-    return {
-        "bin": int(bin_index),
-        "bin_number": int(bin_index + 1),
-        "bin_label": labels[bin_index] if bin_index < len(labels) else f"bin {bin_index + 1}",
-        "score": float(finite.max()),
-        "mean_abs_skew": float(finite.mean()),
-        "n_scored_cells": int(finite.size),
-        "best_cell": {
-            "bin": int(bin_index),
-            "Δ": signed_Δ,
-            "Δ_abs": float(Δs[i_pos]),
-            "horizon": int(horizons[j_best]),
-            "dev": float(signed_dev),
-            "skew": float(skew[r_best, j_best]),
-            "up_shift": up_shift,
-            "down_shift": down_shift,
-            "bin_n": int(bin_n[bin_index, j_best]),
-        },
-    }
-
-
 def score_node_information(
     cube: dict,
     delta: float,
@@ -199,14 +137,6 @@ def rank_nodes(
         "selected": candidates[:top_k],
         "candidates": candidates,
     }
-
-
-def selected_bins_by_node(selection: dict) -> dict[str, set[int]]:
-    """Map node id to selected zero-based bin indexes."""
-    out: dict[str, set[int]] = {}
-    for row in selection.get("selected", []):
-        out.setdefault(row["node"], set()).add(int(row["bin"]))
-    return out
 
 
 def sheet_from_shift_cube(cube: dict, row: dict) -> dict:

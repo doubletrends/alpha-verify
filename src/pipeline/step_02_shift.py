@@ -25,7 +25,7 @@ def _write_shift_array(ws: Workspace) -> None:
     nodes = [node for node in nodes if node["id"] == BASELINE_NODE] + [
         node for node in nodes if node["id"] != BASELINE_NODE
     ]
-    deltas, horizons = ws.shift_deltas, ws.shift_horizons
+    deltas, horizons = ws.deltas, ws.horizons
     print(f"\n=== 2. 02_shift arrays [{ws.dir.name}] - {len(nodes)} nodes ===")
     print(
         f"  {len(deltas)} Delta x {ws.n_bins} bins x {len(horizons)} horizons = "

@@ -60,11 +60,6 @@ class ArtifactPaths:
         return self.workspace_dir / "04_validation" / "validation.json"
 
     @property
-    def cleared_path(self) -> Path:
-        """Compatibility alias for consumers of the final validation verdicts."""
-        return self.validation_summary_path
-
-    @property
     def redundancy_path(self) -> Path:
         return self.workspace_dir / "05_redundancy" / "redundancy.json"
 

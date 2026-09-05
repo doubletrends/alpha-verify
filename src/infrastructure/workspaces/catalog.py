@@ -27,9 +27,6 @@ class NodeCatalog:
     def all_nodes(self) -> list[dict]:
         return [node for nodes in self.raw["families"].values() for node in nodes]
 
-    def in_family(self, family: str) -> list[dict]:
-        return self.raw["families"].get(family, [])
-
     def find(self, node_id: str) -> dict:
         for node in self.all_nodes():
             if node["id"] == node_id:

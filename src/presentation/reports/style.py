@@ -17,10 +17,8 @@ INK = "#0b0b0b"
 INK_2 = "#52514e"
 MUTED = "#8a8983"
 GRID = "#e6e5e1"
-FAINT = "#d8d7d2"
-
 # Categorical slots, in fixed order, never cycled.
-S1, S2, S3 = "#2a78d6", "#eb6834", "#1baf7a"
+S1, S2 = "#2a78d6", "#eb6834"
 
 # One hue, light to dark: the sequential ramp for magnitude.
 SEQ = [
@@ -29,10 +27,6 @@ SEQ = [
     "#0d366b",
 ]
 
-# Ordinal steps start at #86b6ef, so early stages do not recede into the page.
-ORD = ["#86b6ef", "#5598e7", "#2a78d6", "#1c5cab", "#104281"]
-
-CMAP_SEQ = LinearSegmentedColormap.from_list("seq", SEQ)
 CMAP_DIV = LinearSegmentedColormap.from_list(
     "div",
     [

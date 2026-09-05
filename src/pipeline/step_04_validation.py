@@ -12,7 +12,8 @@ from pipeline.context import artifact_node_feature
 from presentation import workbooks
 
 
-def _validation_matches_selection(ws: Workspace, row: dict) -> bool:
+def validation_artifact_is_current(ws: Workspace, row: dict) -> bool:
+    """Return whether a validation array matches its selected node and shift grid."""
     if not ws.has_validation_array(row):
         return False
     try:
@@ -98,13 +99,13 @@ def validation_summary_is_current(ws: Workspace, summary: dict) -> bool:
     if summary.get("method", {}).get("null_alpha") != ws.null_alpha:
         return False
     if any(
-        not ws.has_selection_array(row) or not _validation_matches_selection(ws, row)
+        not ws.has_selection_array(row) or not validation_artifact_is_current(ws, row)
         for row in selected
     ):
         return False
     expected_pairs = {
         (row["node"], int(row["bin"]), int(horizon))
-        for row in selected for horizon in ws.shift_horizons
+        for row in selected for horizon in ws.horizons
     }
     tests = summary.get("tests", [])
     actual_pairs = {
@@ -123,7 +124,7 @@ def finalize_validation(ws: Workspace, q: float = 0.05) -> bool:
 
     missing = [
         row["node"] for row in selected
-        if not ws.has_selection_array(row) or not _validation_matches_selection(ws, row)
+        if not ws.has_selection_array(row) or not validation_artifact_is_current(ws, row)
     ]
     if missing:
         ws.write_json(ws.validation_summary_path, {
@@ -346,7 +347,7 @@ def cmd_validation(ws: Workspace) -> None:
         row for row in rows
         if row["node"] in nodes and ws.has_shift_cube(row["family"], row["node"])
     ]
-    deltas, horizons = ws.shift_deltas, ws.shift_horizons
+    deltas, horizons = ws.deltas, ws.horizons
     print(f"\n=== 4. 04_validation [{ws.dir.name}] - {len(rows)} selected nodes ===")
     print(
         f"  selected nodes are tested as {len(deltas)} delta x {len(horizons)} horizon surfaces; "

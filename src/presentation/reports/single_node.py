@@ -9,17 +9,12 @@ import pandas as pd
 from matplotlib.colors import TwoSlopeNorm
 
 from domain import barrier, shift
-from presentation.reports.common import headline_node as _headline_node
-from presentation.reports.common import Δ_pct as _Δ_pct
 from presentation.reports.style import (
     CMAP_DIV,
-    CMAP_SEQ,
-    FAINT,
     GRID,
     INK,
     INK_2,
     MUTED,
-    S1,
     S2,
     SEQ,
     SURFACE,
@@ -212,14 +207,6 @@ def _render_shift(ws, head: dict, out_path: Path) -> Path | None:
     return _save(fig, out_path)
 
 
-def fig_shift(ws, universe, cleared, out: Path) -> Path | None:
-    """The strongest cleared node's strongest bin, as a deviation from the baseline."""
-    head = _headline_node(ws, cleared, universe)
-    if head is None:
-        return None
-    return _render_shift(ws, head, out / f'C_shift_{head["id"]}.png')
-
-
 def fig_shift_all(ws, universe, cleared, out: Path) -> list[Path]:
     """Render one conditional-shift figure for every node that cleared all three filters."""
     paths: list[Path] = []
@@ -236,86 +223,4 @@ def fig_shift_all(ws, universe, cleared, out: Path) -> list[Path]:
         if path is not None:
             paths.append(path)
     return paths
-
-
-def fig_atr_ladder(ws, cleared, out: Path) -> Path | None:
-    """
-    A single actionable cell turned into a decile ladder.
-
-    The strongest ATR cell already appears in the conditional surface. This view removes
-    every other Δ/horizon and asks the simpler question: at the same target, how much
-    does the event rate move as ATR moves from calm to wide?
-    """
-    family, node_id = 'volatility', 'atr_14'
-    path = ws.shift_cube_path(family, node_id)
-    if not path.exists():
-        return None
-
-    rows = [r for r in cleared.get('cleared', [])
-            if r.get('node') == node_id and r.get('best_cell')]
-    if not rows:
-        return None
-    row = max(rows, key=lambda r: abs(r['best_cell']['dev']))
-    cell = row['best_cell']
-
-    cube = shift.load(path)
-    th, ts = cube['Δs'], cube['horizons']
-    i = int(np.argmin(np.abs(th - float(cell['Δ']))))
-    j = int(np.argmin(np.abs(ts - int(cell['horizon']))))
-
-    probs = cube['prob'][i, :, j]
-    base = float(cube['base'][i, j])
-    labels = cube['meta']['bin_labels']
-    x = np.arange(len(probs))
-    dev = probs - base
-
-    fig, ax = plt.subplots(figsize=(8.2, 4.2))
-    colours = [S1 if d < 0 else S2 for d in dev]
-    ax.axhline(base, color=INK_2, linewidth=1.0, zorder=1)
-    ax.vlines(x, base, probs, color=FAINT, linewidth=3.0, zorder=2)
-    ax.scatter(x, probs, s=70, c=colours, edgecolors=SURFACE, linewidths=1.5, zorder=4)
-
-    lo = int(np.nanargmin(probs))
-    hi = int(np.nanargmax(probs))
-    endpoints = []
-    for k in (lo, hi):
-        if k == 0:
-            endpoints.append((k, 'left', 8))
-        elif k == len(probs) - 1:
-            endpoints.append((k, 'left', 8))
-        elif k == lo:
-            endpoints.append((k, 'right', -8))
-        else:
-            endpoints.append((k, 'left', 8))
-    for k, ha, dx in endpoints:
-        ax.annotate(f'{probs[k]:.1%}', (x[k], probs[k]),
-                    xytext=(dx, 0), textcoords='offset points',
-                    ha=ha, va='center', fontsize=10, fontweight='bold',
-                    color=colours[k])
-    ax.annotate(f'baseline {base:.1%}', (len(probs) - 1, base),
-                xytext=(8, 0), textcoords='offset points',
-                ha='left', va='center', fontsize=8.5, fontweight='bold',
-                color=INK_2, annotation_clip=False)
-
-    ax.set_xticks(x)
-    tick_labels = [f'D{k + 1}' for k in x]
-    tick_labels[lo] = f'D{lo + 1}\ncalmest'
-    tick_labels[hi] = f'D{hi + 1}\nwidest'
-    ax.set_xticklabels(tick_labels)
-    ax.set_ylabel(f'P(touch {_Δ_pct(cell["Δ"], ws.delta_step)} within '
-                  f'+{cell["horizon"]}{ws.horizon_unit})')
-    ax.set_ylim(max(0, float(np.nanmin(probs)) - 0.08),
-                min(1, float(np.nanmax(probs)) + 0.10))
-    _frame(ax, grid_axis='y')
-
-    _title(fig,
-           f'Calm ATR cuts {_Δ_pct(cell["Δ"], ws.delta_step)} touches '
-           f'from {base:.0%} to {probs[lo]:.0%}',
-           f'At +{cell["horizon"]}{ws.horizon_unit}, {feature_label(node_id)} forms a '
-           f'risk ladder: the calmest bin is {probs[lo]:.1%}, the unconditional rate is '
-           f'{base:.1%}, and the widest bin is {probs[hi]:.1%}.')
-    _note(fig, f'{ws.dir.name} · {labels[lo]} vs {labels[hi]} · '
-               f'02_shift/{family}/{node_id}.npz')
-    fig.subplots_adjust(top=0.78, right=0.84, bottom=0.15)
-    return _save(fig, out / 'C_atr_regime_ladder.png')
 

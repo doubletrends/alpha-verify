@@ -18,8 +18,6 @@ class RunContext:
 
     def __init__(self, workspace: Workspace):
         self.workspace = workspace
-        self.catalog = workspace.catalog
-        self.artifacts = workspace.artifacts
         self.sources = SourceRegistry()
         self.features = FeatureRegistry()
         register_builtin_sources(self.sources)

@@ -17,9 +17,9 @@ def composition_targets(ws: Workspace) -> list[tuple[float, int]]:
     """Every non-zero barrier and horizon pair on the workspace grid."""
     return [
         (float(delta), int(horizon))
-        for delta in ws.shift_deltas
+        for delta in ws.deltas
         if abs(delta) > 1e-12
-        for horizon in ws.shift_horizons
+        for horizon in ws.horizons
     ]
 
 
@@ -102,8 +102,8 @@ def cmd_bayes(ws: Workspace) -> None:
     )
 
     targets = composition_targets(ws)
-    surface_deltas = np.asarray(ws.shift_deltas, dtype=float)
-    surface_horizons = np.asarray(ws.shift_horizons, dtype=int)
+    surface_deltas = np.asarray(ws.deltas, dtype=float)
+    surface_horizons = np.asarray(ws.horizons, dtype=int)
     delta_indexes = {float(value): index for index, value in enumerate(surface_deltas)}
     horizon_indexes = {int(value): index for index, value in enumerate(surface_horizons)}
 

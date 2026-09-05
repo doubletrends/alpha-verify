@@ -20,7 +20,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from domain import shift, validation as val  # noqa: E402
 from infrastructure.workspaces.workspace import Workspace  # noqa: E402
-from pipeline.step_04_validation import _validation_matches_selection  # noqa: E402
+from pipeline.step_04_validation import validation_artifact_is_current  # noqa: E402
 
 
 def read_node(ws: Workspace, node_id: str) -> None:
@@ -64,7 +64,7 @@ def read_node(ws: Workspace, node_id: str) -> None:
         ),
         None,
     )
-    if selected_row and _validation_matches_selection(ws, selected_row):
+    if selected_row and validation_artifact_is_current(ws, selected_row):
         validation = val.load(ws.validation_array_path(selected_row))
         horizon_index = int(
             np.flatnonzero(validation["horizons"] == best["horizon"])[0]

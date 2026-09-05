@@ -561,26 +561,6 @@ def auc(y: np.ndarray, p: np.ndarray) -> float:
     return float((ranks[pos].sum() - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg))
 
 
-def calibration(y: np.ndarray, p: np.ndarray, n_bins: int = 10) -> dict:
-    """
-    Predicted against realized frequency, over equal-count bins of the forecast.
-
-    Equal-count rather than equal-width: a model that never predicts above 40% leaves
-    the top half of an equal-width axis empty, and the curve then says more about the
-    binning than about the forecast.
-    """
-    if len(p) < n_bins * 2:
-        return {'predicted': np.array([]), 'realized': np.array([]),
-                'count': np.array([])}
-    order = np.argsort(p, kind='stable')
-    groups = np.array_split(order, n_bins)
-    return {
-        'predicted': np.array([p[g].mean() for g in groups]),
-        'realized':  np.array([y[g].mean() for g in groups]),
-        'count':     np.array([len(g) for g in groups]),
-    }
-
-
 # -- the walk forward ----------------------------------------------------------
 
 def walk_forward(

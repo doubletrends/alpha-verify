@@ -77,8 +77,8 @@ def build_historical_surface(
     anchor_date: str,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, str, int]:
     """Refit the complete Stage 6 probability face as it was knowable at the anchor."""
-    deltas = np.asarray(workspace.shift_deltas, dtype=float)
-    horizons = np.asarray(workspace.shift_horizons, dtype=int)
+    deltas = np.asarray(workspace.deltas, dtype=float)
+    horizons = np.asarray(workspace.horizons, dtype=int)
     raw = np.full((len(deltas), len(horizons)), np.nan, dtype=float)
     observations = np.zeros(len(horizons), dtype=int)
     actual_as_of = None
