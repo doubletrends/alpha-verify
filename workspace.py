@@ -36,18 +36,18 @@ class Workspace:
 
         # The cube measures every horizon in this ladder. Stage 2 keeps this full grid
         # and subtracts the baseline surface from it.
-        hz = meta.get('horizons', {})
-        self.h_min = hz.get('min', 1)
-        self.h_max = hz.get('max', 30)
+        ts = meta.get('horizons', {})
+        self.t_min = ts.get('min', 1)
+        self.t_max = ts.get('max', 30)
 
         # Barrier levels. These have to be scaled to the asset and the horizon: a 10%
         # barrier over 14 BTC days is reached about a fifth of the time, while the same
         # 10% over 24 NASDAQ hours is reached essentially never, so a range that suits
         # one asset is useless on the other.
-        th = meta.get('theta', {})
-        self.theta_min  = th.get('min', -0.20)
-        self.theta_max  = th.get('max', 0.20)
-        self.theta_step = th.get('step', 0.01)
+        th = meta.get('Δ', {})
+        self.Δ_min  = th.get('min', -0.20)
+        self.Δ_max  = th.get('max', 0.20)
+        self.Δ_step = th.get('step', 0.01)
 
         self.n_bins = meta.get('n_bins', 10)
 
@@ -55,15 +55,15 @@ class Workspace:
         # now uses the full grid, so those values are kept only for reading older
         # workspace files and no longer define the judged surface.
         sm = meta.get('summary', {})
-        self.summary_theta_abs = sm.get('theta_abs',
+        self.summary_Δ_abs = sm.get('Δ_abs',
                                         [0, 0.01, 0.02, 0.03, 0.05, 0.07, 0.10, 0.15, 0.20])
-        self.summary_h = sm.get('horizons', [1, 2, 3, 5, 7, 14, 30])
+        self.summary_t = sm.get('horizons', [1, 2, 3, 5, 7, 14, 30])
 
         # The composition stage's headline target. It is declared rather than derived so
         # the figure everyone reads is not silently re-pointed by a change to the grid;
         # `bayes_target` falls back to a rule when a workspace does not name one.
         by = meta.get('bayes', {})
-        self.bayes_theta   = by.get('theta')
+        self.bayes_Δ   = by.get('Δ')
         self.bayes_horizon = by.get('horizon')
         self.bayes_folds   = by.get('folds', 5)
 
@@ -88,16 +88,16 @@ class Workspace:
 
     @property
     def horizons(self) -> np.ndarray:
-        return np.arange(self.h_min, self.h_max + 1)
+        return np.arange(self.t_min, self.t_max + 1)
 
     @property
-    def thetas(self) -> np.ndarray:
+    def Δs(self) -> np.ndarray:
         from engine import barrier
-        return barrier.theta_levels(self.theta_min, self.theta_max, self.theta_step)
+        return barrier.Δ_levels(self.Δ_min, self.Δ_max, self.Δ_step)
 
     @property
-    def shift_thetas(self) -> np.ndarray:
-        return self.thetas
+    def shift_Δs(self) -> np.ndarray:
+        return self.Δs
 
     @property
     def shift_horizons(self) -> np.ndarray:
@@ -160,14 +160,34 @@ class Workspace:
     def has_selection_surface(self, row: dict) -> bool:
         return self.selection_surface_path(row).exists()
 
+    def validation_array_path(self, row: dict) -> Path:
+        rank = int(row['rank'])
+        return (
+            self.dir / '04_validation_array' / row['family']
+            / f'rank_{rank:03d}__{row["node"]}__bin_{int(row["bin_number"]):02d}.npz'
+        )
+
     def validation_path(self, family: str, node_id: str) -> Path:
         return self.dir / '04_validation_array' / family / f'{node_id}.npz'
+
+    def has_validation_array(self, row: dict) -> bool:
+        return self.validation_array_path(row).exists()
 
     def has_validation(self, family: str, node_id: str) -> bool:
         return self.validation_path(family, node_id).exists()
 
+    def validation_surface_path(self, row: dict) -> Path:
+        rank = int(row['rank'])
+        return (
+            self.dir / '04_validation_xlsx' / row['family']
+            / f'rank_{rank:03d}__{row["node"]}__bin_{int(row["bin_number"]):02d}.xlsx'
+        )
+
     def validation_sheet_path(self, family: str, node_id: str) -> Path:
         return self.dir / '04_validation_xlsx' / family / f'{node_id}.xlsx'
+
+    def has_validation_surface(self, row: dict) -> bool:
+        return self.validation_surface_path(row).exists()
 
     def has_validation_sheet(self, family: str, node_id: str) -> bool:
         return self.validation_sheet_path(family, node_id).exists()
@@ -194,7 +214,7 @@ class Workspace:
 
     def bayes_target(self, baseline: np.ndarray) -> tuple[float, int]:
         """
-        The (θ, h) the composition figures are drawn at.
+        The (Δ, t) the composition figures are drawn at.
 
         Taken from universe.json when it names one. Otherwise chosen from the workspace's
         own grid: the middle summary horizon, and the downside barrier whose
@@ -203,17 +223,17 @@ class Workspace:
         from the grid rather than hard-coding a percentage is what lets the same rule
         serve BTC and NASDAQ without either being a special case.
         """
-        hz = self.shift_horizons
-        h = int(self.bayes_horizon) if self.bayes_horizon is not None else int(hz[len(hz) // 2])
-        if self.bayes_theta is not None:
-            return float(self.bayes_theta), h
+        ts = self.shift_horizons
+        t = int(self.bayes_horizon) if self.bayes_horizon is not None else int(ts[len(ts) // 2])
+        if self.bayes_Δ is not None:
+            return float(self.bayes_Δ), t
 
-        th = self.shift_thetas
-        j = int(np.flatnonzero(hz == h)[0])
+        th = self.shift_Δs
+        j = int(np.flatnonzero(ts == t)[0])
         down = np.flatnonzero(th < 0)
         rates = baseline[down, j]
         i = int(down[int(np.nanargmin(np.abs(rates - 0.30)))])
-        return float(th[i]), h
+        return float(th[i]), t
 
     # ── json helpers ──────────────────────────────────────────────────────────
 

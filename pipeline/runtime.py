@@ -68,7 +68,7 @@ def artifact_node_feature(cube: dict, min_obs: int | None = None) -> tuple[pd.Da
 
 
 def baseline_surface(ws: Workspace) -> np.ndarray | None:
-    """The full baseline node's unconditional probability surface, shaped ``theta x horizon``."""
+    """The full baseline node's unconditional probability surface, shaped ``Δ x horizon``."""
     path = ws.baseline_cube
     if not path.exists():
         return None

@@ -17,7 +17,7 @@ def build_cube(ws: Workspace, node: dict, get_data, quiet: bool = False) -> None
     """Measure one node across every horizon and barrier level; write the full cube."""
     data, feat = node_feature(ws, node, get_data)
     edges = barrier.bin_edges(feat, ws.n_bins)
-    cube = barrier.touch_tensor(data, feat, ws.horizons, ws.thetas, edges)
+    cube = barrier.touch_tensor(data, feat, ws.horizons, ws.Δs, edges)
     cube["index"] = data.index.astype(str).to_numpy()
     cube["feature_values"] = feat.reindex(data.index).to_numpy(float)
     for col in ("open", "high", "low", "close", "volume"):
@@ -49,14 +49,14 @@ def _write_surface_array(ws: Workspace, family: str | None = None, rerun: bool =
         return
 
     get_data = loader(ws)
-    hz = ws.horizons
+    ts = ws.horizons
     print(f"\n=== 1. 01_surface_array [{ws.dir.name}] - {len(nodes)} nodes ===")
     print(
-        f"  {len(ws.thetas)} theta x {ws.n_bins} bins x {len(hz)} horizons "
-        f"(+{hz[0]}{ws.horizon_unit}..+{hz[-1]}{ws.horizon_unit})   "
-        f"theta {ws.thetas[0]:+.0%}..{ws.thetas[-1]:+.0%} step {ws.theta_step:.0%}"
+        f"  {len(ws.Δs)} Δ x {ws.n_bins} bins x {len(ts)} horizons "
+        f"(+{ts[0]}{ws.horizon_unit}..+{ts[-1]}{ws.horizon_unit})   "
+        f"Δ {ws.Δs[0]:+.0%}..{ws.Δs[-1]:+.0%} step {ws.Δ_step:.0%}"
     )
-    print("  value = P(touch theta in h | bin); intraday high/low\n")
+    print("  value = P(touch Δ in t | bin); intraday high/low\n")
 
     skipped = {}
     for node in nodes:
@@ -86,7 +86,7 @@ def _write_shift_array(ws: Workspace, family: str | None = None) -> None:
     """
     Stage 2. Full conditional surfaces after subtracting the baseline surface.
 
-    This is the grid everything downstream reads and judges. It has the same theta and
+    This is the grid everything downstream reads and judges. It has the same Δ and
     horizon axes as Stage 1; the value is the deviation from the baseline in percentage
     points.
     """
@@ -109,10 +109,10 @@ def _write_shift_array(ws: Workspace, family: str | None = None) -> None:
         + [n for n in nodes if n["id"] != BASELINE_NODE]
     )
 
-    th, hz = ws.shift_thetas, ws.shift_horizons
+    th, ts = ws.shift_Δs, ws.shift_horizons
     print(f"\n=== 2. 02_shift_array [{ws.dir.name}] - {len(nodes)} nodes ===")
-    print(f"  {len(th)} theta x {ws.n_bins} bins x {len(hz)} horizons = {len(th) * ws.n_bins * len(hz)} cells")
-    print("  value = P(touch theta in h | bin) - P(touch theta in h baseline), percentage points")
+    print(f"  {len(th)} Δ x {ws.n_bins} bins x {len(ts)} horizons = {len(th) * ws.n_bins * len(ts)} cells")
+    print("  value = P(touch Δ in t | bin) - P(touch Δ in t baseline), percentage points")
     print("  red = more frequent than baseline; blue = less frequent\n")
 
     skipped = {}
@@ -159,7 +159,7 @@ def _render_surface(ws: Workspace, family: str | None) -> None:
     print(f"\n=== 1. 01_surface_xlsx [{ws.dir.name}] - {len(nodes)} nodes ===")
     print(
         f"  {ws.n_bins} tabs per node, one per condition bin; "
-        "each tab is that bin's full theta x horizon face\n"
+        "each tab is that bin's full Δ x horizon face\n"
     )
     n_ok = 0
     for node in nodes:

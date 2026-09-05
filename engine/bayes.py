@@ -5,9 +5,9 @@ Every stage before this one measures conditions *one at a time*. The obvious nex
 question -- what happens when several hold at once -- has an answer already sitting in
 the artifacts. Under conditional independence the log-odds add:
 
-    logit P(touch theta in h | x1..xk)
-        = logit P(touch theta in h) + sum_i [ logit P(touch theta in h | xi)
-                                              - logit P(touch theta in h) ]
+    logit P(touch Δ in t | x1..xk)
+        = logit P(touch Δ in t) + sum_i [ logit P(touch Δ in t | xi)
+                                              - logit P(touch Δ in t) ]
 
 Every term on the right is a cube cell and the prior is the baseline node, so a naive
 Bayes ensemble over this universe is a *sum over existing measurements*: no new
@@ -22,10 +22,10 @@ on a training window only, then applied unchanged to a later window the fit neve
 The walk forward is expanding: fit on everything up to a point, predict the block after
 it, roll forward, repeat.
 
-**The overlap is purged.** A label at bar t looks h bars into the future, so a training
-label within h bars of the test block has already seen part of it. Those bars are
+**The overlap is purged.** A label at bar t looks t bars into the future, so a training
+label within t bars of the test block has already seen part of it. Those bars are
 dropped -- the embargo -- and the test block is scored on non-overlapping bars, every
-h-th one, because 400 overlapping windows are not 400 observations and a calibration
+t-th one, because 400 overlapping windows are not 400 observations and a calibration
 curve drawn on them claims a precision the sample cannot support.
 
 The independence assumption is false here and visibly so: `ma_ratio_7`, `roc_5` and
@@ -53,17 +53,17 @@ SHRINK_K = 25.0
 _EPS = 1e-6
 
 
-def touch_label(data: pd.DataFrame, theta: float, h: int) -> np.ndarray:
+def touch_label(data: pd.DataFrame, Δ: float, t: int) -> np.ndarray:
     """
-    1 where price touches theta within h bars of t, 0 where it does not, NaN where the
+    1 where price touches Δ within t bars of t, 0 where it does not, NaN where the
     forward window is not realized.
 
     Uses the same intraday high/low excursions as the cube, so the event predicted here
     and the event measured everywhere else are the same event.
     """
-    mins, maxs = forward_extremes_upto(data, h)
-    excursion = mins[h - 1] if theta < 0 else maxs[h - 1]
-    y = (excursion <= theta) if theta < 0 else (excursion >= theta)
+    mins, maxs = forward_extremes_upto(data, t)
+    excursion = mins[t - 1] if Δ < 0 else maxs[t - 1]
+    y = (excursion <= Δ) if Δ < 0 else (excursion >= Δ)
     return np.where(np.isnan(excursion), np.nan, y.astype(float))
 
 
@@ -264,7 +264,7 @@ def walk_forward(
     data:       pd.DataFrame,
     feats:      dict,
     families:   dict,
-    theta:      float,
+    Δ:      float,
     horizon:    int,
     n_bins:     int = 10,
     folds:      int = 5,
@@ -288,7 +288,7 @@ def walk_forward(
     Returns the pooled out-of-sample predictions of both models, the prior-only
     reference, and the per-fold boundaries.
     """
-    y_all = touch_label(data, theta, horizon)
+    y_all = touch_label(data, Δ, horizon)
     names = list(feats)
     fam = [families[n] for n in names]
     X = np.vstack([feats[n].to_numpy(float) for n in names])
@@ -338,7 +338,7 @@ def walk_forward(
         sl = slice(t0, t1)
         b_te = np.vstack([np.searchsorted(edges[i], X[i, sl]) for i in range(len(names))])
 
-        # non-overlapping scoring bars: consecutive windows share h-1 bars of future
+        # non-overlapping scoring bars: consecutive windows share t-1 bars of future
         step = np.zeros(t1 - t0, dtype=bool)
         step[::horizon] = True
 
@@ -368,7 +368,7 @@ def walk_forward(
 
     res = {k: np.concatenate(v) for k, v in out.items()}
     res.update({'folds': fold_rows, 'kept': kept_per_fold,
-                'theta': float(theta), 'horizon': int(horizon),
+                'Δ': float(Δ), 'horizon': int(horizon),
                 'nodes': names, 'n_features': len(names)})
     # The prior-only forecast is constant within a fold, so it ranks nothing and its AUC
     # is undefined. Pooling the folds would give it one anyway -- a number driven purely

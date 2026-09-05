@@ -69,8 +69,8 @@ def _cycle_phase(data: pd.DataFrame) -> pd.Series:
     dates = pd.to_datetime(data.index)
     phases = []
     for dt in dates:
-        past   = [h for h in _ALL_HALVINGS if h <= dt]
-        future = [h for h in _ALL_HALVINGS if h > dt]
+        past   = [t for t in _ALL_HALVINGS if t <= dt]
+        future = [t for t in _ALL_HALVINGS if t > dt]
         last   = max(past) if past else _ALL_HALVINGS[0]
         nxt    = min(future) if future else _NEXT_HALVING_EST
         phases.append((dt - last).days / max((nxt - last).days, 1))
@@ -81,7 +81,7 @@ def _days_to_halving(data: pd.DataFrame) -> pd.Series:
     dates = pd.to_datetime(data.index)
     vals = []
     for dt in dates:
-        future = [h for h in _ALL_HALVINGS if h > dt]
+        future = [t for t in _ALL_HALVINGS if t > dt]
         nxt    = min(future) if future else _NEXT_HALVING_EST
         vals.append(max(0, (nxt - dt).days))
     return pd.Series(vals, index=data.index, dtype=float)

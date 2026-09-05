@@ -166,7 +166,7 @@ def _constant(data: pd.DataFrame) -> pd.Series:
     A feature with no information, so every bar falls in a single bin.
 
     This is what turns the unconditional base rate into an ordinary node: measured
-    through exactly the same machinery as any condition, it yields P(touch theta in h)
+    through exactly the same machinery as any condition, it yields P(touch Δ in t)
     with nothing conditioned on. The engine then needs no special case for the base.
     """
     return pd.Series(0.0, index=data.index)

@@ -58,8 +58,8 @@ def fig_null_gap_ranking(ws, cleared, out: Path) -> Path | None:
     fig_h = 0.36 * len(rows) + 2.1
     fig, ax = plt.subplots(figsize=(8.4, fig_h))
     ax.hlines(y, p95, observed, color=SEQ[3], linewidth=3.0, zorder=2)
-    ax.plot(p95, y, linestyle='None', marker='|', markersize=14,
-            markeredgewidth=1.7, color=INK_2, zorder=3, label='null p95')
+    ax.scatter(p95, y, s=62, color=INK_2, edgecolors=SURFACE,
+               linewidths=1.4, zorder=3, label='null p95')
     ax.scatter(observed, y, s=62, color=S1, edgecolors=SURFACE,
                linewidths=1.4, zorder=4, label='observed')
 
@@ -75,7 +75,8 @@ def fig_null_gap_ranking(ws, cleared, out: Path) -> Path | None:
     ax.set_xlabel('peak |deviation| over the surface (pp)')
     ax.set_xlim(0, float(np.nanmax(observed)) * 1.25)
     _frame(ax, grid_axis='x')
-    ax.legend(loc='lower right', fontsize=8, labelcolor=INK_2)
+    ax.legend(loc='lower left', bbox_to_anchor=(0, 1.01), ncol=1,
+              fontsize=8, labelcolor=INK_2, borderaxespad=0)
 
     at_floor = sum(1 for r in tests_top if r.get('at_floor'))
     _title(fig,
@@ -85,8 +86,8 @@ def fig_null_gap_ranking(ws, cleared, out: Path) -> Path | None:
            f'{len(rows)} are already at the exact p-value floor.')
     _note(fig, f'{ws.dir.name} · ranked from 05_gate.json tests · one best discovered '
                f'horizon per selected sheet')
-    fig.subplots_adjust(top=1 - 0.95 / fig_h, left=0.25, bottom=0.14)
-    return _save(fig, out / '12_null_gap_ranking.png')
+    fig.subplots_adjust(top=1 - 1.12 / fig_h, left=0.25, bottom=0.14)
+    return _save(fig, out / 'D_null_gap_ranking.png')
 
 
 def _null_distribution_for_gate_row(ws, gate_row: dict) -> dict | None:
@@ -114,7 +115,7 @@ def _null_distribution_for_gate_row(ws, gate_row: dict) -> dict | None:
         data,
         feat,
         int(gate_row['horizon']),
-        artifact['thetas'],
+        artifact['Δs'],
         artifact['edges'],
         bin_index=source_bin,
         min_n=ws.min_bin_n,
@@ -187,9 +188,10 @@ def fig_null(ws, universe, cleared, out: Path) -> Path | None:
     ax.set_xlim(0, max(float(observed_all.max()), float(null.max())) * 1.12)
     ax.set_ylim(0, ymax * 1.15)
     _frame(ax, grid_axis='x')
-    ax.legend(loc='upper right', fontsize=8, labelcolor=INK_2)
+    ax.legend(loc='lower left', bbox_to_anchor=(0, 1.01), ncol=1,
+              fontsize=8, labelcolor=INK_2, borderaxespad=0)
 
-    _title(fig, 'The cleared sheets sit beyond the shuffled null',
+    _title(fig, 'It is not luck: the null test rejects accidental alignment',
            f'Grey histogram pools the exact null draws for all {len(dists)} selected '
            f'and filtered sheets. The dashed line is the pooled p99 null threshold; '
            f'the blue tick is the strongest observed sheet peak.')
@@ -199,6 +201,6 @@ def fig_null(ws, universe, cleared, out: Path) -> Path | None:
                f'usable shifts across {len(dists)} cleared sheets · strongest observed '
                f'p = {float(strongest["p_value"]):.2g}, per-sheet floor '
                f'{float(np.nanmin(floors)):.2g}')
-    fig.subplots_adjust(top=0.78)
-    return _save(fig, out / '05_null.png')
+    fig.subplots_adjust(top=0.74)
+    return _save(fig, out / 'B_null.png')
 

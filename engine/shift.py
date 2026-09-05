@@ -14,7 +14,7 @@ def from_cube(cube: dict, baseline: np.ndarray) -> dict:
 
     `shift` is stored in percentage points:
 
-        100 * (P(touch theta in h | bin) - P(touch theta in h))
+        100 * (P(touch Δ in t | bin) - P(touch Δ in t))
 
     The conditional probabilities and baseline are carried too, so inspection and
     later derived artifacts can show the rate behind a shift without reloading stage 1.
@@ -23,7 +23,7 @@ def from_cube(cube: dict, baseline: np.ndarray) -> dict:
     base = np.asarray(baseline, dtype=float)
     if prob.shape[0] != base.shape[0] or prob.shape[2] != base.shape[1]:
         raise ValueError(
-            "baseline shape does not match cube theta/horizon axes: "
+            "baseline shape does not match cube Δ/horizon axes: "
             f"{base.shape} vs {prob.shape}"
         )
 
@@ -34,7 +34,7 @@ def from_cube(cube: dict, baseline: np.ndarray) -> dict:
         "hits": cube["hits"],
         "bin_n": cube["bin_n"],
         "n_obs": cube["n_obs"],
-        "thetas": cube["thetas"],
+        "Δs": cube["Δs"],
         "horizons": cube["horizons"],
         "edges": cube["edges"],
         "meta": cube.get("meta", {}),
@@ -54,19 +54,19 @@ def evaluate(
     """
     Economic filter over a shift cube.
 
-    A node passes when at least one bin/horizon has `min_run` adjacent theta rows with
+    A node passes when at least one bin/horizon has `min_run` adjacent Δ rows with
     the same-signed deviation from baseline, each at least `min_dev` percentage points.
     """
     dev = np.asarray(cube["shift"], dtype=float)
     prob = np.asarray(cube["prob"], dtype=float)
     base = np.asarray(cube["base"], dtype=float)
     bin_n = cube["bin_n"]
-    thetas, horizons = cube["thetas"], cube["horizons"]
-    n_th, n_bins, n_h = dev.shape
+    Δs, horizons = cube["Δs"], cube["horizons"]
+    n_th, n_bins, n_t = dev.shape
 
-    per_h, best_overall = {}, None
-    for j in range(n_h):
-        h = int(horizons[j])
+    per_t, best_overall = {}, None
+    for j in range(n_t):
+        t = int(horizons[j])
         best = None
         for b in range(n_bins):
             if bin_n[b, j] < min_bin_n:
@@ -87,9 +87,9 @@ def evaluate(
                 if run >= min_run:
                     k = int(start + np.argmax(np.abs(col[start:i + 1])))
                     cand = {
-                        "horizon": h,
+                        "horizon": t,
                         "bin": b,
-                        "theta": float(thetas[k]),
+                        "Δ": float(Δs[k]),
                         "dev": float(col[k]),
                         "run": run,
                         "prob": float(prob[k, b, j]),
@@ -99,14 +99,14 @@ def evaluate(
                     }
                     if best is None or abs(cand["dev"]) > abs(best["dev"]):
                         best = cand
-        per_h[h] = best
+        per_t[t] = best
         if best and (best_overall is None or abs(best["dev"]) > abs(best_overall["dev"])):
             best_overall = best
 
     return {
         "passed": best_overall is not None,
         "best": best_overall,
-        "per_horizon": per_h,
+        "per_horizon": per_t,
         "criteria": {"min_dev": min_dev, "min_bin_n": min_bin_n, "min_run": min_run},
     }
 
@@ -120,7 +120,7 @@ def save(cube: dict, path: Path, meta: dict) -> None:
         "hits": cube["hits"],
         "bin_n": cube["bin_n"],
         "n_obs": cube["n_obs"],
-        "thetas": cube["thetas"],
+        "Δs": cube["Δs"],
         "horizons": cube["horizons"],
         "edges": cube["edges"],
         "meta": np.array(json.dumps(meta)),

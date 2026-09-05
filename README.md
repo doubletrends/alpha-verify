@@ -15,12 +15,12 @@ The flagship workspace is now `nasdaq_daily`: a reproducible daily NASDAQ
 Composite run from 2015-01-01, with a 30-session horizon ladder and a barrier grid scaled
 for equity-index moves.
 
-![conditional band](workspaces/nasdaq_daily/result/01_band.png)
+![conditional band](workspaces/nasdaq_daily/result/A_band.png)
 
 The figure above inverts the measured cube into the form people actually use: given the
-condition the index is in on the latest bar, how wide is the historical 50% touch
-envelope? The filled band is the current condition bin; the thin bands show the edge
-bins, so the value of conditioning is visible on the price axis.
+condition the index is in on the latest bar, how wide are the historical 25% and 50%
+touch envelopes? Both bands use the current condition bin, so the current regime is
+visible directly on the price axis.
 
 Every node is judged against the two filters that decide whether it clears: practical
 effect size and shuffled-null strength. The useful result is the cleared-both set:
@@ -57,12 +57,12 @@ conditional-shift surface for every node that cleared both.
 
 ### The Null Is Exact
 
-Writing `counts[theta, bin]` as a function of circular shift makes it a
+Writing `counts[Δ, bin]` as a function of circular shift makes it a
 cross-correlation between the touch indicator and the bin-membership mask. One FFT yields
 every shift at once, returning the full permutation distribution rather than a resampled
 approximation.
 
-![the null](workspaces/nasdaq_daily/result/05_null.png)
+![the null](workspaces/nasdaq_daily/result/B_null.png)
 
 The finest obtainable p-value is `1/(n+1)`. For the NASDAQ daily run that floor is
 `3.95e-4`; with 406 tests, Bonferroni at `alpha=0.05` would require `1.23e-4`, which is
@@ -82,8 +82,6 @@ correction across the sweep. Neither filter alone is treated as a claim.
 touch probability surface, and every conditional node has to beat that reference. This
 keeps the pipeline uniform and prevents special-case arithmetic from drifting away from
 the artifacts.
-
-![conditional shift](workspaces/nasdaq_daily/result/08_conditional_shift_vix_level.png)
 
 ## Do Conditions Compose?
 
@@ -109,8 +107,6 @@ bars with a 30-session embargo and non-overlapping scoring.
 The raw model is overconfident because correlated indicators count similar evidence many
 times. Keeping one node per family removes most of the damage; a Platt scale correction
 does the rest for the headline target, `P(touch -7% within 30d)`.
-
-![composition grid](workspaces/nasdaq_daily/result/10_composition_grid.png)
 
 Across the composition sweep, 73 of 126 usable targets beat the prior out of sample. The
 strongest ranked target is `+10%` within `+3d`, at AUC 0.99.
@@ -141,7 +137,7 @@ existing artifacts, and `--fdr Q` sets the Benjamini-Hochberg rate used by `--ga
 
 ```text
 workspaces/<name>/
-  01_surface_array/<family>/<node>.npz              compute  full theta x bins x horizons
+  01_surface_array/<family>/<node>.npz              compute  full Δ x bins x horizons
   01_surface_xlsx/<family>/<node>.xlsx          view     full cube workbook
   02_shift_array/<family>/<node>.npz        compute  full baseline-subtracted shift cube
   02_shift_xlsx/<family>/<node>.xlsx    view     red/blue shift workbook

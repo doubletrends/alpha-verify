@@ -1,11 +1,11 @@
 """
-Barrier-touch surfaces: will price reach ±θ within h bars, given a condition?
+Barrier-touch surfaces: will price reach ±Δ within t bars, given a condition?
 
 This is the engine's single measurement: the probability that price reaches a barrier,
 given a condition. Everything the pipeline used to compute as a separate "outcome" is a
-row of it -- the -10% drawdown surface is the θ = -10% row, the +10% runup surface
+row of it -- the -10% drawdown surface is the Δ = -10% row, the +10% runup surface
 is the +10% row, and the asymmetry between them is the two rows read against each other
-in the same column. There is no outcome registry any more; θ *is* the axis.
+in the same column. There is no outcome registry any more; Δ *is* the axis.
 
 Two things differ from the close-to-close machinery this replaces:
 
@@ -33,11 +33,11 @@ import pandas as pd
 MIN_BIN_N = 30
 
 
-def theta_levels(lo: float = -0.20, hi: float = 0.20, step: float = 0.01) -> np.ndarray:
+def Δ_levels(lo: float = -0.20, hi: float = 0.20, step: float = 0.01) -> np.ndarray:
     """
     Barrier levels for the rows of a surface, ascending, including 0.
 
-    θ = 0 is near-degenerate -- it asks whether the high ever returned to the entry
+    Δ = 0 is near-degenerate -- it asks whether the high ever returned to the entry
     close, which is almost always true -- but it is kept so the ladder is complete and
     symmetric, and so the row above and below it are read against a real boundary
     rather than a gap.
@@ -88,11 +88,11 @@ def bin_labels(edges: np.ndarray, feature: pd.Series) -> list[str]:
     return out
 
 
-def forward_extremes_upto(data: pd.DataFrame, h_max: int) -> tuple[np.ndarray, np.ndarray]:
+def forward_extremes_upto(data: pd.DataFrame, t_max: int) -> tuple[np.ndarray, np.ndarray]:
     """
-    Worst and best excursion over (t, t+h] for every h up to h_max, as (h_max, n) arrays.
+    Worst and best excursion over (t0, t0+t] for every t up to t_max, as (t_max, n) arrays.
 
-    Built incrementally: the window for h is the window for h-1 extended by one bar, so
+    Built incrementally: the window for t is the window for t-1 extended by one bar, so
     the whole ladder costs one pass per horizon instead of one pass per horizon per bar.
     Computing 30 horizons the naive way re-reads the same 465 shifted columns; this
     reads 30.
@@ -107,16 +107,16 @@ def forward_extremes_upto(data: pd.DataFrame, h_max: int) -> tuple[np.ndarray, n
 
     run_lo = np.full(n, np.inf)
     run_hi = np.full(n, -np.inf)
-    mins = np.full((h_max, n), np.nan)
-    maxs = np.full((h_max, n), np.nan)
+    mins = np.full((t_max, n), np.nan)
+    maxs = np.full((t_max, n), np.nan)
 
-    for h in range(1, h_max + 1):
-        if n - h <= 0:
+    for t in range(1, t_max + 1):
+        if n - t <= 0:
             break
-        run_lo[:n - h] = np.minimum(run_lo[:n - h], low[h:])
-        run_hi[:n - h] = np.maximum(run_hi[:n - h], high[h:])
-        mins[h - 1, :n - h] = run_lo[:n - h] / close[:n - h] - 1.0
-        maxs[h - 1, :n - h] = run_hi[:n - h] / close[:n - h] - 1.0
+        run_lo[:n - t] = np.minimum(run_lo[:n - t], low[t:])
+        run_hi[:n - t] = np.maximum(run_hi[:n - t], high[t:])
+        mins[t - 1, :n - t] = run_lo[:n - t] / close[:n - t] - 1.0
+        maxs[t - 1, :n - t] = run_hi[:n - t] / close[:n - t] - 1.0
     return mins, maxs
 
 
@@ -124,14 +124,14 @@ def touch_tensor(
     data:     pd.DataFrame,
     feature:  pd.Series,
     horizons: np.ndarray,
-    thetas:   np.ndarray,
+    Δs:   np.ndarray,
     edges:    np.ndarray,
     min_n:    int = MIN_BIN_N,
 ) -> dict:
     """
-    The probability cube: P(touch θ within h | X in bin).
+    The probability cube: P(touch Δ within t | X in bin).
 
-    Shape (n_theta, n_bins, n_horizons). This is the pipeline's primary measurement and
+    Shape (n_Δ, n_bins, n_horizons). This is the pipeline's primary measurement and
     the value the workbook shows -- the raw conditional probability, not a deviation
     from anything, so a cell can be read on its own terms ("a -5% touch within 7 days
     happens 50% of the time under this condition") without carrying a base rate in your
@@ -144,34 +144,34 @@ def touch_tensor(
     Cells whose bin holds fewer than min_n observations are NaN in `prob`; `hits` keeps
     the raw counts so a thin bin stays visible rather than absent.
     """
-    h_max  = int(np.max(horizons))
-    mins, maxs = forward_extremes_upto(data, h_max)
+    t_max  = int(np.max(horizons))
+    mins, maxs = forward_extremes_upto(data, t_max)
 
     x_all  = feature.to_numpy(float)
     n_bins = len(edges) + 1
-    n_th   = len(thetas)
-    n_h    = len(horizons)
+    n_th   = len(Δs)
+    n_t    = len(horizons)
 
-    prob = np.full((n_th, n_bins, n_h), np.nan)
-    hits = np.zeros((n_th, n_bins, n_h), dtype=np.int32)
-    bin_n = np.zeros((n_bins, n_h), dtype=np.int32)
-    n_obs = np.zeros(n_h, dtype=np.int32)
+    prob = np.full((n_th, n_bins, n_t), np.nan)
+    hits = np.zeros((n_th, n_bins, n_t), dtype=np.int32)
+    bin_n = np.zeros((n_bins, n_t), dtype=np.int32)
+    n_obs = np.zeros(n_t, dtype=np.int32)
 
-    for j, h in enumerate(horizons):
-        lo_h, hi_h = mins[h - 1], maxs[h - 1]
-        ok = ~np.isnan(lo_h) & ~np.isnan(hi_h) & ~np.isnan(x_all)
+    for j, t in enumerate(horizons):
+        lo_t, hi_t = mins[t - 1], maxs[t - 1]
+        ok = ~np.isnan(lo_t) & ~np.isnan(hi_t) & ~np.isnan(x_all)
         if not ok.any():
             continue
-        xs, ls, hs = x_all[ok], lo_h[ok], hi_h[ok]
+        xs, ls, hs = x_all[ok], lo_t[ok], hi_t[ok]
         idx = np.searchsorted(edges, xs) if len(edges) else np.zeros(len(xs), dtype=int)
         counts = np.bincount(idx, minlength=n_bins)
         enough = counts >= min_n
         bin_n[:, j] = counts
         n_obs[j] = len(xs)
 
-        for i, th in enumerate(thetas):
-            t = ((ls <= th) if th < 0 else (hs >= th)).astype(float)
-            c = np.bincount(idx, weights=t, minlength=n_bins)
+        for i, th in enumerate(Δs):
+            touched = ((ls <= th) if th < 0 else (hs >= th)).astype(float)
+            c = np.bincount(idx, weights=touched, minlength=n_bins)
             hits[i, :, j] = c.astype(np.int32)
             with np.errstate(invalid='ignore', divide='ignore'):
                 rates = np.where(enough, c / np.where(counts == 0, 1, counts), np.nan)
@@ -179,12 +179,12 @@ def touch_tensor(
 
     return {'prob': prob, 'hits': hits,
             'bin_n': bin_n, 'n_obs': n_obs,
-            'thetas': np.asarray(thetas, dtype=float),
+            'Δs': np.asarray(Δs, dtype=float),
             'horizons': np.asarray(horizons, dtype=int),
             'edges': np.asarray(edges, dtype=float)}
 
 
-def summarize(cube: dict, thetas: np.ndarray, horizons: np.ndarray,
+def summarize(cube: dict, Δs: np.ndarray, horizons: np.ndarray,
               tol: float = 1e-9) -> dict:
     """
     Select a coarse sub-grid of a full cube, without re-measuring anything.
@@ -213,7 +213,7 @@ def summarize(cube: dict, thetas: np.ndarray, horizons: np.ndarray,
             idx.append(int(hits[0]))
         return np.array(idx, dtype=int)
 
-    ti = pick(np.asarray(thetas, float), cube['thetas'], 'theta')
+    ti = pick(np.asarray(Δs, float), cube['Δs'], 'Δ')
     hi = pick(np.asarray(horizons, float), cube['horizons'].astype(float), 'horizon')
 
     return {
@@ -221,23 +221,23 @@ def summarize(cube: dict, thetas: np.ndarray, horizons: np.ndarray,
         'hits':     cube['hits'][np.ix_(ti, range(cube['hits'].shape[1]), hi)],
         'bin_n':    cube['bin_n'][:, hi],
         'n_obs':    cube['n_obs'][hi],
-        'thetas':   cube['thetas'][ti],
+        'Δs':   cube['Δs'][ti],
         'horizons': cube['horizons'][hi],
         'edges':    cube['edges'],
     }
 
 
-def touch_band(surface: np.ndarray, thetas: np.ndarray, q: float) -> tuple[np.ndarray, np.ndarray]:
+def touch_band(surface: np.ndarray, Δs: np.ndarray, q: float) -> tuple[np.ndarray, np.ndarray]:
     """
-    Invert a (n_theta, n_h) probability surface into the barrier levels touched with
+    Invert a (n_Δ, n_h) probability surface into the barrier levels touched with
     probability q: the up level and the down level, per horizon.
 
-    The cube answers "how likely is θ?"; a reader almost always wants the inverse, "how
+    The cube answers "how likely is Δ?"; a reader almost always wants the inverse, "how
     far does price get?". Both arms are read off the same surface -- up levels from the
-    positive θ rows, down levels from the negative -- so the answer is one number per
+    positive Δ rows, down levels from the negative -- so the answer is one number per
     side per horizon: *at q = 0.5, price touches +4.6% and −3.7% within seven days.*
 
-    P(touch θ) falls monotonically in |θ|, so each arm is a decreasing curve and the
+    P(touch Δ) falls monotonically in |Δ|, so each arm is a decreasing curve and the
     crossing of q is found by linear interpolation between the two bracketing rows.
 
     **This interpolates, and everything else in the pipeline refuses to.** The refusal
@@ -245,17 +245,17 @@ def touch_band(surface: np.ndarray, thetas: np.ndarray, q: float) -> tuple[np.nd
     that could disagree with the first and would then be judged and counted as a test.
     Nothing here is judged: this runs on the full cube, for rendering only, and the
     interpolation is between two measured rows one percentage point apart. A level that
-    reaches the end of the ladder without crossing q is clipped to the last θ measured
+    reaches the end of the ladder without crossing q is clipped to the last Δ measured
     and flagged, rather than extrapolated into a range the cube never saw.
 
-    Returns (up, down) as positive magnitudes in θ units, and NaN in the two places the
+    Returns (up, down) as positive magnitudes in Δ units, and NaN in the two places the
     ladder cannot answer: where even the nearest rung is reached less often than q, so
     the crossing lies between 0 and one step and is finer than the grid resolves, and
     where the far end is still above q, so it lies beyond the widest barrier measured.
     Returning 0 for the first case would assert a level the cube never measured.
     """
-    th = np.asarray(thetas, dtype=float)
-    n_h = surface.shape[1]
+    th = np.asarray(Δs, dtype=float)
+    n_t = surface.shape[1]
     out = []
     for sign in (+1, -1):
         rows = np.flatnonzero(th * sign > 0)
@@ -263,8 +263,8 @@ def touch_band(surface: np.ndarray, thetas: np.ndarray, q: float) -> tuple[np.nd
         order = np.argsort(mag)
         rows, mag = rows[order], mag[order]
 
-        levels = np.full(n_h, np.nan)
-        for j in range(n_h):
+        levels = np.full(n_t, np.nan)
+        for j in range(n_t):
             p = surface[rows, j]
             ok = np.isfinite(p)
             if ok.sum() < 2:
@@ -294,11 +294,11 @@ def evaluate(
     """
     Does this node show a *usable* edge, before asking whether it is a real one?
 
-    Scans the whole cube against the baseline node. Three conditions on the same (θ, bin, h) cell:
+    Scans the whole cube against the baseline node. Three conditions on the same (Δ, bin, t) cell:
 
       magnitude    |P(touch | bin) - P(touch)| reaches min_dev percentage points
       support      the bin holds at least min_bin_n observations
-      consistency  at least min_run adjacent θ rows in that (bin, h) column clear
+      consistency  at least min_run adjacent Δ rows in that (bin, t) column clear
                    min_dev with the same sign
 
     The consistency requirement is what separates this from a threshold filter. The
@@ -310,7 +310,7 @@ def evaluate(
 
     Returns the strongest qualifying cell overall and the best per horizon.
     """
-    # `baseline` is the (n_theta, n_horizons) probability surface of the baseline node
+    # `baseline` is the (n_Δ, n_horizons) probability surface of the baseline node
     # -- the unconditional rate, measured as an ordinary node. The comparison is made
     # here and never persisted, so nothing downstream carries two versions of the same
     # measurement.
@@ -321,12 +321,12 @@ def evaluate(
     # very slightly against a different history.
     dev = (cube['prob'] - baseline[:, None, :]) * 100.0
     bin_n = cube['bin_n']
-    thetas, horizons = cube['thetas'], cube['horizons']
-    n_th, n_bins, n_h = dev.shape
+    Δs, horizons = cube['Δs'], cube['horizons']
+    n_th, n_bins, n_t = dev.shape
 
-    per_h, best_overall = {}, None
-    for j in range(n_h):
-        h = int(horizons[j])
+    per_t, best_overall = {}, None
+    for j in range(n_t):
+        t = int(horizons[j])
         best = None
         for b in range(n_bins):
             if bin_n[b, j] < min_bin_n:
@@ -346,19 +346,19 @@ def evaluate(
                     run += 1
                 if run >= min_run:
                     k = int(start + np.argmax(np.abs(col[start:i + 1])))
-                    cand = {'horizon': h, 'bin': b, 'theta': float(thetas[k]),
+                    cand = {'horizon': t, 'bin': b, 'Δ': float(Δs[k]),
                             'dev': float(col[k]), 'run': run,
                             'prob': float(cube['prob'][k, b, j]),
                             'base': float(baseline[k, j]),
                             'bin_n': int(bin_n[b, j]), 'hits': int(cube['hits'][k, b, j])}
                     if best is None or abs(cand['dev']) > abs(best['dev']):
                         best = cand
-        per_h[h] = best
+        per_t[t] = best
         if best and (best_overall is None or abs(best['dev']) > abs(best_overall['dev'])):
             best_overall = best
 
     return {'passed': best_overall is not None, 'best': best_overall,
-            'per_horizon': per_h,
+            'per_horizon': per_t,
             'criteria': {'min_dev': min_dev, 'min_bin_n': min_bin_n, 'min_run': min_run}}
 
 
@@ -376,7 +376,7 @@ def save_cube(cube: dict, path: Path, meta: dict) -> None:
         'hits': cube['hits'],
         'bin_n': cube['bin_n'],
         'n_obs': cube['n_obs'],
-        'thetas': cube['thetas'],
+        'Δs': cube['Δs'],
         'horizons': cube['horizons'],
         'edges': cube['edges'],
         'meta': np.array(json.dumps(meta)),

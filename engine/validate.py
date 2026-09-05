@@ -12,7 +12,7 @@ the thing under test.
 
 Two things about this implementation are worth knowing.
 
-**It is exact, not sampled.** Writing counts[theta, bin] as a function of shift makes it
+**It is exact, not sampled.** Writing counts[Δ, bin] as a function of shift makes it
 a circular cross-correlation between the touch indicator and the bin-membership mask, so
 one FFT produces every shift at once -- about 70x faster than resampling, and it returns
 the whole permutation distribution rather than a draw from it.
@@ -52,7 +52,7 @@ EDGE_GUARD = 200
 def _dev_all_shifts(touched: np.ndarray, idx: np.ndarray, bin_n: np.ndarray,
                     n_bins: int) -> np.ndarray:
     """
-    Deviation from the sample rate for every (theta, bin, shift), in percentage points.
+    Deviation from the sample rate for every (Δ, bin, shift), in percentage points.
 
     counts[i, b, s] = sum_t touched[i, t] * 1[bin of (t - s) == b]
 
@@ -97,9 +97,9 @@ def null_surface(
     Null-test one horizon's surface, per cell and as a whole.
 
     Returns
-        cell_real   (n_theta, n_bins)  signed deviation from the sample rate, pp
-        cell_p      (n_theta, n_bins)  pointwise p-value of |deviation|
-        cell_p95    (n_theta, n_bins)  95th percentile of the cell's own null
+        cell_real   (n_Δ, n_bins)  signed deviation from the sample rate, pp
+        cell_p      (n_Δ, n_bins)  pointwise p-value of |deviation|
+        cell_p95    (n_Δ, n_bins)  95th percentile of the cell's own null
         peak_real   scalar             max |deviation| over the surface
         peak_p      scalar             p-value of that maximum
         peak_p95    scalar             95th percentile of the maximum's null
@@ -180,7 +180,7 @@ def validate_node(
     data:          pd.DataFrame,
     feature:       pd.Series,
     horizons:      np.ndarray,
-    thetas:        np.ndarray,
+    Δs:        np.ndarray,
     edges:         np.ndarray,
     min_n:         int = MIN_BIN_N,
     guard:         int = EDGE_GUARD,
@@ -194,30 +194,30 @@ def validate_node(
     """
     from engine import barrier
 
-    h_max = int(np.max(horizons))
-    mins, maxs = barrier.forward_extremes_upto(data, h_max)
+    t_max = int(np.max(horizons))
+    mins, maxs = barrier.forward_extremes_upto(data, t_max)
     x_all = feature.to_numpy(float)
     n_bins = len(edges) + 1
-    n_th, n_h = len(thetas), len(horizons)
+    n_th, n_t = len(Δs), len(horizons)
 
-    out = {k: np.full((n_th, n_bins, n_h), np.nan)
+    out = {k: np.full((n_th, n_bins, n_t), np.nan)
            for k in ('cell_real', 'cell_p', 'cell_p95')}
     for k in ('peak_real', 'peak_p', 'peak_p95'):
-        out[k] = np.full(n_h, np.nan)
+        out[k] = np.full(n_t, np.nan)
     for k in ('sheet_peak_real', 'sheet_peak_p', 'sheet_peak_p95'):
-        out[k] = np.full((n_bins, n_h), np.nan)
-    out['n_shifts'] = np.zeros(n_h, dtype=np.int32)
+        out[k] = np.full((n_bins, n_t), np.nan)
+    out['n_shifts'] = np.zeros(n_t, dtype=np.int32)
 
-    for j, h in enumerate(horizons):
-        lo_h, hi_h = mins[h - 1], maxs[h - 1]
-        ok = ~np.isnan(lo_h) & ~np.isnan(hi_h) & ~np.isnan(x_all)
+    for j, t in enumerate(horizons):
+        lo_t, hi_t = mins[t - 1], maxs[t - 1]
+        ok = ~np.isnan(lo_t) & ~np.isnan(hi_t) & ~np.isnan(x_all)
         if ok.sum() < 2 * guard + 1:
             continue
-        xs, ls, hs = x_all[ok], lo_h[ok], hi_h[ok]
+        xs, ls, hs = x_all[ok], lo_t[ok], hi_t[ok]
         idx = np.searchsorted(edges, xs) if len(edges) else np.zeros(len(xs), dtype=int)
 
         touched = np.empty((n_th, len(xs)))
-        for i, th in enumerate(thetas):
+        for i, th in enumerate(Δs):
             touched[i] = (ls <= th) if th < 0 else (hs >= th)
 
         r = null_surface(touched, idx, n_bins, min_n, guard)
@@ -229,7 +229,7 @@ def validate_node(
             out[k][j] = r[k]
         out['n_shifts'][j] = r['n_shifts']
 
-    out['thetas']   = np.asarray(thetas, dtype=float)
+    out['Δs']   = np.asarray(Δs, dtype=float)
     out['horizons'] = np.asarray(horizons, dtype=int)
     # carried so the renderer works straight off this dict, not only off a reloaded
     # artifact; `save` writes the richer meta passed to it
@@ -241,7 +241,7 @@ def peak_shift_distribution(
     data:     pd.DataFrame,
     feature:  pd.Series,
     horizon:  int,
-    thetas:   np.ndarray,
+    Δs:   np.ndarray,
     edges:    np.ndarray,
     bin_index: int | None = None,
     min_n:    int = MIN_BIN_N,
@@ -262,17 +262,17 @@ def peak_shift_distribution(
     from engine import barrier
 
     mins, maxs = barrier.forward_extremes_upto(data, int(horizon))
-    lo_h, hi_h = mins[int(horizon) - 1], maxs[int(horizon) - 1]
+    lo_t, hi_t = mins[int(horizon) - 1], maxs[int(horizon) - 1]
     x_all = feature.to_numpy(float)
-    ok = ~np.isnan(lo_h) & ~np.isnan(hi_h) & ~np.isnan(x_all)
-    xs, ls, hs = x_all[ok], lo_h[ok], hi_h[ok]
+    ok = ~np.isnan(lo_t) & ~np.isnan(hi_t) & ~np.isnan(x_all)
+    xs, ls, hs = x_all[ok], lo_t[ok], hi_t[ok]
 
     n_bins = len(edges) + 1
     idx = np.searchsorted(edges, xs) if len(edges) else np.zeros(len(xs), dtype=int)
     bin_n = np.bincount(idx, minlength=n_bins).astype(float)
 
-    touched = np.empty((len(thetas), len(xs)))
-    for i, th in enumerate(thetas):
+    touched = np.empty((len(Δs), len(xs)))
+    for i, th in enumerate(Δs):
         touched[i] = (ls <= th) if th < 0 else (hs >= th)
 
     signed = _dev_all_shifts(touched, idx, bin_n, n_bins)
@@ -368,22 +368,58 @@ def verdict(rejected: bool, p_value: float, at_floor: bool) -> str:
 
 def save(result: dict, path: Path, meta: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(
-        path,
-        cell_real=result['cell_real'].astype(np.float32),
-        cell_p=result['cell_p'].astype(np.float32),
-        cell_p95=result['cell_p95'].astype(np.float32),
-        sheet_peak_real=result['sheet_peak_real'].astype(np.float32),
-        sheet_peak_p=result['sheet_peak_p'].astype(np.float64),
-        sheet_peak_p95=result['sheet_peak_p95'].astype(np.float32),
-        peak_real=result['peak_real'].astype(np.float32),
-        peak_p=result['peak_p'].astype(np.float64),
-        peak_p95=result['peak_p95'].astype(np.float32),
-        n_shifts=result['n_shifts'],
-        thetas=result['thetas'],
-        horizons=result['horizons'],
-        meta=np.array(json.dumps(meta)),
-    )
+    payload = {
+        'cell_real': result['cell_real'].astype(np.float32),
+        'cell_p': result['cell_p'].astype(np.float32),
+        'cell_p95': result['cell_p95'].astype(np.float32),
+        'sheet_peak_real': result['sheet_peak_real'].astype(np.float32),
+        'sheet_peak_p': result['sheet_peak_p'].astype(np.float64),
+        'sheet_peak_p95': result['sheet_peak_p95'].astype(np.float32),
+        'peak_real': result['peak_real'].astype(np.float32),
+        'peak_p': result['peak_p'].astype(np.float64),
+        'peak_p95': result['peak_p95'].astype(np.float32),
+        'n_shifts': result['n_shifts'],
+        'Δs': result['Δs'],
+        'horizons': result['horizons'],
+        'meta': np.array(json.dumps(meta)),
+    }
+    for key in ('source_bin', 'source_bin_number', 'selection_rank', 'selection_score'):
+        if key in result:
+            payload[key] = result[key]
+    np.savez_compressed(path, **payload)
+
+
+def sheet_from_node_result(result: dict, row: dict) -> dict:
+    """Copy one selected bin sheet out of a full node validation result."""
+    b = int(row["bin"])
+    out = {
+        "cell_real": result["cell_real"][:, b:b + 1, :],
+        "cell_p": result["cell_p"][:, b:b + 1, :],
+        "cell_p95": result["cell_p95"][:, b:b + 1, :],
+        "sheet_peak_real": result["sheet_peak_real"][b:b + 1, :],
+        "sheet_peak_p": result["sheet_peak_p"][b:b + 1, :],
+        "sheet_peak_p95": result["sheet_peak_p95"][b:b + 1, :],
+        "peak_real": result["sheet_peak_real"][b, :],
+        "peak_p": result["sheet_peak_p"][b, :],
+        "peak_p95": result["sheet_peak_p95"][b, :],
+        "n_shifts": result["n_shifts"],
+        "Δs": result["Δs"],
+        "horizons": result["horizons"],
+        "source_bin": np.array(b, dtype=np.int32),
+        "source_bin_number": np.array(b + 1, dtype=np.int32),
+        "selection_rank": np.array(int(row["rank"]), dtype=np.int32),
+        "selection_score": np.array(float(row["score"]), dtype=np.float32),
+        "meta": {
+            **result.get("meta", {}),
+            "bin_labels": [row.get("bin_label", f"bin {b + 1}")],
+            "source_bin": b,
+            "source_bin_number": b + 1,
+            "selection_rank": int(row["rank"]),
+            "selection_score": float(row["score"]),
+            "selection_best_cell": row.get("best_cell"),
+        },
+    }
+    return out
 
 
 def load(path: Path) -> dict:

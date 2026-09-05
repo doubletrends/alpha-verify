@@ -2,13 +2,28 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
-from engine import selection, shift, writer
+from openpyxl import load_workbook
+
+from engine import selection, shift
 from universe import all_in_family, all_nodes, load_universe
 from workspace import BASELINE_NODE, Workspace
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _copy_selected_workbook_sheet(source: Path, target: Path, bin_index: int) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, target)
+    wb = load_workbook(target)
+    keep = wb.sheetnames[int(bin_index)]
+    for sheet_name in list(wb.sheetnames):
+        if sheet_name != keep:
+            del wb[sheet_name]
+    wb.save(target)
+    wb.close()
 
 
 def cmd_selection(ws: Workspace, family: str | None = None) -> None:
@@ -61,15 +76,11 @@ def cmd_selection(ws: Workspace, family: str | None = None) -> None:
         }
         selection.save_sheet(sheet, ws.selection_array_path(row), meta)
         copied_npz += 1
+
+        source_xlsx = ws.shift_surface_path(node["family"], node["id"])
+        target_xlsx = ws.selection_surface_path(row)
         try:
-            writer.write_shift_xlsx(
-                sheet,
-                ws.selection_surface_path(row),
-                row["node"],
-                row["feature"],
-                row["params"],
-                ws.horizon_unit,
-            )
+            _copy_selected_workbook_sheet(source_xlsx, target_xlsx, int(row["bin"]))
             copied_xlsx += 1
         except PermissionError:
             print(f"  rank {row['rank']:>3} {row['node']:<26} [locked] close it in Excel and re-run")
@@ -81,7 +92,7 @@ def cmd_selection(ws: Workspace, family: str | None = None) -> None:
         f"  scored {len(result['candidates'])} node/bin sheets from 02_shift_array; "
         f"selected top {len(selected)} by upside-vs-downside skew"
     )
-    print(f"  score = max |shift(+theta,h) - shift(-theta,h)|, min bin n = {ws.min_bin_n}\n")
+    print(f"  score = max |shift(+Δ,t) - shift(-Δ,t)|, min bin n = {ws.min_bin_n}\n")
     if selected:
         print(f"  {'rank':>4}  {'node':<26}{'family':<13}{'bin':>5}  {'score':>7}  {'econ':>5}  best skew cell")
         print(f"  {'-'*4}  {'-'*26}{'-'*13}{'-'*5}  {'-'*7}  {'-'*5}  {'-'*42}")
@@ -91,7 +102,7 @@ def cmd_selection(ws: Workspace, family: str | None = None) -> None:
             print(
                 f"  {row['rank']:>4}  {row['node']:<26}{row['family']:<13}"
                 f"{row['bin_number']:>5}  {row['score']:>6.1f}  {econ:>5}  "
-                f"|θ|={c['theta_abs']:+.0%} +{c['horizon']}{ws.horizon_unit} "
+                f"|Δ|={c['Δ_abs']:+.0%} +{c['horizon']}{ws.horizon_unit} "
                 f"skew={c['skew']:+.1f}pp n={c['bin_n']}"
             )
 

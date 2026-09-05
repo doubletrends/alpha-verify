@@ -3,7 +3,7 @@
 This repository measures conditional barrier-touch probabilities:
 
 ```text
-P(price touches theta within h bars | condition bin)
+P(price touches Δ within t bars | condition bin)
 ```
 
 That is different from asking where price closes. Stops, limits, liquidations and margin
@@ -13,7 +13,7 @@ engine uses high/low extremes rather than close-to-close returns.
 The product workflow has seven stages:
 
 ```text
-01_surface_array/         --surface     compute: full theta x bins x horizons
+01_surface_array/         --surface     compute: full Δ x bins x horizons
 01_surface_xlsx/          --surface     view: full surface workbooks
 
 02_shift_array/           --shift       compute: full baseline-subtracted shift cube
@@ -64,14 +64,14 @@ This stage computes one probability cube per node:
 
 | axis | contents |
 |---|---|
-| 0 | barrier level `theta`, ascending and including zero |
+| 0 | barrier level `Δ`, ascending and including zero |
 | 1 | condition bin, usually feature deciles |
-| 2 | forward horizon `h` |
+| 2 | forward horizon `t` |
 
 The value is the raw conditional probability:
 
 ```text
-P(price touches theta within h | feature is in this bin)
+P(price touches Δ within t | feature is in this bin)
 ```
 
 Nothing is subtracted. The unconditional rate is the `baseline` node: a constant feature
@@ -99,7 +99,7 @@ The shift stage keeps the full Stage 1 grid and subtracts the baseline node from
 condition bin:
 
 ```text
-shift = 100 * (P(price touches theta within h | bin) - P(price touches theta within h))
+shift = 100 * (P(price touches Δ within t | bin) - P(price touches Δ within t))
 ```
 
 The shift stage does not judge nodes. It writes the full baseline-subtracted cube that
@@ -110,7 +110,7 @@ economic filter when it has a cell that:
 
 - deviates from the baseline by at least `min_dev` percentage points
 - has at least `min_bin_n` observations in the bin
-- persists across at least `min_run` adjacent theta rows with the same sign
+- persists across at least `min_run` adjacent Δ rows with the same sign
 
 The workbook uses a diverging scale centered at zero: red cells mean the barrier is
 reached more often than baseline, blue cells mean less often. The adjacency requirement
@@ -125,13 +125,13 @@ python run.py --workspace <name> --selection --family volatility
 ```
 
 Selection reads the Stage 2 shift cubes and treats every condition bin as its own
-theta-by-horizon sheet. For each sheet it scores symmetric upside/downside skew:
+Δ-by-horizon sheet. For each sheet it scores symmetric upside/downside skew:
 
 ```text
-score = max |shift(+theta, h) - shift(-theta, h)|
+score = max |shift(+Δ, t) - shift(-Δ, t)|
 ```
 
-Only positive `theta` rows are paired with their matching negative rows, and horizons
+Only positive `Δ` rows are paired with their matching negative rows, and horizons
 where the bin has fewer than `min_bin_n` observations are ignored. The stage ranks all
 node/bin sheets globally, applies the economic filter to those sheets, and writes the
 top `selection.top_k` rows, defaulting to 20, to
@@ -153,16 +153,16 @@ For each horizon, validation stores:
 
 | field | shape | meaning |
 |---|---:|---|
-| `cell_real` | theta x bin x h | signed deviation from the node's own sample rate |
-| `cell_p` | theta x bin x h | pointwise p-value for reading a surface |
-| `cell_p95` | theta x bin x h | each cell's null 95th percentile |
-| `sheet_peak_real` | bin x h | max absolute deviation over one selected sheet |
-| `sheet_peak_p` | bin x h | p-value of that sheet search statistic |
-| `sheet_peak_p95` | bin x h | null 95th percentile of that sheet statistic |
-| `peak_real` | h | max absolute deviation over the surface |
-| `peak_p` | h | p-value of that max search statistic |
-| `peak_p95` | h | null 95th percentile of that max statistic |
-| `n_shifts` | h | usable shifts, giving the p-value floor `1/(n+1)` |
+| `cell_real` | Δ x bin x t | signed deviation from the node's own sample rate |
+| `cell_p` | Δ x bin x t | pointwise p-value for reading a surface |
+| `cell_p95` | Δ x bin x t | each cell's null 95th percentile |
+| `sheet_peak_real` | bin x t | max absolute deviation over one selected sheet |
+| `sheet_peak_p` | bin x t | p-value of that sheet search statistic |
+| `sheet_peak_p95` | bin x t | null 95th percentile of that sheet statistic |
+| `peak_real` | t | max absolute deviation over the surface |
+| `peak_p` | t | p-value of that max search statistic |
+| `peak_p95` | t | null 95th percentile of that max statistic |
+| `n_shifts` | t | usable shifts, giving the p-value floor `1/(n+1)` |
 
 The exact null is fast because counts by circular shift are a cross-correlation. One FFT
 returns every shift. The floor matters: with only `n` distinct shifts, no method can
@@ -216,9 +216,9 @@ selected conditions can be combined out of sample.
 Under conditional independence, log-odds add:
 
 ```text
-logit P(touch theta in h | x1..xk)
-  = logit P(touch theta in h)
-    + sum_i [logit P(touch theta in h | xi) - logit P(touch theta in h)]
+logit P(touch Δ in t | x1..xk)
+  = logit P(touch Δ in t)
+    + sum_i [logit P(touch Δ in t | xi) - logit P(touch Δ in t)]
 ```
 
 Every term already lives in the measured cubes. The composition stage tests this with an
@@ -255,7 +255,6 @@ The main product figures show:
 - the measured forward envelope from the latest close
 - the exact null distribution behind a headline node
 - one conditional-shift surface for every node that cleared both
-- the composition ranking grid
 - the ATR regime ladder
 - the null-gap ranking across top discoveries
 
@@ -284,12 +283,12 @@ There is no progress field. Progress is inferred from artifacts on disk.
 | `asset` | `{provider, ticker, interval}` |
 | `start_date` | history start |
 | `horizons` | full horizon ladder |
-| `theta` | full barrier ladder |
+| `Δ` | full barrier ladder |
 | `n_bins` | condition bins per feature |
 | `evaluate` | economic filter thresholds |
 | `bayes` | composition target and fold count |
 
-Scale `theta` to the asset and horizon. BTC daily can support wider barriers than a
+Scale `Δ` to the asset and horizon. BTC daily can support wider barriers than a
 daily equity index; a good workspace spends barrier rows where touches occur often
 enough to estimate.
 

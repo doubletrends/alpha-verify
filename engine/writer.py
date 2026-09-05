@@ -2,7 +2,7 @@
 The pipeline's deliverable.
 
 write_barrier_xlsx renders a cube as one tab per condition bin. Each tab is that bin's
-whole (θ x horizon) face, so the workbook holds every value the cube holds -- it is
+whole (Δ x horizon) face, so the workbook holds every value the cube holds -- it is
 a faithful view of the measurement, not a summary of it.
 
 Stage 1 workbooks show raw conditional probabilities. Stage 2 shift workbooks show the
@@ -24,6 +24,7 @@ from engine.barrier import MIN_BIN_N
 
 _PCT_FMT = '0.0%'
 _PP_FMT = '+0.0;-0.0;0.0'
+_SHIFT_PCT_FMT = '+0.0%;-0.0%;0.0%'
 _PVAL_FMT = '0.0000'
 
 _WHITE, _AMBER, _RED = 'FFFFFF', 'FFD166', 'C00000'
@@ -31,15 +32,15 @@ _BLUE = '2A78D6'
 _GREEN = '00875A'
 _FILL_ROW1 = PatternFill('solid', start_color='666666', end_color='666666')
 _FILL_ROW2 = PatternFill('solid', start_color='B2B2B2', end_color='B2B2B2')
-_FILL_ROW3 = PatternFill('solid', start_color='CCCCCC', end_color='CCCCCC')
 _FILL_NBAND = PatternFill('solid', start_color='EFEFEF', end_color='EFEFEF')
 _FILL_NA = PatternFill('solid', start_color='F7F7F7', end_color='F7F7F7')
 _FILL_MID = PatternFill('solid', start_color='DDDDDD', end_color='DDDDDD')
 _CENTER = Alignment(horizontal='center', vertical='center', wrap_text=True)
 
-_COL_ROW  = 5   # horizon labels
-_N_ROW    = 6   # observations behind this bin at each horizon
-_DATA_ROW = 7   # first θ row
+_COL_ROW  = 4   # horizon labels
+_N_ROW    = 3   # observations behind this bin at each horizon
+_DATA_ROW = 5   # first Δ row
+_VALID_COL_ROW = 3
 
 _ABBREV = {'rsi', 'ma', 'atr', 'dxy', 'macd', 'bb', 'mvrv', 'wr', 'roc', 'vol'}
 
@@ -79,16 +80,32 @@ def _sheet_names(labels: list[str]) -> list[str]:
     return out
 
 
-def _write_headers(ws, row1: str, row2: str, row3: str, merge_end: str) -> None:
-    for r, text, font, fill in [
+def _write_headers(ws, row1: str, row2: str, row3: str | None, merge_end: str) -> None:
+    rows = [
         (1, row1, Font(bold=True, size=14, color='FFFFFF'), _FILL_ROW1),
         (2, row2, Font(bold=True, size=11, color='000000'), _FILL_ROW2),
-        (3, row3, Font(size=10, color='000000'), _FILL_ROW3),
-    ]:
+    ]
+    for r, text, font, fill in rows:
         ws.merge_cells(f'A{r}:{merge_end}{r}')
         c = ws[f'A{r}']
         c.value, c.font, c.fill, c.alignment = text, font, fill, _CENTER
         ws.row_dimensions[r].height = 18
+
+
+def _condition_title(node_id: str, feature: str, labels: list[str], edges: np.ndarray,
+                     bin_index: int, unconditional: bool) -> str:
+    display_feature = feature_label(node_id)
+    if unconditional:
+        condition = 'all'
+    elif len(edges) == 0:
+        condition = labels[bin_index]
+    elif bin_index == 0:
+        condition = f'{display_feature} < {float(edges[0]):.3f}'
+    elif bin_index == len(edges):
+        condition = f'{float(edges[-1]):.3f} < {display_feature}'
+    else:
+        condition = f'{float(edges[bin_index - 1]):.3f} < {display_feature} < {float(edges[bin_index]):.3f}'
+    return f'Condition —— {condition}'
 
 
 def write_barrier_xlsx(
@@ -100,10 +117,10 @@ def write_barrier_xlsx(
     unit:    str = 'd',
 ) -> None:
     """
-    One tab per condition bin; each tab is that bin's full θ x horizon face.
+    One tab per condition bin; each tab is that bin's full Δ x horizon face.
 
     Rows run from the highest barrier at the top to the lowest at the bottom, the way a
-    price ladder reads: up the sheet is up in price. θ = 0 sits in the middle and is
+    price ladder reads: up the sheet is up in price. Δ = 0 sits in the middle and is
     shaded, marking the boundary between two different questions -- above it a cell asks
     whether the *high* reached that level, below it whether the *low* did.
 
@@ -112,18 +129,19 @@ def write_barrier_xlsx(
     look alike.
 
     The n band under the header is the observation count behind that bin at each
-    horizon; it falls as h grows, because the last h bars have no realized forward
+    horizon; it falls as t grows, because the last t bars have no realized forward
     window.
     """
     prob     = cube['prob']
-    thetas   = cube['thetas']
+    Δs   = cube['Δs']
     horizons = cube['horizons']
     bin_n    = cube['bin_n']
     labels   = cube['meta']['bin_labels']
-    n_th, n_bins, n_h = prob.shape
+    edges    = cube['edges']
+    n_th, n_bins, n_t = prob.shape
 
-    order = np.argsort(thetas)[::-1]        # highest barrier on the top row
-    end   = get_column_letter(1 + n_h)
+    order = np.argsort(Δs)[::-1]        # highest barrier on the top row
+    end   = get_column_letter(1 + n_t)
 
     wb = Workbook()
     wb.remove(wb.active)
@@ -133,42 +151,37 @@ def write_barrier_xlsx(
 
     for b in range(n_bins):
         ws = wb.create_sheet(names[b])
-        title = (f'{feature_label(node_id)} — unconditional, every bar'
-                 if unconditional else
-                 f'{feature_label(node_id)} — condition: {feature} in {labels[b]}')
+        title = _condition_title(node_id, feature, labels, edges, b, unconditional)
         _write_headers(
             ws,
             title,
-            ('P(price touches θ within h)' if unconditional
-             else 'P(price touches θ within h | condition)'),
-            f'node {node_id}   params={params}   bin {b + 1} of {n_bins}   '
-            f'rows: barrier θ, highest at the top   columns: horizon   '
-            f'intraday high/low, window opens at t+1',
+            'P (Price touches Δ within t | Condition)',
+            None,
             merge_end=end,
         )
 
-        c = ws.cell(row=_COL_ROW, column=1, value='θ')
+        c = ws.cell(row=_COL_ROW, column=1, value='Δ')
         c.font, c.alignment = Font(bold=True), _CENTER
-        for j, h in enumerate(horizons):
-            c = ws.cell(row=_COL_ROW, column=2 + j, value=f'+{int(h)}{unit}')
+        for j, t in enumerate(horizons):
+            c = ws.cell(row=_COL_ROW, column=2 + j, value=f'+{int(t)}{unit}')
             c.font, c.alignment = Font(bold=True), _CENTER
 
         c = ws.cell(row=_N_ROW, column=1, value='n =')
         c.font, c.fill = Font(bold=True, italic=True, size=9), _FILL_NBAND
-        for j in range(n_h):
+        for j in range(n_t):
             c = ws.cell(row=_N_ROW, column=2 + j, value=int(bin_n[b, j]))
             c.font, c.fill, c.alignment = Font(italic=True, size=9), _FILL_NBAND, _CENTER
 
         for r_off, i in enumerate(order):
             r = _DATA_ROW + r_off
-            th = float(thetas[i])
+            th = float(Δs[i])
             is_zero = abs(th) < 1e-12
             tc = ws.cell(row=r, column=1, value=th)
             tc.number_format = '+0%;-0%;0%'
             tc.font, tc.alignment = Font(bold=True), _CENTER
             if is_zero:
                 tc.fill = _FILL_MID
-            for j in range(n_h):
+            for j in range(n_t):
                 v = prob[i, b, j]
                 cell = ws.cell(row=r, column=2 + j,
                                value=None if not np.isfinite(v) else round(float(v), 4))
@@ -183,7 +196,7 @@ def write_barrier_xlsx(
                            end_type='num',   end_value=1.0,   end_color=_RED))
 
         ws.column_dimensions['A'].width = 8
-        for j in range(n_h):
+        for j in range(n_t):
             ws.column_dimensions[get_column_letter(2 + j)].width = 6.5
         ws.freeze_panes = f'B{_DATA_ROW}'
 
@@ -207,16 +220,17 @@ def write_shift_xlsx(
     red means more often.
     """
     values   = cube['shift']
-    thetas   = cube['thetas']
+    Δs   = cube['Δs']
     horizons = cube['horizons']
     bin_n    = cube['bin_n']
     labels   = cube['meta']['bin_labels']
-    n_th, n_bins, n_h = values.shape
+    edges    = cube['edges']
+    n_th, n_bins, n_t = values.shape
 
-    order = np.argsort(thetas)[::-1]
-    end = get_column_letter(1 + n_h)
+    order = np.argsort(Δs)[::-1]
+    end = get_column_letter(1 + n_t)
     lim = float(np.nanmax(np.abs(values))) if np.isfinite(values).any() else 1.0
-    lim = max(lim, 1.0)
+    lim = max(lim, 1.0) / 100.0
 
     wb = Workbook()
     wb.remove(wb.active)
@@ -226,45 +240,41 @@ def write_shift_xlsx(
 
     for b in range(n_bins):
         ws = wb.create_sheet(names[b])
-        title = (f'{feature_label(node_id)} — unconditional baseline shift'
-                 if unconditional else
-                 f'{feature_label(node_id)} — condition: {feature} in {labels[b]}')
+        title = _condition_title(node_id, feature, labels, edges, b, unconditional)
         _write_headers(
             ws,
             title,
-            'P(price touches θ within h | condition) minus baseline, percentage points',
-            f'node {node_id}   params={params}   bin {b + 1} of {n_bins}   '
-            f'rows: barrier θ, highest at the top   columns: horizon   '
-            'red = more frequent than baseline, blue = less frequent',
+            'P (Price touches Δ within t | Condition) - P (Price touches Δ within t)',
+            None,
             merge_end=end,
         )
 
-        c = ws.cell(row=_COL_ROW, column=1, value='θ')
+        c = ws.cell(row=_COL_ROW, column=1, value='Δ')
         c.font, c.alignment = Font(bold=True), _CENTER
-        for j, h in enumerate(horizons):
-            c = ws.cell(row=_COL_ROW, column=2 + j, value=f'+{int(h)}{unit}')
+        for j, t in enumerate(horizons):
+            c = ws.cell(row=_COL_ROW, column=2 + j, value=f'+{int(t)}{unit}')
             c.font, c.alignment = Font(bold=True), _CENTER
 
         c = ws.cell(row=_N_ROW, column=1, value='n =')
         c.font, c.fill = Font(bold=True, italic=True, size=9), _FILL_NBAND
-        for j in range(n_h):
+        for j in range(n_t):
             c = ws.cell(row=_N_ROW, column=2 + j, value=int(bin_n[b, j]))
             c.font, c.fill, c.alignment = Font(italic=True, size=9), _FILL_NBAND, _CENTER
 
         for r_off, i in enumerate(order):
             r = _DATA_ROW + r_off
-            th = float(thetas[i])
+            th = float(Δs[i])
             is_zero = abs(th) < 1e-12
             tc = ws.cell(row=r, column=1, value=th)
             tc.number_format = '+0%;-0%;0%'
             tc.font, tc.alignment = Font(bold=True), _CENTER
             if is_zero:
                 tc.fill = _FILL_MID
-            for j in range(n_h):
+            for j in range(n_t):
                 v = values[i, b, j]
                 cell = ws.cell(row=r, column=2 + j,
-                               value=None if not np.isfinite(v) else round(float(v), 2))
-                cell.number_format = _PP_FMT
+                               value=None if not np.isfinite(v) else round(float(v) / 100.0, 4))
+                cell.number_format = _SHIFT_PCT_FMT
                 if not np.isfinite(v):
                     cell.fill = _FILL_NA
 
@@ -276,7 +286,7 @@ def write_shift_xlsx(
                            end_type='num', end_value=lim, end_color=_RED))
 
         ws.column_dimensions['A'].width = 8
-        for j in range(n_h):
+        for j in range(n_t):
             ws.column_dimensions[get_column_letter(2 + j)].width = 8.5
         ws.freeze_panes = f'B{_DATA_ROW}'
 
@@ -303,7 +313,7 @@ def _write_validation_matrix(
     used: set[str],
     sheet_name: str,
     values: np.ndarray,
-    thetas: np.ndarray,
+    Δs: np.ndarray,
     horizons: np.ndarray,
     title: str,
     subtitle: str,
@@ -312,27 +322,27 @@ def _write_validation_matrix(
     unit: str,
     pvalue_scale: bool,
 ) -> None:
-    n_th, n_h = values.shape
-    order = np.argsort(thetas)[::-1]
-    end = get_column_letter(1 + n_h)
+    n_th, n_t = values.shape
+    order = np.argsort(Δs)[::-1]
+    end = get_column_letter(1 + n_t)
     ws = wb.create_sheet(_safe_sheet_name(sheet_name, used))
     _write_headers(ws, title, subtitle, row3, merge_end=end)
 
-    c = ws.cell(row=_COL_ROW, column=1, value='θ')
+    c = ws.cell(row=_VALID_COL_ROW, column=1, value='Δ')
     c.font, c.alignment = Font(bold=True), _CENTER
-    for j, h in enumerate(horizons):
-        c = ws.cell(row=_COL_ROW, column=2 + j, value=f'+{int(h)}{unit}')
+    for j, t in enumerate(horizons):
+        c = ws.cell(row=_VALID_COL_ROW, column=2 + j, value=f'+{int(t)}{unit}')
         c.font, c.alignment = Font(bold=True), _CENTER
 
     for r_off, i in enumerate(order):
         r = _DATA_ROW + r_off
-        th = float(thetas[i])
+        th = float(Δs[i])
         tc = ws.cell(row=r, column=1, value=th)
         tc.number_format = '+0%;-0%;0%'
         tc.font, tc.alignment = Font(bold=True), _CENTER
         if abs(th) < 1e-12:
             tc.fill = _FILL_MID
-        for j in range(n_h):
+        for j in range(n_t):
             v = values[i, j]
             cell = ws.cell(row=r, column=2 + j,
                            value=None if not np.isfinite(v) else float(v))
@@ -355,7 +365,7 @@ def _write_validation_matrix(
                            end_type='num', end_value=20, end_color=_RED))
 
     ws.column_dimensions['A'].width = 8
-    for j in range(n_h):
+    for j in range(n_t):
         ws.column_dimensions[get_column_letter(2 + j)].width = 8.5
     ws.freeze_panes = f'B{_DATA_ROW}'
 
@@ -376,7 +386,7 @@ def write_validation_xlsx(
     each condition bin. Pointwise p-values are for reading the surface; discoveries are
     still assigned only by --gate across the selected sheet/horizon sweep.
     """
-    thetas = result['thetas']
+    Δs = result['Δs']
     horizons = result['horizons']
     labels = result['meta']['bin_labels']
     n_bins = result['cell_real'].shape[1]
@@ -394,14 +404,14 @@ def write_validation_xlsx(
     )
     headers = ['horizon', 'peak dev pp', 'null p95 pp', 'peak p', 'usable shifts', 'p floor']
     for col, header in enumerate(headers, 1):
-        c = ws.cell(row=_COL_ROW, column=col, value=header)
+        c = ws.cell(row=_VALID_COL_ROW, column=col, value=header)
         c.font, c.alignment = Font(bold=True), _CENTER
-    for r_off, h in enumerate(horizons):
-        r = _COL_ROW + 1 + r_off
+    for r_off, t in enumerate(horizons):
+        r = _VALID_COL_ROW + 1 + r_off
         n = int(result['n_shifts'][r_off])
         floor = None if n <= 0 else 1.0 / (1.0 + n)
         row = [
-            f'+{int(h)}{unit}',
+            f'+{int(t)}{unit}',
             result['peak_real'][r_off],
             result['peak_p95'][r_off],
             result['peak_p'][r_off],
@@ -418,7 +428,7 @@ def write_validation_xlsx(
             c.alignment = _CENTER
     for col, width in enumerate([10, 13, 13, 10, 14, 10], 1):
         ws.column_dimensions[get_column_letter(col)].width = width
-    ws.freeze_panes = f'A{_COL_ROW + 1}'
+    ws.freeze_panes = f'A{_VALID_COL_ROW + 1}'
 
     used = {'summary'}
     names = _sheet_names(list(labels))
@@ -426,10 +436,10 @@ def write_validation_xlsx(
         label = labels[b]
         suffix = names[b]
         common = (f'node {node_id}   bin {b + 1} of {n_bins}: {label}   '
-                  'rows: barrier theta   columns: horizon')
+                  'rows: barrier Δ   columns: horizon')
         _write_validation_matrix(
             wb, used, f'dev {suffix}',
-            result['cell_real'][:, b, :], thetas, horizons,
+            result['cell_real'][:, b, :], Δs, horizons,
             f'{feature_label(node_id)} — signed validation deviation',
             'Deviation from this node bin sample rate, percentage points',
             common,
@@ -439,7 +449,7 @@ def write_validation_xlsx(
         )
         _write_validation_matrix(
             wb, used, f'p {suffix}',
-            result['cell_p'][:, b, :], thetas, horizons,
+            result['cell_p'][:, b, :], Δs, horizons,
             f'{feature_label(node_id)} — pointwise validation p-values',
             'Per-cell null p-values; useful for reading, not for discovery claims',
             common,

@@ -5,7 +5,7 @@ from __future__ import annotations
 from universe import find_node
 
 
-def theta_pct(v: float, step: float) -> str:
+def Δ_pct(v: float, step: float) -> str:
     """Barrier label: keep half-percent grids distinct, but avoid noisy .0% labels."""
     decimals = 1 if step < 0.01 else 0
     return format(float(v), f"+.{decimals}%")

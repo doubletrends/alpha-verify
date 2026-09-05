@@ -13,23 +13,23 @@ def score_sheet(cube: dict, bin_index: int, min_bin_n: int) -> dict | None:
     """
     Score one 2D shift sheet by the strongest symmetric barrier skew.
 
-    For each positive theta and horizon, compare the baseline-subtracted upside shift
+    For each positive Δ and horizon, compare the baseline-subtracted upside shift
     with the matching downside shift:
 
-        skew = shift(+theta, h) - shift(-theta, h)
+        skew = shift(+Δ, t) - shift(-Δ, t)
 
     The sheet score is max(abs(skew)) over cells whose bin has enough observations.
     """
     dev = np.asarray(cube["shift"], dtype=float)
-    thetas = np.asarray(cube["thetas"], dtype=float)
+    Δs = np.asarray(cube["Δs"], dtype=float)
     horizons = np.asarray(cube["horizons"], dtype=int)
     bin_n = np.asarray(cube["bin_n"])
     labels = cube["meta"].get("bin_labels", [])
 
-    pos = np.flatnonzero(thetas > 1e-12)
+    pos = np.flatnonzero(Δs > 1e-12)
     pairs = []
     for i_pos in pos:
-        hits = np.flatnonzero(np.isclose(thetas, -thetas[i_pos], atol=1e-12))
+        hits = np.flatnonzero(np.isclose(Δs, -Δs[i_pos], atol=1e-12))
         if len(hits):
             pairs.append((i_pos, int(hits[0])))
     if not pairs:
@@ -46,7 +46,7 @@ def score_sheet(cube: dict, bin_index: int, min_bin_n: int) -> dict | None:
     i_pos, i_neg = pairs[int(r_best)]
     up_shift = float(dev[i_pos, bin_index, j_best])
     down_shift = float(dev[i_neg, bin_index, j_best])
-    signed_theta = float(thetas[i_pos] if abs(up_shift) >= abs(down_shift) else thetas[i_neg])
+    signed_Δ = float(Δs[i_pos] if abs(up_shift) >= abs(down_shift) else Δs[i_neg])
     signed_dev = up_shift if abs(up_shift) >= abs(down_shift) else down_shift
 
     finite = np.abs(skew[np.isfinite(skew)])
@@ -59,8 +59,8 @@ def score_sheet(cube: dict, bin_index: int, min_bin_n: int) -> dict | None:
         "n_scored_cells": int(finite.size),
         "best_cell": {
             "bin": int(bin_index),
-            "theta": signed_theta,
-            "theta_abs": float(thetas[i_pos]),
+            "Δ": signed_Δ,
+            "Δ_abs": float(Δs[i_pos]),
             "horizon": int(horizons[j_best]),
             "dev": float(signed_dev),
             "skew": float(skew[r_best, j_best]),
@@ -83,11 +83,11 @@ def economic_filter_sheet(
     prob = np.asarray(cube["prob"], dtype=float)
     base = np.asarray(cube["base"], dtype=float)
     bin_n = np.asarray(cube["bin_n"])
-    thetas = np.asarray(cube["thetas"], dtype=float)
+    Δs = np.asarray(cube["Δs"], dtype=float)
     horizons = np.asarray(cube["horizons"], dtype=int)
 
     best = None
-    for j, h in enumerate(horizons):
+    for j, t in enumerate(horizons):
         if bin_n[bin_index, j] < min_bin_n:
             continue
         col = dev[:, bin_index, j]
@@ -105,10 +105,10 @@ def economic_filter_sheet(
             if run >= min_run:
                 k = int(start + np.argmax(np.abs(col[start:i + 1])))
                 cand = {
-                    "horizon": int(h),
+                    "horizon": int(t),
                     "bin": int(bin_index),
                     "bin_number": int(bin_index + 1),
-                    "theta": float(thetas[k]),
+                    "Δ": float(Δs[k]),
                     "dev": float(col[k]),
                     "run": int(run),
                     "prob": float(prob[k, bin_index, j]),
@@ -164,9 +164,9 @@ def rank_shift_sheets(
         "artifact": "03_selection",
         "source": "02_shift_array",
         "method": {
-            "score": "max |shift(+theta,h) - shift(-theta,h)| over theta>0 and horizons",
+            "score": "max |shift(+Δ,t) - shift(-Δ,t)| over Δ>0 and horizons",
             "unit": "percentage points",
-            "economic": "|dev| >= min_dev across adjacent same-sign theta rows in the selected bin",
+            "economic": "|dev| >= min_dev across adjacent same-sign Δ rows in the selected bin",
             "min_dev": min_dev,
             "min_bin_n": min_bin_n,
             "min_run": min_run,
@@ -195,7 +195,7 @@ def sheet_from_shift_cube(cube: dict, row: dict) -> dict:
         "hits": cube["hits"][:, b:b + 1, :],
         "bin_n": cube["bin_n"][b:b + 1, :],
         "n_obs": cube["n_obs"],
-        "thetas": cube["thetas"],
+        "Δs": cube["Δs"],
         "horizons": cube["horizons"],
         "edges": cube["edges"],
         "source_bin": np.array(b, dtype=np.int32),
@@ -228,7 +228,7 @@ def save_sheet(cube: dict, path: Path, meta: dict) -> None:
         "hits": cube["hits"],
         "bin_n": cube["bin_n"],
         "n_obs": cube["n_obs"],
-        "thetas": cube["thetas"],
+        "Δs": cube["Δs"],
         "horizons": cube["horizons"],
         "edges": cube["edges"],
         "source_bin": cube["source_bin"],

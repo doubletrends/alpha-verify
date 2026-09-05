@@ -16,7 +16,7 @@ from workspace import Workspace
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Barrier-touch pipeline: P(price reaches theta within h | condition), "
+            "Barrier-touch pipeline: P(price reaches Δ within t | condition), "
             "measured on a full grid and judged after subtracting the baseline."
         )
     )

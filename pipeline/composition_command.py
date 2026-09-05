@@ -32,7 +32,7 @@ def cmd_bayes(ws: Workspace) -> None:
         return
 
     baseline = shift.load(baseline_path)["base"]
-    theta, horizon = ws.bayes_target(baseline)
+    Δ, horizon = ws.bayes_target(baseline)
     try:
         data, feats, fams = artifact_feature_panel(ws)
     except ValueError as e:
@@ -44,7 +44,7 @@ def cmd_bayes(ws: Workspace) -> None:
         f"{len(set(fams.values()))} families ==="
     )
     print(
-        f"  target: P(touch {theta:+.0%} within {horizon}{ws.horizon_unit})   "
+        f"  target: P(touch {Δ:+.0%} within {horizon}{ws.horizon_unit})   "
         f"expanding walk forward, {ws.bayes_folds} folds over the last half"
     )
     print(
@@ -53,7 +53,7 @@ def cmd_bayes(ws: Workspace) -> None:
     )
 
     head = bayes.walk_forward(
-        data, feats, fams, theta, horizon, n_bins=ws.n_bins, folds=ws.bayes_folds
+        data, feats, fams, Δ, horizon, n_bins=ws.n_bins, folds=ws.bayes_folds
     )
     m = head["metrics"]
     print(f"  {'model':<24}{'Brier':>9}{'AUC':>8}{'mean P':>9}   vs prior")
@@ -79,19 +79,19 @@ def cmd_bayes(ws: Workspace) -> None:
         f"{1 / a_mean:.1f}x"
     )
 
-    th, hz = ws.shift_thetas, ws.shift_horizons
-    targets = [(float(t), int(h)) for t in th if abs(t) > 1e-12 for h in hz]
+    th, ts = ws.shift_Δs, ws.shift_horizons
+    targets = [(float(t), int(t)) for t in th if abs(t) > 1e-12 for t in ts]
     print(f"\n  sweeping the full shift grid: {len(targets)} targets", end="", flush=True)
     grid = []
-    for t, h in targets:
+    for t, t in targets:
         try:
-            r = bayes.walk_forward(data, feats, fams, t, h, n_bins=ws.n_bins, folds=ws.bayes_folds)
+            r = bayes.walk_forward(data, feats, fams, t, t, n_bins=ws.n_bins, folds=ws.bayes_folds)
         except Exception:
             continue
         g = r["metrics"]
         grid.append({
-            "theta": t,
-            "horizon": h,
+            "Δ": t,
+            "horizon": t,
             "auc": g["one_per_family_scaled"]["auc"],
             "brier_prior": g["prior_only"]["brier"],
             "brier_all": g["all_nodes"]["brier"],
@@ -112,7 +112,7 @@ def cmd_bayes(ws: Workspace) -> None:
         p_scaled=head["p_scaled"],
         p_prior=head["p_prior"],
         fold=head["fold"],
-        grid_theta=np.array([g["theta"] for g in grid], dtype=float),
+        grid_Δ=np.array([g["Δ"] for g in grid], dtype=float),
         grid_horizon=np.array([g["horizon"] for g in grid], dtype=int),
         grid_auc=np.array([g["auc"] for g in grid], dtype=float),
         grid_brier_prior=np.array([g["brier_prior"] for g in grid], dtype=float),
@@ -124,7 +124,7 @@ def cmd_bayes(ws: Workspace) -> None:
         grid_n_scored=np.array([g["n_scored"] for g in grid], dtype=int),
         meta=np.array(json.dumps({
             "workspace": ws.dir.name,
-            "theta": theta,
+            "Δ": Δ,
             "horizon": horizon,
             "unit": ws.horizon_unit,
             "generated": datetime.now(timezone.utc).isoformat(),
@@ -133,7 +133,7 @@ def cmd_bayes(ws: Workspace) -> None:
     ws.write_json(ws.bayes_summary_path, {
         "workspace": ws.dir.name,
         "generated": datetime.now(timezone.utc).isoformat(),
-        "target": {"theta": theta, "horizon": horizon, "unit": ws.horizon_unit},
+        "target": {"Δ": Δ, "horizon": horizon, "unit": ws.horizon_unit},
         "design": {
             "folds": ws.bayes_folds,
             "embargo_bars": horizon,

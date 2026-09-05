@@ -15,20 +15,26 @@ from workspace import Workspace
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _validation_matches_shift(ws: Workspace, node: dict) -> bool:
-    if not ws.has_validation(node["family"], node["id"]):
+def _validation_matches_selection(ws: Workspace, row: dict) -> bool:
+    if not ws.has_validation_array(row):
         return False
     try:
-        grid = shift.load(ws.shift_cube_path(node["family"], node["id"]))
-        existing = val.load(ws.validation_path(node["family"], node["id"]))
+        grid = shift.load(ws.shift_cube_path(row["family"], row["node"]))
+        existing = val.load(ws.validation_array_path(row))
     except Exception:
         return False
     return (
-        np.array_equal(existing["thetas"], grid["thetas"])
+        np.array_equal(existing["Δs"], grid["Δs"])
         and np.array_equal(existing["horizons"], grid["horizons"])
-        and existing["cell_real"].shape == grid["shift"].shape
+        and existing["cell_real"].shape == (grid["shift"].shape[0], 1, grid["shift"].shape[2])
+        and int(np.asarray(existing.get("source_bin", -1))) == int(row["bin"])
         and "sheet_peak_p" in existing
     )
+
+
+def _validation_matches_shift(ws: Workspace, node: dict) -> bool:
+    rows = [r for r in _selected_rows(ws) if r.get("node") == node["id"] and ws.has_selection_array(r)]
+    return bool(rows) and all(_validation_matches_selection(ws, r) for r in rows)
 
 
 def _selected_rows(ws: Workspace, family: str | None = None) -> list[dict]:
@@ -50,24 +56,26 @@ def cmd_validation(ws: Workspace, family: str | None = None, rerun: bool = False
     if not rows:
         print("No 03_selection_array artifacts - run --selection first.")
         return
-    selected_bins = selection.selected_bins_by_node({"selected": rows})
     by_id = {n["id"]: n for n in all_nodes(universe)}
-    nodes = [by_id[nid] for nid in selected_bins if nid in by_id and ws.has_shift_cube(by_id[nid]["family"], nid)]
+    rows = [
+        r for r in rows
+        if r["node"] in by_id and ws.has_shift_cube(r["family"], r["node"])
+    ]
     if not rerun:
-        nodes = [
-            n for n in nodes
-            if not _validation_matches_shift(ws, n)
-            or not ws.has_validation_sheet(n["family"], n["id"])
+        rows = [
+            r for r in rows
+            if not _validation_matches_selection(ws, r)
+            or not ws.has_validation_surface(r)
         ]
-    if not nodes:
+    if not rows:
         print("Nothing to validate or render (use --rerun to redo selected sheets).")
         return
 
-    th, hz = ws.shift_thetas, ws.shift_horizons
-    print(f"\n=== 4. 04_validation_array [{ws.dir.name}] - {len(nodes)} nodes, {len(rows)} selected sheets ===")
+    th, ts = ws.shift_Δs, ws.shift_horizons
+    print(f"\n=== 4. 04_validation_array [{ws.dir.name}] - {len(rows)} selected sheets ===")
     print(
-        f"  selected sheets are tested as {len(th)} θ x {len(hz)} horizon surfaces; "
-        "validation artifacts remain per-node for rendering"
+        f"  selected sheets are tested as {len(th)} Δ x {len(ts)} horizon surfaces; "
+        "validation artifacts are selected-bin scoped"
     )
     print(
         "  sheet p-values use the peak over that bin's 2D surface, not the whole node cube"
@@ -77,34 +85,41 @@ def cmd_validation(ws: Workspace, family: str | None = None, rerun: bool = False
 
     done_npz = 0
     done_xlsx = 0
-    for node in nodes:
+    node_cache: dict[str, dict] = {}
+    result_cache: dict[str, dict] = {}
+    for row in rows:
+        node = by_id[row["node"]]
         try:
-            cube = shift.load(ws.shift_cube_path(node["family"], node["id"]))
-            if _validation_matches_shift(ws, node) and not rerun:
-                r = val.load(ws.validation_path(node["family"], node["id"]))
-            else:
+            if node["id"] not in node_cache:
+                node_cache[node["id"]] = shift.load(ws.shift_cube_path(node["family"], node["id"]))
+            cube = node_cache[node["id"]]
+            if node["id"] not in result_cache:
                 data, feat = artifact_node_feature(cube, ws.min_obs)
-                r = val.validate_node(
+                result_cache[node["id"]] = val.validate_node(
                     data,
                     feat,
                     cube["horizons"],
-                    cube["thetas"],
+                    cube["Δs"],
                     cube["edges"],
                 )
-                val.save(r, ws.validation_path(node["family"], node["id"]), {
+            r = val.sheet_from_node_result(result_cache[node["id"]], row)
+            val.save(r, ws.validation_array_path(row), {
                     "node": node["id"],
                     "family": node["family"],
                     "feature": node["feature"],
                     "params": node["params"],
                     "workspace": ws.dir.name,
-                    "bin_labels": cube["meta"]["bin_labels"],
-                    "selected_bins": sorted(selected_bins.get(node["id"], [])),
+                    "bin_labels": r["meta"]["bin_labels"],
+                    "source_bin": int(row["bin"]),
+                    "source_bin_number": int(row["bin_number"]),
+                    "selection_rank": int(row["rank"]),
+                    "selection_score": float(row["score"]),
                     "generated": datetime.now(timezone.utc).isoformat(),
                 })
-                done_npz += 1
+            done_npz += 1
             writer.write_validation_xlsx(
                 r,
-                ws.validation_sheet_path(node["family"], node["id"]),
+                ws.validation_surface_path(row),
                 node["id"],
                 node["feature"],
                 node["params"],
@@ -115,19 +130,19 @@ def cmd_validation(ws: Workspace, family: str | None = None, rerun: bool = False
             print(f"  {node['id']:<26} [skip] {e}")
             continue
 
-        bins = sorted(selected_bins.get(node["id"], []))
-        sheet_p = r["sheet_peak_p"][bins, :] if bins else r["sheet_peak_p"]
+        bins = [int(row["bin"])]
+        sheet_p = r["sheet_peak_p"]
         finite = np.isfinite(sheet_p)
         if finite.any():
             rb, k = np.unravel_index(int(np.nanargmin(np.where(finite, sheet_p, np.nan))), sheet_p.shape)
-            b = bins[rb] if bins else rb
+            b = bins[rb]
             floor = 1.0 / (1.0 + r["n_shifts"][k])
-            tag = "  [at the floor]" if r["sheet_peak_p"][b, k] <= floor + 1e-12 else ""
+            tag = "  [at the floor]" if r["sheet_peak_p"][rb, k] <= floor + 1e-12 else ""
             print(
-                f"  {node['id']:<26} bin {b + 1:>2} best p={r['sheet_peak_p'][b, k]:.5f} "
+                f"  {node['id']:<26} bin {b + 1:>2} best p={r['sheet_peak_p'][rb, k]:.5f} "
                 f"at +{r['horizons'][k]}{ws.horizon_unit}  peak "
-                f"{r['sheet_peak_real'][b, k]:5.1f} vs p95 "
-                f"{r['sheet_peak_p95'][b, k]:5.1f}{tag}"
+                f"{r['sheet_peak_real'][rb, k]:5.1f} vs p95 "
+                f"{r['sheet_peak_p95'][rb, k]:5.1f}{tag}"
             )
         else:
             print(f"  {node['id']:<26} insufficient data in selected bins")
@@ -150,15 +165,14 @@ def cmd_gate(ws: Workspace, q: float = 0.05) -> None:
 
     rows = []
     for sel in selected:
-        path = ws.validation_path(sel["family"], sel["node"])
+        path = ws.validation_array_path(sel)
         if not path.exists():
             continue
-        node = {"family": sel["family"], "id": sel["node"]}
-        if not _validation_matches_shift(ws, node):
+        if not _validation_matches_selection(ws, sel):
             continue
         r = val.load(path)
         b = int(sel["bin"])
-        for j, h in enumerate(r["horizons"]):
+        for j, t in enumerate(r["horizons"]):
             rows.append({
                 "node": sel["node"],
                 "family": sel["family"],
@@ -167,10 +181,10 @@ def cmd_gate(ws: Workspace, q: float = 0.05) -> None:
                 "bin_label": sel.get("bin_label"),
                 "selection_rank": sel.get("rank"),
                 "selection_score": sel.get("score"),
-                "horizon": int(h),
-                "peak_p": float(r["sheet_peak_p"][b, j]),
-                "peak_real": float(r["sheet_peak_real"][b, j]),
-                "peak_p95": float(r["sheet_peak_p95"][b, j]),
+                "horizon": int(t),
+                "peak_p": float(r["sheet_peak_p"][0, j]),
+                "peak_real": float(r["sheet_peak_real"][0, j]),
+                "peak_p95": float(r["sheet_peak_p95"][0, j]),
                 "n_shifts": int(r["n_shifts"][j]),
             })
     if not rows:
@@ -249,12 +263,12 @@ def cmd_gate(ws: Workspace, q: float = 0.05) -> None:
     print(f"\n  selected sheets passing economic filter : {len(econ_passed)}")
     print(f"  selected-sheet discovery and economic pass: {len(cleared)}\n")
     if cleared:
-        print(f"  {'node':<26}{'family':<13}{'bin':>5}{'h':>5}  {'q':<10}{'peak':>7}  selected cell")
+        print(f"  {'node':<26}{'family':<13}{'bin':>5}{'t':>5}  {'q':<10}{'peak':>7}  selected cell")
         print(f"  {'-'*26}{'-'*13}{'-'*5}{'-'*5}  {'-'*10}{'-'*7}  {'-'*36}")
         for c in cleared:
             b = c["best_cell"] or {}
             cell = (
-                f"{b.get('dev', 0):+.1f}pp @ θ={b.get('theta', 0):+.0%} "
+                f"{b.get('dev', 0):+.1f}pp @ Δ={b.get('Δ', 0):+.0%} "
                 f"n={b.get('bin_n')}"
             ) if b else ""
             print(
