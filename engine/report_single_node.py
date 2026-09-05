@@ -33,6 +33,8 @@ from engine.report_style import (
 from engine.writer import feature_label
 from universe import find_node
 
+SHIFT_CMAP_LIMIT_PP = 30.0
+
 
 def fig_band(ws, universe, cleared, out: Path) -> Path | None:
     """
@@ -148,7 +150,7 @@ def _render_shift(ws, head: dict, out_path: Path) -> Path | None:
     keep = np.abs(th) > 1e-12
     dev = cube['shift'][:, b, :][keep]
     th = th[keep]
-    lim = float(np.nanmax(np.abs(dev)))
+    lim = SHIFT_CMAP_LIMIT_PP
 
     fig, ax = plt.subplots(figsize=(8.4, 5.0))
     mesh = ax.pcolormesh(ts, th * 100, dev, cmap=CMAP_DIV,

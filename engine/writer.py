@@ -30,6 +30,7 @@ _PVAL_FMT = '0.0000'
 _WHITE, _AMBER, _RED = 'FFFFFF', 'FFD166', 'C00000'
 _BLUE = '2A78D6'
 _GREEN = '00875A'
+_SHIFT_SCALE_LIMIT = 0.30
 _FILL_ROW1 = PatternFill('solid', start_color='666666', end_color='666666')
 _FILL_ROW2 = PatternFill('solid', start_color='B2B2B2', end_color='B2B2B2')
 _FILL_NBAND = PatternFill('solid', start_color='EFEFEF', end_color='EFEFEF')
@@ -229,8 +230,7 @@ def write_shift_xlsx(
 
     order = np.argsort(Δs)[::-1]
     end = get_column_letter(1 + n_t)
-    lim = float(np.nanmax(np.abs(values))) if np.isfinite(values).any() else 1.0
-    lim = max(lim, 1.0) / 100.0
+    lim = _SHIFT_SCALE_LIMIT
 
     wb = Workbook()
     wb.remove(wb.active)

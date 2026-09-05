@@ -4,22 +4,7 @@ from __future__ import annotations
 
 from engine.report_diagnostics import fig_null, fig_null_gap_ranking
 from engine.report_single_node import fig_band, fig_shift_all
-from universe import all_nodes, load_universe
-
-
-_CAPTIONS = {
-    'A_band.png': 'A. The measured forward envelope starts at the last close.',
-    'B_null.png': 'B. The exact circular-shift null threshold and its resolution floor.',
-    'D_null_gap_ranking.png': 'D. The strongest discoveries sit far beyond their own '
-                               'null thresholds.',
-}
-
-
-def _caption(path) -> str:
-    if path.name.startswith('C_shift_'):
-        node = path.stem.removeprefix('C_shift_')
-        return f'C. {node}: strongest cleared conditional deviation from the baseline.'
-    return _CAPTIONS.get(path.name, path.stem)
+from universe import load_universe
 
 
 def build(ws) -> None:
@@ -66,13 +51,5 @@ def build(ws) -> None:
             print(f"  {name:<20} {paths[0].name}")
         else:
             print(f"  {name:<20} {len(paths)} files")
-
-    index = [f'# {ws.dir.name}', '',
-             f"`{ws.asset['ticker']}` · {ws.asset.get('interval', '1d')} · "
-             f"from {ws.start_date} · {len(all_nodes(universe))} nodes", '']
-    for p in written:
-        index += [f'### {_caption(p)}', '',
-                  f'![{p.stem}]({p.name})', '']
-    (out / 'README.md').write_text('\n'.join(index), encoding='utf-8')
 
     print(f"\n  wrote {len(written)} figures to workspaces/{ws.dir.name}/result/")
