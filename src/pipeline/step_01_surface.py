@@ -1,0 +1,99 @@
+"""Stage 1: full barrier-touch surface measurement and workbooks."""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+from domain import barrier
+from infrastructure.workspaces.workspace import Workspace
+from pipeline.context import RunContext
+from presentation import workbooks
+
+
+def _build_cube(context: RunContext, node: dict, quiet: bool = False) -> None:
+    workspace = context.workspace
+    data, feature = context.node_feature(node)
+    edges = barrier.bin_edges(feature, workspace.n_bins)
+    cube = barrier.touch_tensor(data, feature, workspace.horizons, workspace.deltas, edges)
+    cube["index"] = data.index.astype(str).to_numpy()
+    cube["feature_values"] = feature.reindex(data.index).to_numpy(float)
+    for column in ("open", "high", "low", "close", "volume"):
+        if column in data:
+            cube[column] = data[column].to_numpy(float)
+
+    barrier.save_cube(cube, workspace.cube_path(node["family"], node["id"]), {
+        "node": node["id"],
+        "family": node["family"],
+        "feature": node["feature"],
+        "params": node["params"],
+        "workspace": workspace.dir.name,
+        "bin_labels": barrier.bin_labels(edges, feature),
+        "grid": "full",
+        "generated": datetime.now(timezone.utc).isoformat(),
+    })
+    if not quiet:
+        print(f"  {node['id']:<26} {cube['prob'].shape}  n={int(cube['n_obs'][0])}")
+
+
+def _write_surface_arrays(workspace: Workspace, family: str | None, rerun: bool) -> None:
+    nodes = workspace.catalog.in_family(family) if family else workspace.catalog.all_nodes()
+    if not rerun:
+        nodes = [node for node in nodes if not workspace.has_cube(node["family"], node["id"])]
+    if not nodes:
+        print("No missing surface arrays (use --rerun to rebuild existing arrays).")
+        return
+
+    context = RunContext(workspace)
+    horizons = workspace.horizons
+    print(f"\n=== 1. 01_surface_array [{workspace.dir.name}] - {len(nodes)} nodes ===")
+    print(
+        f"  {len(workspace.deltas)} Delta x {workspace.n_bins} bins x {len(horizons)} horizons "
+        f"(+{horizons[0]}{workspace.horizon_unit}..+{horizons[-1]}{workspace.horizon_unit})"
+    )
+    print("  value = P(touch Delta in t | bin); intraday high/low\n")
+
+    skipped = {}
+    for node in nodes:
+        try:
+            _build_cube(context, node)
+        except Exception as error:
+            skipped[node["id"]] = str(error)
+            print(f"  {node['id']:<26} [skip] {error}")
+    suffix = f"   ({len(skipped)} skipped)" if skipped else ""
+    print(f"\n  wrote to {workspace.dir.relative_to(workspace.root_dir)}/01_surface_array/{suffix}")
+
+
+def _render_surface(workspace: Workspace, family: str | None) -> None:
+    nodes = [
+        node for node in (workspace.catalog.in_family(family) if family else workspace.catalog.all_nodes())
+        if workspace.has_cube(node["family"], node["id"])
+    ]
+    if not nodes:
+        print("No full arrays to render - run --surface first.")
+        return
+
+    print(f"\n=== 1. 01_surface_xlsx [{workspace.dir.name}] - {len(nodes)} nodes ===")
+    print(f"  {workspace.n_bins} tabs per node, one per condition bin\n")
+    written = 0
+    for node in nodes:
+        cube = barrier.load_cube(workspace.cube_path(node["family"], node["id"]))
+        try:
+            workbooks.write_barrier_xlsx(
+                cube,
+                workspace.surface_path(node["family"], node["id"]),
+                node["id"],
+                node["feature"],
+                node["params"],
+                workspace.horizon_unit,
+            )
+        except PermissionError:
+            print(f"  {node['id']:<26} [locked] close it in Excel and re-run")
+            continue
+        written += 1
+    print(f"  wrote {written} workbooks under {workspace.dir.relative_to(workspace.root_dir)}/01_surface_xlsx/")
+
+
+def cmd_surface(workspace: Workspace, family: str | None = None, rerun: bool = False) -> None:
+    """Write full surface arrays and their workbook views."""
+    _write_surface_arrays(workspace, family, rerun)
+    _render_surface(workspace, family)

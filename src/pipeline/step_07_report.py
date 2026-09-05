@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from workspace import Workspace
+from infrastructure.workspaces.workspace import Workspace
 
 
 def cmd_report(ws: Workspace) -> None:
     """Stage 7: render the audience-facing figures from the artifacts on disk."""
-    from engine import report
+    from presentation.reports import build
 
-    report.build(ws)
+    build.build(ws)

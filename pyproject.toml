@@ -17,8 +17,11 @@ dependencies = [
 ]
 
 [project.scripts]
-volatility-matrix = "pipeline.cli:main"
+volatility-matrix = "cli:main"
 
 [tool.setuptools]
-packages = ["data", "engine", "pipeline"]
-py-modules = ["run", "workspace", "workspace_config", "workspace_plugins", "catalog", "artifacts"]
+package-dir = {"" = "src"}
+py-modules = ["cli"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

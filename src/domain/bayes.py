@@ -40,7 +40,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from engine.barrier import forward_extremes_upto
+from domain.barrier import forward_extremes_upto
 
 # Shrinkage strength for a bin's rate, in pseudo-observations drawn from the prior.
 # A decile bin on a training window holds a few hundred bars, so k = 25 moves a

@@ -5,10 +5,12 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from artifacts import feature_from_artifact, market_data_from_artifact
-from data import features, fetcher
-from engine import barrier, shift
-from workspace import BASELINE_NODE, Workspace
+from domain.features import FeatureRegistry, register_builtin_features
+from domain import barrier, shift
+from infrastructure.artifacts.store import feature_from_artifact, market_data_from_artifact
+from infrastructure.market_data.fetcher import SourceRegistry, register_builtin_sources
+from infrastructure.workspaces.plugins import load_workspace_plugin
+from infrastructure.workspaces.workspace import BASELINE_NODE, Workspace
 
 
 class RunContext:
@@ -18,24 +20,25 @@ class RunContext:
         self.workspace = workspace
         self.catalog = workspace.catalog
         self.artifacts = workspace.artifacts
-        self._data_cache: dict[tuple, pd.DataFrame] = {}
+        self.sources = SourceRegistry()
+        self.features = FeatureRegistry()
+        register_builtin_sources(self.sources)
+        register_builtin_features(self.features)
+        load_workspace_plugin(workspace.dir, self.sources, self.features)
 
     def load_data(self, sources: list[str]) -> pd.DataFrame:
-        key = tuple(sorted(sources))
-        if key not in self._data_cache:
-            self._data_cache[key] = fetcher.fetch(
-                list(sources),
-                start=self.workspace.start_date,
-                asset=self.workspace.asset,
-            ).dropna(subset=["close"])
-        return self._data_cache[key]
+        return self.sources.fetch(
+            sources,
+            start=self.workspace.start_date,
+            asset=self.workspace.asset,
+        ).dropna(subset=["close"])
 
     def node_feature(self, node: dict) -> tuple[pd.DataFrame, pd.Series]:
         """Return ``(data, feature series)`` for a node, or raise if unavailable."""
         data = self.load_data(node["data"])
         if data.empty:
             raise ValueError("empty data")
-        feat = features.compute(data, node["feature"], node["params"]).reindex(data.index)
+        feat = self.features.compute(data, node["feature"], node["params"]).reindex(data.index)
         n_valid = int(feat.notna().sum())
         if n_valid < self.workspace.min_obs:
             raise ValueError(f"only {n_valid} valid observations")

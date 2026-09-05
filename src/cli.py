@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import argparse
 
-from pipeline.composition_command import cmd_bayes
-from pipeline.inspect_commands import cmd_read, cmd_status
-from pipeline.report_command import cmd_report
-from pipeline.selection_command import cmd_selection
-from pipeline.stat_commands import cmd_gate, cmd_validation
-from pipeline.surface_commands import cmd_shift, cmd_surface
-from workspace import Workspace
+from infrastructure.workspaces.workspace import Workspace
+from pipeline.step_01_surface import cmd_surface
+from pipeline.step_02_shift import cmd_shift
+from pipeline.step_03_selection import cmd_selection
+from pipeline.step_04_validation import cmd_validation
+from pipeline.step_05_gate import cmd_gate
+from pipeline.step_06_composition import cmd_bayes
+from pipeline.step_07_report import cmd_report
+from pipeline.step_08_inspect import cmd_read, cmd_status
 
 
 def build_parser() -> argparse.ArgumentParser:

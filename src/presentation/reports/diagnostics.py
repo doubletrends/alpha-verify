@@ -6,9 +6,9 @@ from pathlib import Path
 
 import numpy as np
 
-from artifacts import feature_from_artifact, market_data_from_artifact
-from engine import selection, shift, validate as val
-from engine.report_style import (
+from domain import selection, shift, validation as val
+from infrastructure.artifacts.store import feature_from_artifact, market_data_from_artifact
+from presentation.reports.style import (
     INK,
     INK_2,
     S1,
@@ -20,8 +20,8 @@ from engine.report_style import (
     save as _save,
     title as _title,
 )
-from engine.writer import feature_label
-from workspace import BASELINE_NODE
+from infrastructure.workspaces.workspace import BASELINE_NODE
+from presentation.workbooks import feature_label
 
 
 def fig_null_gap_ranking(ws, cleared, out: Path) -> Path | None:
@@ -75,7 +75,7 @@ def fig_null_gap_ranking(ws, cleared, out: Path) -> Path | None:
     ax.set_xlabel('peak |deviation| over the surface (pp)')
     ax.set_xlim(0, float(np.nanmax(observed)) * 1.25)
     _frame(ax, grid_axis='x')
-    ax.legend(loc='lower left', bbox_to_anchor=(0, 1.01), ncol=1,
+    ax.legend(loc='lower left', bbox_to_anchor=(1.02, 0), ncol=1,
               fontsize=8, labelcolor=INK_2, borderaxespad=0)
 
     at_floor = sum(1 for r in tests_top if r.get('at_floor'))
@@ -86,7 +86,7 @@ def fig_null_gap_ranking(ws, cleared, out: Path) -> Path | None:
            f'{len(rows)} are already at the exact p-value floor.')
     _note(fig, f'{ws.dir.name} · ranked from 05_gate.json tests · one best discovered '
                f'horizon per selected sheet')
-    fig.subplots_adjust(top=1 - 1.12 / fig_h, left=0.25, bottom=0.14)
+    fig.subplots_adjust(top=1 - 1.12 / fig_h, left=0.25, right=0.76, bottom=0.14)
     return _save(fig, out / 'D_null_gap_ranking.png')
 
 
@@ -187,7 +187,7 @@ def fig_null(ws, universe, cleared, out: Path) -> Path | None:
     ax.set_xlim(0, max(float(observed_all.max()), float(null.max())) * 1.12)
     ax.set_ylim(0, ymax * 1.15)
     _frame(ax, grid_axis='x')
-    ax.legend(loc='lower left', bbox_to_anchor=(0, 1.01), ncol=1,
+    ax.legend(loc='lower left', bbox_to_anchor=(1.02, 0), ncol=1,
               fontsize=8, labelcolor=INK_2, borderaxespad=0)
 
     _title(fig, 'It is not luck: the null test rejects accidental alignment',
@@ -200,6 +200,6 @@ def fig_null(ws, universe, cleared, out: Path) -> Path | None:
                f'usable shifts across {len(dists)} cleared sheets · strongest observed '
                f'p = {float(strongest["p_value"]):.2g}, per-sheet floor '
                f'{float(np.nanmin(floors)):.2g}')
-    fig.subplots_adjust(top=0.74)
+    fig.subplots_adjust(top=0.74, right=0.64)
     return _save(fig, out / 'B_null.png')
 

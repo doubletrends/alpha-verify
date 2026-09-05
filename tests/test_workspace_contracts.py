@@ -3,10 +3,12 @@ from __future__ import annotations
 import unittest
 
 import numpy as np
+import pandas as pd
 
-from artifacts import feature_from_artifact, market_data_from_artifact
-from pipeline.composition_command import composition_targets
-from workspace import Workspace
+from infrastructure.artifacts.store import feature_from_artifact, market_data_from_artifact
+from infrastructure.workspaces.workspace import Workspace
+from pipeline.context import RunContext
+from pipeline.step_06_composition import composition_targets
 
 
 class WorkspaceContractTests(unittest.TestCase):
@@ -55,6 +57,12 @@ class WorkspaceContractTests(unittest.TestCase):
     def test_artifact_history_helper_rejects_incomplete_history(self) -> None:
         with self.assertRaisesRegex(ValueError, "ordered history"):
             market_data_from_artifact({"index": np.array(["2024-01-01"])})
+
+    def test_workspace_plugin_registers_into_its_run_context(self) -> None:
+        context = RunContext(Workspace("btc_daily"))
+        data = pd.DataFrame({"mvrv": [1.1]}, index=pd.to_datetime(["2024-01-01"]))
+        result = context.features.compute(data, "mvrv", {})
+        self.assertEqual(float(result.iloc[0]), 1.1)
 
 
 if __name__ == "__main__":

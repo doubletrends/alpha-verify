@@ -6,9 +6,9 @@ from collections import defaultdict
 
 import numpy as np
 
-from engine import shift, validate as val
-from pipeline.stat_commands import _validation_matches_selection
-from workspace import Workspace
+from domain import shift, validation as val
+from infrastructure.workspaces.workspace import Workspace
+from pipeline.step_04_validation import _validation_matches_selection
 
 
 def _gate_is_current(ws: Workspace, cleared: dict) -> bool:

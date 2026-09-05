@@ -6,24 +6,25 @@ from pathlib import Path
 
 import numpy as np
 
-from artifacts import ArtifactPaths, read_json, write_json
-from catalog import NodeCatalog
-from workspace_config import WorkspaceConfig
-from workspace_plugins import load_workspace_plugin
-
-ROOT = Path(__file__).resolve().parent
+from infrastructure.artifacts.store import ArtifactPaths, read_json, write_json
+from infrastructure.workspaces.catalog import NodeCatalog
+from infrastructure.workspaces.config import WorkspaceConfig
 BASELINE_NODE = "baseline"
 
 
 class Workspace:
     """One workspace's immutable declaration and artifact namespace."""
 
-    def __init__(self, name: str):
-        self.dir = ROOT / "workspaces" / name
+    def __init__(self, name: str, workspaces_dir: Path | None = None):
+        root = workspaces_dir or Path.cwd() / "workspaces"
+        self.dir = root / name
         self.artifacts = ArtifactPaths(self.dir)
         self.catalog = NodeCatalog.load(self.artifacts.universe_path)
         self.config = WorkspaceConfig.from_meta(self.catalog.meta)
-        load_workspace_plugin(self.dir)
+
+    @property
+    def root_dir(self) -> Path:
+        return self.dir.parent.parent
 
     @property
     def universe_path(self) -> Path:

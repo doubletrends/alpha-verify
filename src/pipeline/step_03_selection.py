@@ -7,10 +7,8 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
-from engine import selection, shift
-from workspace import BASELINE_NODE, Workspace
-
-ROOT = Path(__file__).resolve().parents[1]
+from domain import selection, shift
+from infrastructure.workspaces.workspace import BASELINE_NODE, Workspace
 
 
 def _copy_selected_workbook_sheet(source: Path, target: Path, bin_index: int) -> None:
@@ -60,7 +58,7 @@ def cmd_selection(ws: Workspace, family: str | None = None) -> None:
         meta = {
             **sheet["meta"],
             "artifact": "03_selection_array",
-            "source": str(ws.shift_cube_path(row["family"], row["node"]).relative_to(ROOT)),
+            "source": str(ws.shift_cube_path(row["family"], row["node"]).relative_to(ws.root_dir)),
             "node": row["node"],
             "family": row["family"],
             "feature": row["feature"],
@@ -104,5 +102,5 @@ def cmd_selection(ws: Workspace, family: str | None = None) -> None:
                 f"skew={c['skew']:+.1f}pp n={c['bin_n']}"
             )
 
-    print(f"\n  wrote {copied_npz} .npz artifacts under {ws.dir.relative_to(ROOT)}/03_selection_array/")
-    print(f"  wrote {copied_xlsx} workbooks under {ws.dir.relative_to(ROOT)}/03_selection_xlsx/")
+    print(f"\n  wrote {copied_npz} .npz artifacts under {ws.dir.relative_to(ws.root_dir)}/03_selection_array/")
+    print(f"  wrote {copied_xlsx} workbooks under {ws.dir.relative_to(ws.root_dir)}/03_selection_xlsx/")

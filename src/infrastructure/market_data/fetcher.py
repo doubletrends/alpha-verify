@@ -1,37 +1,33 @@
-from pathlib import Path
 from typing import Callable
 
 import pandas as pd
 import yfinance as yf
 
-_registry: dict[str, Callable] = {}
+class SourceRegistry:
+    """Explicit source registry and per-run market-data cache."""
 
-_YF_CACHE = Path(__file__).resolve().parents[1] / '.yfinance-cache'
-_YF_CACHE.mkdir(exist_ok=True)
-yf.set_tz_cache_location(str(_YF_CACHE))
+    def __init__(self) -> None:
+        self._sources: dict[str, Callable] = {}
+        self._cache: dict[tuple, pd.DataFrame] = {}
 
+    def register(self, name: str, source: Callable) -> None:
+        self._sources[name] = source
 
-def register_source(name: str, fn: Callable) -> None:
-    """Register a data source. fn signature: (start: str, asset: dict) -> pd.DataFrame"""
-    _registry[name] = fn
-
-
-# Fetches are memoized for the life of the process. A full sweep runs one node at a
-# time over the same handful of source sets, and without this a 65-node family means
-# 65 identical downloads -- slow, and enough to get rate-limited.
-_cache: dict[tuple, pd.DataFrame] = {}
-
-
-def fetch(sources: list[str], start: str, asset: dict) -> pd.DataFrame:
-    key = (tuple(sources), start, asset.get('ticker'), asset.get('interval'))
-    if key in _cache:
-        return _cache[key].copy()
-    frames = [_registry[s](start=start, asset=asset) for s in sources]
-    out = frames[0]
-    for f in frames[1:]:
-        out = out.join(f.reindex(out.index, method='ffill'), how='left')
-    _cache[key] = out
-    return out.copy()
+    def fetch(self, sources: list[str], start: str, asset: dict) -> pd.DataFrame:
+        key = (tuple(sources), start, asset.get("ticker"), asset.get("interval"))
+        if key in self._cache:
+            return self._cache[key].copy()
+        missing = sorted(set(sources) - self._sources.keys())
+        if missing:
+            raise ValueError(f"unknown data sources: {', '.join(missing)}")
+        frames = [self._sources[source](start=start, asset=asset) for source in sources]
+        if not frames:
+            raise ValueError("at least one data source is required")
+        data = frames[0]
+        for frame in frames[1:]:
+            data = data.join(frame.reindex(data.index, method="ffill"), how="left")
+        self._cache[key] = data
+        return data.copy()
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -92,20 +88,11 @@ def _yfinance_cross(ticker: str, col_name: str, interval: str, start: str) -> pd
 def _ohlcv(start: str, asset: dict) -> pd.DataFrame:
     return _yfinance_ohlcv(asset['ticker'], asset['interval'], start)
 
-register_source('ohlcv', _ohlcv)
-
-
 def _vix(start: str, asset: dict) -> pd.DataFrame:
     return _yfinance_cross('^VIX', 'vix', asset['interval'], start)
 
-register_source('vix', _vix)
-
-
 def _treasury(start: str, asset: dict) -> pd.DataFrame:
     return _yfinance_cross('^TNX', 'tnx', asset['interval'], start)
-
-register_source('treasury', _treasury)
-
 
 def _dxy(start: str, asset: dict) -> pd.DataFrame:
     df = yf.download('DX-Y.NYB', start=start, interval='1d', auto_adjust=False, progress=False)
@@ -115,4 +102,10 @@ def _dxy(start: str, asset: dict) -> pd.DataFrame:
     df.index.name = 'Date'
     return df[['Close']].rename(columns={'Close': 'dxy'}).ffill()
 
-register_source('dxy', _dxy)
+
+
+def register_builtin_sources(registry: SourceRegistry) -> None:
+    registry.register("ohlcv", _ohlcv)
+    registry.register("vix", _vix)
+    registry.register("treasury", _treasury)
+    registry.register("dxy", _dxy)

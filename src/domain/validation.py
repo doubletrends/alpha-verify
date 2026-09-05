@@ -42,7 +42,7 @@ import pandas as pd
 
 # One threshold, defined by the module that does the binning, so measurement and
 # validation partition the sample identically.
-from engine.barrier import MIN_BIN_N
+from domain.barrier import MIN_BIN_N
 
 # Shifts smaller than this leave the series almost aligned with itself and are not
 # honest null draws; the same applies to shifts near a full wrap.
@@ -192,7 +192,7 @@ def validate_node(
     and the cube partition the sample identically.
 
     """
-    from engine import barrier
+    from domain import barrier
 
     t_max = int(np.max(horizons))
     mins, maxs = barrier.forward_extremes_upto(data, t_max)
@@ -259,7 +259,7 @@ def peak_shift_distribution(
 
     Returns {null, observed, p95, p_value, n_shifts, floor}.
     """
-    from engine import barrier
+    from domain import barrier
 
     mins, maxs = barrier.forward_extremes_upto(data, int(horizon))
     lo_t, hi_t = mins[int(horizon) - 1], maxs[int(horizon) - 1]

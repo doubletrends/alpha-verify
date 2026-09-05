@@ -7,8 +7,6 @@ import urllib.request
 import numpy as np
 import pandas as pd
 
-from data import features, fetcher
-
 # ── coinmetrics source ────────────────────────────────────────────────────────
 
 def _coinmetrics(start: str, asset: dict) -> pd.DataFrame:
@@ -36,9 +34,6 @@ def _coinmetrics(start: str, asset: dict) -> pd.DataFrame:
     }
     df = df[list(rename)].rename(columns=rename).apply(pd.to_numeric, errors='coerce')
     return df[df.index >= pd.Timestamp(start)]
-
-fetcher.register_source('coinmetrics', _coinmetrics)
-
 
 # ── on-chain feature helpers ──────────────────────────────────────────────────
 
@@ -97,11 +92,12 @@ def _days_since_halving(data: pd.DataFrame) -> pd.Series:
     return pd.Series(days, index=data.index, dtype=float)
 
 
-# ── register features ─────────────────────────────────────────────────────────
-
-features.register('mvrv',               lambda d, p: d['mvrv'])
-features.register('hash_rate_ma_ratio', lambda d, p: _hash_rate_ma_ratio(d, p['period']))
-features.register('adr_act_ma_ratio',   lambda d, p: _adr_act_ma_ratio(d, p['period']))
-features.register('cycle_phase',        lambda d, p: _cycle_phase(d))
-features.register('days_to_halving',    lambda d, p: _days_to_halving(d))
-features.register('days_since_halving', lambda d, p: _days_since_halving(d))
+def register(sources, features) -> None:
+    """Register BTC-only sources and features for one pipeline run."""
+    sources.register('coinmetrics', _coinmetrics)
+    features.register('mvrv',               lambda d, p: d['mvrv'])
+    features.register('hash_rate_ma_ratio', lambda d, p: _hash_rate_ma_ratio(d, p['period']))
+    features.register('adr_act_ma_ratio',   lambda d, p: _adr_act_ma_ratio(d, p['period']))
+    features.register('cycle_phase',        lambda d, p: _cycle_phase(d))
+    features.register('days_to_halving',    lambda d, p: _days_to_halving(d))
+    features.register('days_since_halving', lambda d, p: _days_since_halving(d))

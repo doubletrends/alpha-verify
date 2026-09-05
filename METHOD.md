@@ -45,16 +45,17 @@ feature alignment rather than only aggregate cube rates.
 
 ## Implementation Boundaries
 
-`workspace.py` is a small compatibility facade. `workspace_config.py` owns immutable
-run settings, `catalog.py` owns node traversal, `artifacts.py` owns artifact paths and
-artifact-history reconstruction, and `workspace_plugins.py` is the sole loading boundary
-for workspace-local registrations. Pipeline commands orchestrate those services; engine
-modules compute or render from explicitly supplied data and artifacts.
+`infrastructure/workspaces` owns workspace configuration, node traversal, and plugin
+loading. `infrastructure/artifacts` owns artifact paths, JSON persistence, and artifact
+history reconstruction. `pipeline` owns numbered stage orchestration, `domain` owns
+numerical models and feature transforms, and `presentation` owns workbooks and figures.
+Workspace plugins expose `register(sources, features)` and receive per-run registries;
+they no longer mutate process-global registries during import.
 
 ## 0. Orient
 
 ```bash
-python run.py --workspace <name> --status
+volatility-matrix --workspace <name> --status
 ```
 
 The status table is the funnel: nodes declared, surfaces measured, shift artifacts
@@ -64,8 +65,8 @@ sheets that cleared both the economic and statistical gates.
 ## 1. Surface
 
 ```bash
-python run.py --workspace <name> --surface
-python run.py --workspace <name> --surface --family volatility
+volatility-matrix --workspace <name> --surface
+volatility-matrix --workspace <name> --surface --family volatility
 ```
 
 This stage computes one probability cube per node:
@@ -99,8 +100,8 @@ tab per condition bin, with barrier rows and horizon columns.
 ## 2. Shift
 
 ```bash
-python run.py --workspace <name> --shift
-python run.py --workspace <name> --shift --family volatility
+volatility-matrix --workspace <name> --shift
+volatility-matrix --workspace <name> --shift --family volatility
 ```
 
 The shift stage keeps the full Stage 1 grid and subtracts the baseline node from every
@@ -128,8 +129,8 @@ barriers is closer to something a reader could actually use.
 ## 3. Selection
 
 ```bash
-python run.py --workspace <name> --selection
-python run.py --workspace <name> --selection --family volatility
+volatility-matrix --workspace <name> --selection
+volatility-matrix --workspace <name> --selection --family volatility
 ```
 
 Selection reads the Stage 2 shift cubes and treats every condition bin as its own
@@ -149,8 +150,8 @@ top `selection.top_k` rows, defaulting to 20, to
 ## 4. Validation
 
 ```bash
-python run.py --workspace <name> --validation
-python run.py --workspace <name> --validation --family volatility
+volatility-matrix --workspace <name> --validation
+volatility-matrix --workspace <name> --validation --family volatility
 ```
 
 Validation tests the selected node/bin sheets against an exact circular-shift null. The
@@ -183,8 +184,8 @@ discovery criterion. The gate uses `sheet_peak_p` for the sheets selected by
 ## 5. Gate
 
 ```bash
-python run.py --workspace <name> --gate
-python run.py --workspace <name> --gate --fdr 0.05
+volatility-matrix --workspace <name> --gate
+volatility-matrix --workspace <name> --gate --fdr 0.05
 ```
 
 The gate applies Benjamini-Hochberg correction across the selected sheet/horizon sweep,
@@ -215,7 +216,7 @@ a screen of this size.
 ## 6. Compose
 
 ```bash
-python run.py --workspace <name> --bayes
+volatility-matrix --workspace <name> --bayes
 ```
 
 Stages 1-5 evaluate one selected condition sheet at a time. Composition asks whether the
@@ -258,7 +259,7 @@ whether the measured conditional tables compose without leaking future data.
 ## 7. Report
 
 ```bash
-python run.py --workspace <name> --report
+volatility-matrix --workspace <name> --report
 ```
 
 The report renders `workspaces/<name>/result/*.png` plus a local index. Figures read
@@ -274,17 +275,19 @@ The main product figures show:
 
 ## Adding a Feature
 
-Register reusable feature functions in `data/features.py`:
+Register reusable feature functions in `src/domain/features.py`:
 
 ```python
 def _my_feature(close: pd.Series, period: int) -> pd.Series:
     ...
 
-register("my_feature", lambda d, p: _my_feature(d["close"], p["period"]))
+def register_builtin_features(registry: FeatureRegistry) -> None:
+    registry.register("my_feature", lambda d, p: _my_feature(d["close"], p["period"]))
 ```
 
-Workspace-specific sources and features live in `workspaces/<name>/plugin.py`, which is
-loaded automatically. Then add a node to `workspaces/<name>/universe.json`.
+Workspace-specific sources and features live in `workspaces/<name>/plugin.py`, which
+defines `register(sources, features)`. Then add a node to
+`workspaces/<name>/universe.json`.
 
 There is no progress field. Progress is inferred from artifacts on disk.
 

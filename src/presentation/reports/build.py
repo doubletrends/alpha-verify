@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from engine.report_diagnostics import fig_null, fig_null_gap_ranking
-from engine.report_single_node import fig_band, fig_shift_all
+from presentation.reports.diagnostics import fig_null, fig_null_gap_ranking
+from presentation.reports.single_node import fig_band, fig_shift_all
 
 
 def build(ws) -> None:

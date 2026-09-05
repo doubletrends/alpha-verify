@@ -8,10 +8,10 @@ import numpy as np
 import pandas as pd
 from matplotlib.colors import TwoSlopeNorm
 
-from engine import barrier, shift
-from engine.report_common import headline_node as _headline_node
-from engine.report_common import Δ_pct as _Δ_pct
-from engine.report_style import (
+from domain import barrier, shift
+from presentation.reports.common import headline_node as _headline_node
+from presentation.reports.common import Δ_pct as _Δ_pct
+from presentation.reports.style import (
     CMAP_DIV,
     CMAP_SEQ,
     FAINT,
@@ -30,8 +30,8 @@ from engine.report_style import (
     save as _save,
     title as _title,
 )
-from engine.writer import feature_label
-from catalog import find_node
+from infrastructure.workspaces.catalog import find_node
+from presentation.workbooks import feature_label
 
 SHIFT_CMAP_LIMIT_PP = 30.0
 

@@ -4,16 +4,11 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from pathlib import Path
-
 import numpy as np
 
-from engine import bayes
-from engine import shift
-from pipeline.runtime import artifact_feature_panel
-from workspace import BASELINE_NODE, Workspace
-
-ROOT = Path(__file__).resolve().parents[1]
+from domain import bayes, shift
+from infrastructure.workspaces.workspace import BASELINE_NODE, Workspace
+from pipeline.context import artifact_feature_panel
 
 
 def composition_targets(ws: Workspace) -> list[tuple[float, int]]:
@@ -168,4 +163,4 @@ def cmd_bayes(ws: Workspace) -> None:
         "grid": grid,
         "grid_beat_prior": beat,
     })
-    print(f"\n  wrote {ws.bayes_path.relative_to(ROOT)} and {ws.bayes_summary_path.relative_to(ROOT)}")
+    print(f"\n  wrote {ws.bayes_path.relative_to(ws.root_dir)} and {ws.bayes_summary_path.relative_to(ws.root_dir)}")

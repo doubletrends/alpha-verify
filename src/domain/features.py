@@ -2,17 +2,19 @@ import numpy as np
 import pandas as pd
 from typing import Callable
 
-_registry: dict[str, Callable] = {}
+class FeatureRegistry:
+    """Explicit feature registry scoped to a pipeline run."""
 
+    def __init__(self) -> None:
+        self._features: dict[str, Callable] = {}
 
-def register(name: str, fn: Callable) -> None:
-    _registry[name] = fn
+    def register(self, name: str, feature: Callable) -> None:
+        self._features[name] = feature
 
-
-def compute(data: pd.DataFrame, feature: str, params: dict) -> pd.Series:
-    if feature not in _registry:
-        raise ValueError(f"Unknown feature: '{feature}'. Available: {sorted(_registry)}")
-    return _registry[feature](data, params)
+    def compute(self, data: pd.DataFrame, feature: str, params: dict) -> pd.Series:
+        if feature not in self._features:
+            raise ValueError(f"Unknown feature: '{feature}'. Available: {sorted(self._features)}")
+        return self._features[feature](data, params)
 
 
 # ── private helpers ──────────────────────────────────────────────────────────
@@ -174,33 +176,34 @@ def _constant(data: pd.DataFrame) -> pd.Series:
 
 # ── built-in registrations ────────────────────────────────────────────────────
 
-register('constant',          lambda d, p: _constant(d))
-register('rsi',               lambda d, p: _rsi(d['close'], p['period']))
-register('rsi_spread',        lambda d, p: _rsi_spread(d['close'], p['fast'], p['slow']))
-register('stoch_k',           lambda d, p: _stoch_k(d['high'], d['low'], d['close'], p['k_period']))
-register('stoch_d',           lambda d, p: _stoch_d(d['high'], d['low'], d['close'], p['k_period'], p.get('d_period', 3)))
-register('williams_r',        lambda d, p: _williams_r(d['high'], d['low'], d['close'], p['period']))
-register('wr_spread',         lambda d, p: _wr_spread(d['high'], d['low'], d['close'], p['fast'], p['slow']))
-register('macd',              lambda d, p: _macd(d['close'], p['fast'], p['slow']))
-register('macd_histogram',    lambda d, p: _macd_histogram(d['close'], p['fast'], p['slow'], p.get('signal', 9)))
-register('ma_ratio',          lambda d, p: _ma_ratio(d['close'], p['period']))
-register('ma_cross',          lambda d, p: _ma_cross(d['close'], p['fast'], p['slow']))
-register('realized_vol',      lambda d, p: _realized_vol(d['close'], p['period']))
-register('vol_ratio',         lambda d, p: _vol_ratio(d['close'], p['fast'], p['slow']))
-register('atr',               lambda d, p: _atr(d['high'], d['low'], d['close'], p['period']))
-register('bb_pct',            lambda d, p: _bb_pct(d['close'], p['period'], p.get('std_dev', 2.0)))
-register('bb_width',          lambda d, p: _bb_width(d['close'], p['period'], p.get('std_dev', 2.0)))
-register('volume_ratio',      lambda d, p: _volume_ratio(d['volume'], p['period']))
-register('drawdown',          lambda d, p: _drawdown(d['close'], p['period']))
-register('drawdown_recovery', lambda d, p: _drawdown_recovery(d['close'], p['short'], p['long']))
-register('roc',               lambda d, p: _roc(d['close'], p['period']))
-register('roc_spread',        lambda d, p: _roc_spread(d['close'], p['fast'], p['slow']))
-register('dxy_ret',           lambda d, p: _dxy_ret(d['dxy'], p['period']))
-register('dxy_ma_ratio',      lambda d, p: _dxy_ma_ratio(d['dxy'], p['period']))
-register('day_of_week',       lambda d, p: _day_of_week(d))
-register('vix_level',         lambda d, p: _vix_level(d))
-register('vix_ma_ratio',      lambda d, p: _vix_ma_ratio(d, p['period']))
-register('vix_ret',           lambda d, p: _vix_ret(d, p['period']))
-register('tnx_level',         lambda d, p: _tnx_level(d))
-register('tnx_ma_ratio',      lambda d, p: _tnx_ma_ratio(d, p['period']))
-register('tnx_ret',           lambda d, p: _tnx_ret(d, p['period']))
+def register_builtin_features(registry: FeatureRegistry) -> None:
+    registry.register('constant',          lambda d, p: _constant(d))
+    registry.register('rsi',               lambda d, p: _rsi(d['close'], p['period']))
+    registry.register('rsi_spread',        lambda d, p: _rsi_spread(d['close'], p['fast'], p['slow']))
+    registry.register('stoch_k',           lambda d, p: _stoch_k(d['high'], d['low'], d['close'], p['k_period']))
+    registry.register('stoch_d',           lambda d, p: _stoch_d(d['high'], d['low'], d['close'], p['k_period'], p.get('d_period', 3)))
+    registry.register('williams_r',        lambda d, p: _williams_r(d['high'], d['low'], d['close'], p['period']))
+    registry.register('wr_spread',         lambda d, p: _wr_spread(d['high'], d['low'], d['close'], p['fast'], p['slow']))
+    registry.register('macd',              lambda d, p: _macd(d['close'], p['fast'], p['slow']))
+    registry.register('macd_histogram',    lambda d, p: _macd_histogram(d['close'], p['fast'], p['slow'], p.get('signal', 9)))
+    registry.register('ma_ratio',          lambda d, p: _ma_ratio(d['close'], p['period']))
+    registry.register('ma_cross',          lambda d, p: _ma_cross(d['close'], p['fast'], p['slow']))
+    registry.register('realized_vol',      lambda d, p: _realized_vol(d['close'], p['period']))
+    registry.register('vol_ratio',         lambda d, p: _vol_ratio(d['close'], p['fast'], p['slow']))
+    registry.register('atr',               lambda d, p: _atr(d['high'], d['low'], d['close'], p['period']))
+    registry.register('bb_pct',            lambda d, p: _bb_pct(d['close'], p['period'], p.get('std_dev', 2.0)))
+    registry.register('bb_width',          lambda d, p: _bb_width(d['close'], p['period'], p.get('std_dev', 2.0)))
+    registry.register('volume_ratio',      lambda d, p: _volume_ratio(d['volume'], p['period']))
+    registry.register('drawdown',          lambda d, p: _drawdown(d['close'], p['period']))
+    registry.register('drawdown_recovery', lambda d, p: _drawdown_recovery(d['close'], p['short'], p['long']))
+    registry.register('roc',               lambda d, p: _roc(d['close'], p['period']))
+    registry.register('roc_spread',        lambda d, p: _roc_spread(d['close'], p['fast'], p['slow']))
+    registry.register('dxy_ret',           lambda d, p: _dxy_ret(d['dxy'], p['period']))
+    registry.register('dxy_ma_ratio',      lambda d, p: _dxy_ma_ratio(d['dxy'], p['period']))
+    registry.register('day_of_week',       lambda d, p: _day_of_week(d))
+    registry.register('vix_level',         lambda d, p: _vix_level(d))
+    registry.register('vix_ma_ratio',      lambda d, p: _vix_ma_ratio(d, p['period']))
+    registry.register('vix_ret',           lambda d, p: _vix_ret(d, p['period']))
+    registry.register('tnx_level',         lambda d, p: _tnx_level(d))
+    registry.register('tnx_ma_ratio',      lambda d, p: _tnx_ma_ratio(d, p['period']))
+    registry.register('tnx_ret',           lambda d, p: _tnx_ret(d, p['period']))

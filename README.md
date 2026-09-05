@@ -119,21 +119,20 @@ are diagnostics rather than headline claims; inspect realized rates and scored c
 ```bash
 pip install -e .
 
-python run.py --surface            # 1. write 01_surface_array and 01_surface_xlsx
-python run.py --shift              # 2. write 02_shift_array and 02_shift_xlsx
-python run.py --selection          # 3. write 03_selection_array and 03_selection_xlsx
-python run.py --validation         # 4. write 04_validation_array and 04_validation_xlsx
-python run.py --gate               # 5. BH correction and selected-sheet economic intersect
-python run.py --bayes              # 6. walk-forward composition
-python run.py --report             # 7. render workspaces/nasdaq_daily/result
+volatility-matrix --surface        # 1. write 01_surface_array and 01_surface_xlsx
+volatility-matrix --shift          # 2. write 02_shift_array and 02_shift_xlsx
+volatility-matrix --selection      # 3. write 03_selection_array and 03_selection_xlsx
+volatility-matrix --validation     # 4. write 04_validation_array and 04_validation_xlsx
+volatility-matrix --gate           # 5. BH correction and selected-sheet economic intersect
+volatility-matrix --bayes          # 6. walk-forward composition
+volatility-matrix --report         # 7. render workspaces/nasdaq_daily/result
 
-python run.py --status
-python run.py --read vix_level
+volatility-matrix --status
+volatility-matrix --read vix_level
 ```
 
-`run.py` defaults to `nasdaq_daily`. After `pip install -e .`, the same CLI is
-also available as `volatility-matrix`. Pass `--workspace btc_daily` to rerun the
-BTC comparison workspace. `--family <name>` restricts a stage, `--rerun` rebuilds
+`volatility-matrix` defaults to `nasdaq_daily`. Pass `--workspace btc_daily` to rerun
+the BTC comparison workspace. `--family <name>` restricts a stage, `--rerun` rebuilds
 existing artifacts, and `--fdr Q` sets the Benjamini-Hochberg rate used by `--gate`.
 
 ### What Lands On Disk
