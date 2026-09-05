@@ -21,32 +21,32 @@ class ArtifactPaths:
         return self.workspace_dir / "universe.json"
 
     def cube_path(self, family: str, node_id: str) -> Path:
-        return self.workspace_dir / "01_surface_array" / family / f"{node_id}.npz"
+        return self.workspace_dir / "01_surface" / family / f"{node_id}.npz"
 
     def surface_path(self, family: str, node_id: str) -> Path:
-        return self.workspace_dir / "01_surface_xlsx" / family / f"{node_id}.xlsx"
+        return self.workspace_dir / "01_surface" / family / f"{node_id}.xlsx"
 
     def shift_cube_path(self, family: str, node_id: str) -> Path:
-        return self.workspace_dir / "02_shift_array" / family / f"{node_id}.npz"
+        return self.workspace_dir / "02_shift" / family / f"{node_id}.npz"
 
     def shift_surface_path(self, family: str, node_id: str) -> Path:
-        return self.workspace_dir / "02_shift_xlsx" / family / f"{node_id}.xlsx"
+        return self.workspace_dir / "02_shift" / family / f"{node_id}.xlsx"
 
     @property
     def selection_path(self) -> Path:
-        return self.workspace_dir / "03_selection_array" / "selection.json"
+        return self.workspace_dir / "03_selection" / "selection.json"
 
     def selection_array_path(self, row: dict) -> Path:
-        return self._ranked_path("03_selection_array", row, ".npz")
+        return self._ranked_path("03_selection", row, ".npz")
 
     def selection_surface_path(self, row: dict) -> Path:
-        return self._ranked_path("03_selection_xlsx", row, ".xlsx")
+        return self._ranked_path("03_selection", row, ".xlsx")
 
     def validation_array_path(self, row: dict) -> Path:
-        return self._ranked_path("04_validation_array", row, ".npz")
+        return self._ranked_path("04_validation", row, ".npz")
 
     def validation_surface_path(self, row: dict) -> Path:
-        return self._ranked_path("04_validation_xlsx", row, ".xlsx")
+        return self._ranked_path("04_validation", row, ".xlsx")
 
     def _ranked_path(self, stage: str, row: dict, suffix: str) -> Path:
         rank = int(row["rank"])
@@ -57,7 +57,7 @@ class ArtifactPaths:
 
     @property
     def validation_summary_path(self) -> Path:
-        return self.workspace_dir / "04_validation_array" / "04_validation.json"
+        return self.workspace_dir / "04_validation" / "04_validation.json"
 
     @property
     def cleared_path(self) -> Path:
@@ -70,31 +70,31 @@ class ArtifactPaths:
 
     @property
     def redundancy_path(self) -> Path:
-        return self.workspace_dir / "05_redundancy_array" / "05_redundancy.json"
+        return self.workspace_dir / "05_redundancy" / "05_redundancy.json"
 
     @property
     def redundancy_array_path(self) -> Path:
-        return self.workspace_dir / "05_redundancy_array" / "redundancy.npz"
+        return self.workspace_dir / "05_redundancy" / "redundancy.npz"
 
     @property
     def redundancy_workbook_path(self) -> Path:
-        return self.workspace_dir / "05_redundancy_xlsx" / "redundancy.xlsx"
+        return self.workspace_dir / "05_redundancy" / "redundancy.xlsx"
 
     @property
     def bayes_path(self) -> Path:
-        return self.workspace_dir / "06_bayes_array" / "06_bayes.npz"
+        return self.workspace_dir / "06_bayes" / "06_bayes.npz"
 
     @property
     def bayes_summary_path(self) -> Path:
-        return self.workspace_dir / "06_bayes_array" / "06_bayes.json"
+        return self.workspace_dir / "06_bayes" / "06_bayes.json"
 
     @property
     def bayes_workbook_path(self) -> Path:
-        return self.workspace_dir / "06_bayes_xlsx" / "bayes.xlsx"
+        return self.workspace_dir / "06_bayes" / "bayes.xlsx"
 
     @property
     def bayes_shift_workbook_path(self) -> Path:
-        return self.workspace_dir / "06_bayes_xlsx" / "bayes_shift.xlsx"
+        return self.workspace_dir / "06_bayes" / "bayes_shift.xlsx"
 
     @property
     def result_dir(self) -> Path:

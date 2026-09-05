@@ -178,7 +178,7 @@ def main() -> None:
     args = parser.parse_args()
 
     artifact_path = (
-        ROOT / "workspaces" / args.workspace / "06_bayes_array" / "06_bayes.npz"
+        ROOT / "workspaces" / args.workspace / "06_bayes" / "06_bayes.npz"
     )
     if not artifact_path.exists():
         raise SystemExit(f"Missing {artifact_path}; run Stage 6 first.")

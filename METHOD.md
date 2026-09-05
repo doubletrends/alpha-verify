@@ -13,30 +13,25 @@ engine uses high/low extremes rather than close-to-close returns.
 The product workflow has seven stages:
 
 ```text
-01_surface_array/         --surface     compute: full Δ x bins x horizons
-01_surface_xlsx/          --surface     view: full surface workbooks
+01_surface/               --surface     full arrays and surface workbooks
 
-02_shift_array/           --shift       compute: full baseline-subtracted shift cube
-02_shift_xlsx/            --shift       view: red/blue shift workbooks
+02_shift/                 --shift       baseline-subtracted arrays and workbooks
 
-03_selection_array/       --selection   compute: top node-ranked representative sheets
-03_selection_xlsx/        --selection   view: selected representative-bin workbooks
+03_selection/             --selection   ranked arrays, manifest, and workbooks
 
-04_validation_array/      --validation  compute: exact shuffled nulls
-04_validation_xlsx/       --validation  view: validation workbooks
-04_validation_array/04_validation.json
+04_validation/            --validation  exact null arrays and workbooks
+04_validation/04_validation.json
                           --validation  raw null + BH + economic intersection
 
-05_redundancy_array/      --redundancy  numerical conditional-NMI matrix
-05_redundancy_xlsx/       --redundancy  readable redundancy workbook
-05_redundancy_array/05_redundancy.json
+05_redundancy/            --redundancy  numerical matrix and readable workbook
+05_redundancy/05_redundancy.json
                           --redundancy  compact manifest and cluster summary
-06_bayes_array/06_bayes.npz
+06_bayes/06_bayes.npz
                           --bayes       walk-forward composition arrays
-06_bayes_array/06_bayes.json
+06_bayes/06_bayes.json
                           --bayes       walk-forward composition summary
-06_bayes_xlsx/bayes.xlsx  --bayes       current weighted probability surface
-06_bayes_xlsx/bayes_shift.xlsx
+06_bayes/bayes.xlsx       --bayes       current weighted probability surface
+06_bayes/bayes_shift.xlsx
                           --bayes       current weighted shift from baseline
 workspaces/<name>/result/ --report      audience-facing figures
 ```
@@ -101,8 +96,8 @@ the pipeline uniform and makes it the reference every conditional node is judged
 Surface artifacts are written to:
 
 ```text
-01_surface_array/<family>/<node>.npz
-01_surface_xlsx/<family>/<node>.xlsx
+01_surface/<family>/<node>.npz
+01_surface/<family>/<node>.xlsx
 ```
 
 The `.npz` file is the measurement record. The workbook is a readable projection: one
@@ -149,10 +144,10 @@ that decile; a weak but useful gradient receives credit from every bin. Conditio
 rates use the same 25-pseudo-observation shrinkage as Bayes.
 
 The stage ranks all nodes globally and writes the top `selection.top_k` rows, defaulting
-to 20, to `03_selection_array/selection.json`. Each selected row records its highest-
+to 20, to `03_selection/selection.json`. Each selected row records its highest-
 contributing **representative bin** and its effective number of contributing bins; that
-bin is copied to `03_selection_array/<family>/` and rendered under
-`03_selection_xlsx/<family>/`. Stage 3 contains no economic verdict: a broad, modest
+bin is copied to `03_selection/<family>/` as both an array and workbook. Stage 3
+contains no economic verdict: a broad, modest
 table can rank well even when no individual bin meets a product-effect threshold.
 
 ## 4. Validation and Decision
@@ -200,7 +195,7 @@ honestly report a p-value below `1/(n+1)`.
 
 `cell_p` is pointwise. It helps read where a surface is unusual, but it is not a
 discovery criterion. Validation uses `node_peak_p` for the nodes selected by
-`03_selection_array/selection.json`, which accounts for the search over their bins and
+`03_selection/selection.json`, which accounts for the search over their bins and
 2D sheets.
 
 Once every selected node has a current null artifact, validation applies a raw
@@ -214,7 +209,7 @@ A selected node clears the product claim only when all three are true at one hor
 - **FDR:** the test survives Benjamini-Hochberg at `q = 0.05` by default.
 - **Economic:** a stable, useful-size deviation from the baseline exists.
 
-The result is written to `04_validation_array/04_validation.json`:
+The result is written to `04_validation/04_validation.json`:
 
 ```text
 summary.null_pass    selected node/horizons passing the raw null threshold
@@ -234,7 +229,7 @@ a screen of this size.
 
 Partial `--family` runs may refresh individual null artifacts, but cannot publish a
 smaller correction universe. Until every selected node is current,
-`04_validation_array/04_validation.json` records `complete: false` and the missing nodes. The deprecated
+`04_validation/04_validation.json` records `complete: false` and the missing nodes. The deprecated
 `--gate` compatibility alias can only finalize already-complete null artifacts; it is
 not a separate pipeline stage.
 
@@ -251,11 +246,11 @@ Pairs above the threshold form connected clusters. This is a research-facing map
 a hard deletion rule: it exposes where Naive Bayes' conditional-independence assumption
 is weakest while leaving partial information available to the weighted model.
 
-Stage 5 writes three synchronized artifacts. `05_redundancy_array/redundancy.npz` is
+Stage 5 writes three synchronized artifacts. `05_redundancy/redundancy.npz` is
 the numerical source of truth: ordered node ids, information scores, the square
 conditional-NMI matrix, cluster ids, representative flags, target, threshold, sample
-count and outcome rate. `05_redundancy_xlsx/redundancy.xlsx` renders Overview, Matrix,
-Clusters, Nodes, Pairs and Definitions sheets. `05_redundancy_array/05_redundancy.json`
+count and outcome rate. `05_redundancy/redundancy.xlsx` renders Overview, Matrix,
+Clusters, Nodes, Pairs and Definitions sheets. `05_redundancy/05_redundancy.json`
 is written last as a
 compact manifest; `complete: true` certifies that both larger artifacts exist and match
 the current Stage 4 validation fingerprint.
@@ -311,13 +306,13 @@ likely than shorter horizons. The raw fitted face remains in the NPZ for auditab
 It writes:
 
 ```text
-06_bayes_array/06_bayes.npz
-06_bayes_array/06_bayes.json
-06_bayes_xlsx/bayes.xlsx
-06_bayes_xlsx/bayes_shift.xlsx
+06_bayes/06_bayes.npz
+06_bayes/06_bayes.json
+06_bayes/bayes.xlsx
+06_bayes/bayes_shift.xlsx
 ```
 
-`06_bayes_array/06_bayes.json` records prior-only, raw top-node Naive Bayes,
+`06_bayes/06_bayes.json` records prior-only, raw top-node Naive Bayes,
 one-node-per-family,
 Platt-scaled, and redundancy-aware weighted metrics. Every outer fold records its node
 weights, ridge strength, and fold-local redundancy clusters. The point is not to claim a
@@ -395,23 +390,23 @@ enough to estimate.
 | path | written by | contents |
 |---|---|---|
 | `universe.json` | you | nodes and asset config |
-| `01_surface_array/<family>/<node>.npz` | `--surface` | full measured cube |
-| `01_surface_xlsx/<family>/<node>.xlsx` | `--surface` | readable full workbook |
-| `02_shift_array/<family>/<node>.npz` | `--shift` | full baseline-subtracted shift cube |
-| `02_shift_xlsx/<family>/<node>.xlsx` | `--shift` | red/blue shift workbook |
-| `03_selection_array/selection.json` | `--selection` | ranking index for selected nodes |
-| `03_selection_array/<family>/rank_*.npz` | `--selection` | copied representative-bin arrays |
-| `03_selection_xlsx/<family>/rank_*.xlsx` | `--selection` | representative-bin workbooks |
-| `04_validation_array/<family>/<node>.npz` | `--validation` | exact null artifacts |
-| `04_validation_xlsx/<family>/<node>.xlsx` | `--validation` | readable validation workbook |
-| `04_validation_array/04_validation.json` | `--validation` | three-gate verdicts and cleared rows |
-| `05_redundancy_array/redundancy.npz` | `--redundancy` | numerical conditional-NMI matrix and clusters |
-| `05_redundancy_xlsx/redundancy.xlsx` | `--redundancy` | six-sheet readable redundancy map |
-| `05_redundancy_array/05_redundancy.json` | `--redundancy` | compact manifest and cluster summary |
-| `06_bayes_array/06_bayes.npz` | `--bayes` | pooled walk-forward predictions |
-| `06_bayes_array/06_bayes.json` | `--bayes` | walk-forward metrics and fold metadata |
-| `06_bayes_xlsx/bayes.xlsx` | `--bayes` | one-sheet current weighted probability surface |
-| `06_bayes_xlsx/bayes_shift.xlsx` | `--bayes` | one-sheet current weighted shift from baseline |
+| `01_surface/<family>/<node>.npz` | `--surface` | full measured cube |
+| `01_surface/<family>/<node>.xlsx` | `--surface` | readable full workbook |
+| `02_shift/<family>/<node>.npz` | `--shift` | full baseline-subtracted shift cube |
+| `02_shift/<family>/<node>.xlsx` | `--shift` | red/blue shift workbook |
+| `03_selection/selection.json` | `--selection` | ranking index for selected nodes |
+| `03_selection/<family>/rank_*.npz` | `--selection` | copied representative-bin arrays |
+| `03_selection/<family>/rank_*.xlsx` | `--selection` | representative-bin workbooks |
+| `04_validation/<family>/<node>.npz` | `--validation` | exact null artifacts |
+| `04_validation/<family>/<node>.xlsx` | `--validation` | readable validation workbook |
+| `04_validation/04_validation.json` | `--validation` | three-gate verdicts and cleared rows |
+| `05_redundancy/redundancy.npz` | `--redundancy` | numerical conditional-NMI matrix and clusters |
+| `05_redundancy/redundancy.xlsx` | `--redundancy` | six-sheet readable redundancy map |
+| `05_redundancy/05_redundancy.json` | `--redundancy` | compact manifest and cluster summary |
+| `06_bayes/06_bayes.npz` | `--bayes` | pooled walk-forward predictions |
+| `06_bayes/06_bayes.json` | `--bayes` | walk-forward metrics and fold metadata |
+| `06_bayes/bayes.xlsx` | `--bayes` | one-sheet current weighted probability surface |
+| `06_bayes/bayes_shift.xlsx` | `--bayes` | one-sheet current weighted shift from baseline |
 | `workspaces/<name>/result/*.png` | `--report` | product figures |
 
 Rendered workbooks are git-ignored. The `.npz` files are the measurement record.

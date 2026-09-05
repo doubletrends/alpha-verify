@@ -26,7 +26,7 @@ def _write_shift_array(ws: Workspace, family: str | None = None) -> None:
         node for node in nodes if node["id"] != BASELINE_NODE
     ]
     deltas, horizons = ws.shift_deltas, ws.shift_horizons
-    print(f"\n=== 2. 02_shift_array [{ws.dir.name}] - {len(nodes)} nodes ===")
+    print(f"\n=== 2. 02_shift arrays [{ws.dir.name}] - {len(nodes)} nodes ===")
     print(
         f"  {len(deltas)} Delta x {ws.n_bins} bins x {len(horizons)} horizons = "
         f"{len(deltas) * ws.n_bins * len(horizons)} cells"
@@ -62,7 +62,7 @@ def _render_shift(ws: Workspace, family: str | None) -> None:
         print("No shift arrays to render - run --shift first.")
         return
 
-    print(f"\n=== 2. 02_shift_xlsx [{ws.dir.name}] - {len(nodes)} nodes ===")
+    print(f"\n=== 2. 02_shift workbooks [{ws.dir.name}] - {len(nodes)} nodes ===")
     print(
         f"  {ws.n_bins} tabs per node, one per condition bin; "
         "red/blue cells show baseline-subtracted touch probability\n"
@@ -83,7 +83,7 @@ def _render_shift(ws: Workspace, family: str | None) -> None:
             print(f"  {node['id']:<26} [locked] close it in Excel and re-run")
             continue
         written += 1
-    print(f"  wrote {written} workbooks under {ws.dir.relative_to(ws.root_dir)}/02_shift_xlsx/")
+    print(f"  wrote {written} workbooks under {ws.dir.relative_to(ws.root_dir)}/02_shift/")
 
 
 def cmd_shift(ws: Workspace, family: str | None = None) -> None:

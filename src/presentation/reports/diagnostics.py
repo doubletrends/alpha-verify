@@ -84,7 +84,7 @@ def fig_null_gap_ranking(ws, cleared, out: Path) -> Path | None:
            f'Each row keeps one node: its strongest discovered horizon. Grey ticks are '
            f'the shuffled-null p95; blue dots are the observed peak. {at_floor} of these '
            f'{len(rows)} are already at the exact p-value floor.')
-    _note(fig, f'{ws.dir.name} · ranked from 04_validation_array/04_validation.json tests · one best discovered '
+    _note(fig, f'{ws.dir.name} · ranked from 04_validation/04_validation.json tests · one best discovered '
                f'horizon per selected sheet')
     fig.subplots_adjust(top=1 - 1.12 / fig_h, left=0.25, right=0.76, bottom=0.14)
     return _save(fig, out / 'D_null_gap_ranking.png')
@@ -196,7 +196,7 @@ def fig_null(ws, universe, cleared, out: Path) -> Path | None:
            f'the blue tick is the strongest observed sheet peak.')
     _note(fig, f'A shift keeps the feature\'s autocorrelation and destroys only its '
                f'alignment with the future · histogram recomputed in Stage 7 from saved '
-               f'03_selection_array / 02_shift_array histories · {n_shifts:,} pooled '
+               f'03_selection / 02_shift histories · {n_shifts:,} pooled '
                f'usable shifts across {len(dists)} cleared sheets · strongest observed '
                f'p = {float(strongest["p_value"]):.2g}, per-sheet floor '
                f'{float(np.nanmin(floors)):.2g}')

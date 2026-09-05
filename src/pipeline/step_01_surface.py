@@ -45,7 +45,7 @@ def _write_surface_arrays(workspace: Workspace, family: str | None, rerun: bool)
 
     context = RunContext(workspace)
     horizons = workspace.horizons
-    print(f"\n=== 1. 01_surface_array [{workspace.dir.name}] - {len(nodes)} nodes ===")
+    print(f"\n=== 1. 01_surface arrays [{workspace.dir.name}] - {len(nodes)} nodes ===")
     print(
         f"  {len(workspace.deltas)} Delta x {workspace.n_bins} bins x {len(horizons)} horizons "
         f"(+{horizons[0]}{workspace.horizon_unit}..+{horizons[-1]}{workspace.horizon_unit})"
@@ -60,7 +60,7 @@ def _write_surface_arrays(workspace: Workspace, family: str | None, rerun: bool)
             skipped[node["id"]] = str(error)
             print(f"  {node['id']:<26} [skip] {error}")
     suffix = f"   ({len(skipped)} skipped)" if skipped else ""
-    print(f"\n  wrote to {workspace.dir.relative_to(workspace.root_dir)}/01_surface_array/{suffix}")
+    print(f"\n  wrote to {workspace.dir.relative_to(workspace.root_dir)}/01_surface/{suffix}")
 
 
 def _render_surface(workspace: Workspace, family: str | None) -> None:
@@ -72,7 +72,7 @@ def _render_surface(workspace: Workspace, family: str | None) -> None:
         print("No full arrays to render - run --surface first.")
         return
 
-    print(f"\n=== 1. 01_surface_xlsx [{workspace.dir.name}] - {len(nodes)} nodes ===")
+    print(f"\n=== 1. 01_surface workbooks [{workspace.dir.name}] - {len(nodes)} nodes ===")
     print(f"  {workspace.n_bins} tabs per node, one per condition bin\n")
     written = 0
     for node in nodes:
@@ -90,7 +90,7 @@ def _render_surface(workspace: Workspace, family: str | None) -> None:
             print(f"  {node['id']:<26} [locked] close it in Excel and re-run")
             continue
         written += 1
-    print(f"  wrote {written} workbooks under {workspace.dir.relative_to(workspace.root_dir)}/01_surface_xlsx/")
+    print(f"  wrote {written} workbooks under {workspace.dir.relative_to(workspace.root_dir)}/01_surface/")
 
 
 def cmd_surface(workspace: Workspace, family: str | None = None, rerun: bool = False) -> None:

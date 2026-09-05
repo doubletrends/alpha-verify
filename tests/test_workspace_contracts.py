@@ -36,46 +36,70 @@ class WorkspaceContractTests(unittest.TestCase):
     def test_artifact_paths_are_stage_scoped(self) -> None:
         row = {"rank": 7, "family": "vix", "node": "vix_level", "bin_number": 3}
         self.assertEqual(
+            self.workspace.cube_path("vix", "vix_level").as_posix().split("/")[-3:],
+            ["01_surface", "vix", "vix_level.npz"],
+        )
+        self.assertEqual(
+            self.workspace.surface_path("vix", "vix_level").as_posix().split("/")[-3:],
+            ["01_surface", "vix", "vix_level.xlsx"],
+        )
+        self.assertEqual(
+            self.workspace.shift_cube_path("vix", "vix_level").as_posix().split("/")[-3:],
+            ["02_shift", "vix", "vix_level.npz"],
+        )
+        self.assertEqual(
+            self.workspace.shift_surface_path("vix", "vix_level").as_posix().split("/")[-3:],
+            ["02_shift", "vix", "vix_level.xlsx"],
+        )
+        self.assertEqual(
             self.workspace.selection_array_path(row).as_posix().split("/")[-3:],
-            ["03_selection_array", "vix", "rank_007__vix_level__bin_03.npz"],
+            ["03_selection", "vix", "rank_007__vix_level__bin_03.npz"],
+        )
+        self.assertEqual(
+            self.workspace.selection_surface_path(row).as_posix().split("/")[-3:],
+            ["03_selection", "vix", "rank_007__vix_level__bin_03.xlsx"],
+        )
+        self.assertEqual(
+            self.workspace.validation_array_path(row).as_posix().split("/")[-3:],
+            ["04_validation", "vix", "rank_007__vix_level__bin_03.npz"],
         )
         self.assertEqual(
             self.workspace.validation_surface_path(row).as_posix().split("/")[-3:],
-            ["04_validation_xlsx", "vix", "rank_007__vix_level__bin_03.xlsx"],
+            ["04_validation", "vix", "rank_007__vix_level__bin_03.xlsx"],
         )
         self.assertEqual(
             self.workspace.redundancy_path.as_posix().split("/")[-2:],
-            ["05_redundancy_array", "05_redundancy.json"],
+            ["05_redundancy", "05_redundancy.json"],
         )
         self.assertEqual(
             self.workspace.redundancy_array_path.as_posix().split("/")[-2:],
-            ["05_redundancy_array", "redundancy.npz"],
+            ["05_redundancy", "redundancy.npz"],
         )
         self.assertEqual(
             self.workspace.redundancy_workbook_path.as_posix().split("/")[-2:],
-            ["05_redundancy_xlsx", "redundancy.xlsx"],
+            ["05_redundancy", "redundancy.xlsx"],
         )
         self.assertEqual(
             self.workspace.validation_summary_path.as_posix().split("/")[-2:],
-            ["04_validation_array", "04_validation.json"],
+            ["04_validation", "04_validation.json"],
         )
         self.assertEqual(self.workspace.cleared_path, self.workspace.validation_summary_path)
         self.assertEqual(self.workspace.legacy_gate_path.name, "05_gate.json")
         self.assertEqual(
             self.workspace.bayes_workbook_path.as_posix().split("/")[-2:],
-            ["06_bayes_xlsx", "bayes.xlsx"],
+            ["06_bayes", "bayes.xlsx"],
         )
         self.assertEqual(
             self.workspace.bayes_shift_workbook_path.as_posix().split("/")[-2:],
-            ["06_bayes_xlsx", "bayes_shift.xlsx"],
+            ["06_bayes", "bayes_shift.xlsx"],
         )
         self.assertEqual(
             self.workspace.bayes_path.as_posix().split("/")[-2:],
-            ["06_bayes_array", "06_bayes.npz"],
+            ["06_bayes", "06_bayes.npz"],
         )
         self.assertEqual(
             self.workspace.bayes_summary_path.as_posix().split("/")[-2:],
-            ["06_bayes_array", "06_bayes.json"],
+            ["06_bayes", "06_bayes.json"],
         )
 
     def test_artifact_history_helpers_align_feature_to_valid_prices(self) -> None:

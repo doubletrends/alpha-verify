@@ -187,7 +187,7 @@ def rank_nodes(
     return {
         "generated": datetime.now(timezone.utc).isoformat(),
         "artifact": "03_selection",
-        "source": "02_shift_array",
+        "source": "02_shift",
         "method": {
             "score": "sample-weighted KL(Bernoulli(P(touch | bin)) || Bernoulli(P(touch))) across all bins",
             "unit": "nats per observation",

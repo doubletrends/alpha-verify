@@ -121,7 +121,7 @@ def finalize_validation(ws: Workspace, q: float = 0.05) -> bool:
     """Apply global BH and the economic intersection once every null is current."""
     selected = _selected_rows(ws)
     if not selected:
-        print("No 03_selection_array/selection.json - run --selection first.")
+        print("No 03_selection/selection.json - run --selection first.")
         return False
 
     missing = [
@@ -347,7 +347,7 @@ def cmd_validation(
         return
     rows = [row for row in rows if ws.has_selection_array(row)]
     if not rows:
-        print("No 03_selection_array artifacts - run --selection first.")
+        print("No 03_selection artifacts - run --selection first.")
         return
     nodes = {node["id"]: node for node in ws.catalog.all_nodes()}
     rows = [
@@ -366,7 +366,7 @@ def cmd_validation(
         return
 
     deltas, horizons = ws.shift_deltas, ws.shift_horizons
-    print(f"\n=== 4. 04_validation_array [{ws.dir.name}] - {len(rows)} selected nodes ===")
+    print(f"\n=== 4. 04_validation [{ws.dir.name}] - {len(rows)} selected nodes ===")
     print(
         f"  selected nodes are tested as {len(deltas)} delta x {len(horizons)} horizon surfaces; "
         "validation artifacts retain their representative-bin view"
@@ -435,6 +435,6 @@ def cmd_validation(
             print(f"  {node['id']:<26} insufficient data in selected bins")
 
     relative_dir = ws.dir.relative_to(ws.root_dir)
-    print(f"\n  wrote {array_count} .npz artifacts under {relative_dir}/04_validation_array/")
-    print(f"  wrote {workbook_count} workbooks under {relative_dir}/04_validation_xlsx/")
+    print(f"\n  wrote {array_count} .npz artifacts under {relative_dir}/04_validation/")
+    print(f"  wrote {workbook_count} workbooks under {relative_dir}/04_validation/")
     finalize_validation(ws, q)

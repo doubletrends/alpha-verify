@@ -162,7 +162,7 @@ def cmd_redundancy(ws: Workspace) -> None:
     generated = datetime.now(timezone.utc).isoformat()
     source_fingerprint = validation_fingerprint(validation)
     meta = {
-        "artifact": "05_redundancy_array",
+        "artifact": "05_redundancy",
         "workspace": ws.dir.name,
         "generated": generated,
         "source_validation_fingerprint": source_fingerprint,

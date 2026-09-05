@@ -35,22 +35,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     g = parser.add_mutually_exclusive_group()
-    g.add_argument("--surface", action="store_true", help="1. write 01_surface_array and 01_surface_xlsx")
+    g.add_argument("--surface", action="store_true", help="1. write 01_surface artifacts")
     g.add_argument(
         "--shift",
         action="store_true",
-        help="2. write 02_shift_array and 02_shift_xlsx",
+        help="2. write 02_shift artifacts",
     )
     g.add_argument(
         "--selection",
         action="store_true",
-        help="3. write 03_selection_array and 03_selection_xlsx",
+        help="3. write 03_selection artifacts",
     )
     g.add_argument(
         "--validation",
         action="store_true",
         help=("4. validate selected nodes, apply BH/economic verdicts, write "
-              "04_validation_array/04_validation.json"),
+              "04_validation/04_validation.json"),
     )
     g.add_argument(
         "--gate",

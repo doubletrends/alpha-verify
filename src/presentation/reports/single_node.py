@@ -156,7 +156,7 @@ def fig_band(ws, out: Path) -> Path | None:
            f'after the model cutoff.')
     _note(fig, f'{ws.asset["ticker"]} · +1..+{int(ts[j])}{ws.horizon_unit} · model fit '
                f'only with outcomes completed by {as_of} · coherent surface from '
-               f'06_bayes_array/06_bayes.npz · {fallback_cells}/{current_surface.size} '
+               f'06_bayes/06_bayes.npz · {fallback_cells}/{current_surface.size} '
                f'sparse cells use their historical prior · demonstration date selected retrospectively')
     fig.subplots_adjust(top=0.78, right=0.78, bottom=0.10)
     return _save(fig, out / 'A_band.png')
@@ -207,7 +207,7 @@ def _render_shift(ws, head: dict, out_path: Path) -> Path | None:
     _note(fig, f'{cube["meta"]["bin_labels"][b]} · ring at +{cell["horizon"]}'
                f'{ws.horizon_unit}, q = {head["gate"]["q_value"]:.2g} after '
                f'Benjamini-Hochberg · bin holds {cell["bin_n"]} bars · '
-               f'02_shift_array/{head["family"]}/{head["id"]}.npz')
+               f'02_shift/{head["family"]}/{head["id"]}.npz')
     fig.subplots_adjust(top=0.80)
     return _save(fig, out_path)
 
@@ -315,7 +315,7 @@ def fig_atr_ladder(ws, cleared, out: Path) -> Path | None:
            f'risk ladder: the calmest bin is {probs[lo]:.1%}, the unconditional rate is '
            f'{base:.1%}, and the widest bin is {probs[hi]:.1%}.')
     _note(fig, f'{ws.dir.name} · {labels[lo]} vs {labels[hi]} · '
-               f'02_shift_array/{family}/{node_id}.npz')
+               f'02_shift/{family}/{node_id}.npz')
     fig.subplots_adjust(top=0.78, right=0.84, bottom=0.15)
     return _save(fig, out / 'C_atr_regime_ladder.png')
 

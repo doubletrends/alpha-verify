@@ -62,7 +62,7 @@ def cmd_selection(ws: Workspace, family: str | None = None) -> None:
         sheet = selection.sheet_from_shift_cube(source, row)
         meta = {
             **sheet["meta"],
-            "artifact": "03_selection_array",
+            "artifact": "03_selection",
             "source": str(ws.shift_cube_path(row["family"], row["node"]).relative_to(ws.root_dir)),
             "node": row["node"],
             "family": row["family"],
@@ -91,7 +91,7 @@ def cmd_selection(ws: Workspace, family: str | None = None) -> None:
 
     print(f"\n=== 3. Selection [{ws.dir.name}] ===")
     print(
-        f"  scored {len(result['candidates'])} whole nodes from 02_shift_array; "
+        f"  scored {len(result['candidates'])} whole nodes from 02_shift; "
         f"selected top {len(selected)} distinct nodes by conditional information"
     )
     print(
@@ -109,5 +109,5 @@ def cmd_selection(ws: Workspace, family: str | None = None) -> None:
                 f"dev={c['dev']:+.1f}pp n={c['bin_n']}"
             )
 
-    print(f"\n  wrote {copied_npz} .npz artifacts under {ws.dir.relative_to(ws.root_dir)}/03_selection_array/")
-    print(f"  wrote {copied_xlsx} workbooks under {ws.dir.relative_to(ws.root_dir)}/03_selection_xlsx/")
+    print(f"\n  wrote {copied_npz} .npz artifacts under {ws.dir.relative_to(ws.root_dir)}/03_selection/")
+    print(f"  wrote {copied_xlsx} workbooks under {ws.dir.relative_to(ws.root_dir)}/03_selection/")

@@ -116,16 +116,16 @@ information improves one workspace, but weighting is not automatically superior.
 Across the complete NASDAQ composition sweep, 456 of 1,200 barrier/horizon targets beat the
 prior after correction. The sweep includes rare-event targets, so its extreme AUC cells
 are diagnostics rather than headline claims; inspect realized rates and scored counts in
-`06_bayes_array/06_bayes.json` before interpreting any individual cell.
+`06_bayes/06_bayes.json` before interpreting any individual cell.
 
 ## Run It
 
 ```bash
 pip install -e .
 
-volatility-matrix --surface        # 1. write 01_surface_array and 01_surface_xlsx
-volatility-matrix --shift          # 2. write 02_shift_array and 02_shift_xlsx
-volatility-matrix --selection      # 3. write 03_selection_array and 03_selection_xlsx
+volatility-matrix --surface        # 1. write 01_surface arrays and workbooks
+volatility-matrix --shift          # 2. write 02_shift arrays and workbooks
+volatility-matrix --selection      # 3. write 03_selection artifacts
 volatility-matrix --validation     # 4. exact nulls + BH/economic final verdicts
 volatility-matrix --redundancy     # 5. write redundancy NPZ, XLSX, and manifest
 volatility-matrix --bayes          # 6. evaluate composition + write current probability sheet
@@ -143,23 +143,23 @@ existing artifacts, and `--fdr Q` sets the Benjamini-Hochberg rate used by `--va
 
 ```text
 workspaces/<name>/
-  01_surface_array/<family>/<node>.npz              compute  full Δ x bins x horizons
-  01_surface_xlsx/<family>/<node>.xlsx          view     full cube workbook
-  02_shift_array/<family>/<node>.npz        compute  full baseline-subtracted shift cube
-  02_shift_xlsx/<family>/<node>.xlsx    view     red/blue shift workbook
-  03_selection_array/selection.json         compute  ranking index for selected nodes
-  03_selection_array/<family>/rank_*.npz    compute  copied selected shift sheet arrays
-  03_selection_xlsx/<family>/rank_*.xlsx    view     selected shift sheet workbook
-  04_validation_array/<family>/<node>.npz         compute  exact shuffled null
-  04_validation_xlsx/<family>/<node>.xlsx   view     readable validation sheet
-  04_validation_array/04_validation.json     three-gate verdicts and cleared nodes
-  05_redundancy_array/redundancy.npz         numerical conditional-NMI matrix
-  05_redundancy_xlsx/redundancy.xlsx         readable redundancy workbook
-  05_redundancy_array/05_redundancy.json     redundancy manifest and cluster summary
-  06_bayes_array/06_bayes.npz                 numerical predictions and surfaces
-  06_bayes_array/06_bayes.json                composition metrics and metadata
-  06_bayes_xlsx/bayes.xlsx                    current weighted probability surface
-  06_bayes_xlsx/bayes_shift.xlsx              current weighted shift from baseline
+  01_surface/<family>/<node>.npz          compute  full Δ x bins x horizons
+  01_surface/<family>/<node>.xlsx         view     full cube workbook
+  02_shift/<family>/<node>.npz            compute  full baseline-subtracted shift cube
+  02_shift/<family>/<node>.xlsx           view     red/blue shift workbook
+  03_selection/selection.json             compute  ranking index for selected nodes
+  03_selection/<family>/rank_*.npz        compute  copied selected shift sheet arrays
+  03_selection/<family>/rank_*.xlsx       view     selected shift sheet workbook
+  04_validation/<family>/<node>.npz       compute  exact shuffled null
+  04_validation/<family>/<node>.xlsx      view     readable validation sheet
+  04_validation/04_validation.json        three-gate verdicts and cleared nodes
+  05_redundancy/redundancy.npz            numerical conditional-NMI matrix
+  05_redundancy/redundancy.xlsx           readable redundancy workbook
+  05_redundancy/05_redundancy.json        redundancy manifest and cluster summary
+  06_bayes/06_bayes.npz                   numerical predictions and surfaces
+  06_bayes/06_bayes.json                  composition metrics and metadata
+  06_bayes/bayes.xlsx                     current weighted probability surface
+  06_bayes/bayes_shift.xlsx               current weighted shift from baseline
 workspaces/<name>/result/*.png                                report figures
 ```
 

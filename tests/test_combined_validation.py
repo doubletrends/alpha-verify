@@ -12,9 +12,9 @@ from pipeline.step_04_validation import finalize_validation, validation_summary_
 
 class _IncompleteWorkspace:
     root_dir = Path("C:/workspace")
-    selection_path = Path("C:/workspace/workspaces/example/03_selection_array/selection.json")
+    selection_path = Path("C:/workspace/workspaces/example/03_selection/selection.json")
     validation_summary_path = Path(
-        "C:/workspace/workspaces/example/04_validation_array/04_validation.json"
+        "C:/workspace/workspaces/example/04_validation/04_validation.json"
     )
     null_alpha = 0.01
     min_dev = 10.0
