@@ -31,7 +31,7 @@ from engine.report_style import (
     title as _title,
 )
 from engine.writer import feature_label
-from universe import find_node
+from catalog import find_node
 
 SHIFT_CMAP_LIMIT_PP = 30.0
 
@@ -281,14 +281,14 @@ def fig_atr_ladder(ws, cleared, out: Path) -> Path | None:
     tick_labels[lo] = f'D{lo + 1}\ncalmest'
     tick_labels[hi] = f'D{hi + 1}\nwidest'
     ax.set_xticklabels(tick_labels)
-    ax.set_ylabel(f'P(touch {_Δ_pct(cell["Δ"], ws.Δ_step)} within '
+    ax.set_ylabel(f'P(touch {_Δ_pct(cell["Δ"], ws.delta_step)} within '
                   f'+{cell["horizon"]}{ws.horizon_unit})')
     ax.set_ylim(max(0, float(np.nanmin(probs)) - 0.08),
                 min(1, float(np.nanmax(probs)) + 0.10))
     _frame(ax, grid_axis='y')
 
     _title(fig,
-           f'Calm ATR cuts {_Δ_pct(cell["Δ"], ws.Δ_step)} touches '
+           f'Calm ATR cuts {_Δ_pct(cell["Δ"], ws.delta_step)} touches '
            f'from {base:.0%} to {probs[lo]:.0%}',
            f'At +{cell["horizon"]}{ws.horizon_unit}, {feature_label(node_id)} forms a '
            f'risk ladder: the calmest bin is {probs[lo]:.1%}, the unconditional rate is '

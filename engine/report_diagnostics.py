@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
 
+from artifacts import feature_from_artifact, market_data_from_artifact
 from engine import selection, shift, validate as val
 from engine.report_style import (
     INK,
@@ -102,14 +102,13 @@ def _null_distribution_for_gate_row(ws, gate_row: dict) -> dict | None:
     elif ws.shift_cube_path(gate_row['family'], gate_row['node']).exists():
         artifact = shift.load(ws.shift_cube_path(gate_row['family'], gate_row['node']))
 
-    if artifact is None or any(k not in artifact for k in ('feature_values', 'high', 'low', 'close')):
+    if artifact is None:
         return None
-
-    data = pd.DataFrame(
-        {k: artifact[k].astype(float) for k in ('high', 'low', 'close')},
-        index=pd.to_datetime(artifact['index']) if 'index' in artifact else None,
-    )
-    feat = pd.Series(artifact['feature_values'].astype(float), index=data.index)
+    try:
+        data = market_data_from_artifact(artifact)
+        feat = feature_from_artifact(artifact, data.index)
+    except ValueError:
+        return None
     source_bin = int(artifact['source_bin']) if 'source_bin' in artifact else b
     return val.peak_shift_distribution(
         data,

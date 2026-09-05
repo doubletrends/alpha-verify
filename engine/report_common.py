@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from universe import find_node
+from catalog import find_node
 
 
 def Δ_pct(v: float, step: float) -> str:

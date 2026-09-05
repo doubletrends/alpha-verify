@@ -8,7 +8,6 @@ from pathlib import Path
 from openpyxl import load_workbook
 
 from engine import selection, shift
-from universe import all_in_family, all_nodes, load_universe
 from workspace import BASELINE_NODE, Workspace
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,9 +27,8 @@ def _copy_selected_workbook_sheet(source: Path, target: Path, bin_index: int) ->
 
 def cmd_selection(ws: Workspace, family: str | None = None) -> None:
     """Stage 3: score every node/bin shift sheet and select the global top-k."""
-    universe = load_universe(ws.universe_path)
     nodes = [
-        n for n in (all_in_family(universe, family) if family else all_nodes(universe))
+        n for n in (ws.catalog.in_family(family) if family else ws.catalog.all_nodes())
         if n["id"] != BASELINE_NODE and ws.has_shift_cube(n["family"], n["id"])
     ]
     if not nodes:

@@ -99,17 +99,20 @@ bars with a 30-session embargo and non-overlapping scoring.
 
 | model | Brier down | AUC | vs. prior |
 |---|--:|--:|--:|
-| constant prior | 0.206 | - | - |
-| naive Bayes, all 57 nodes | 0.333 | 0.576 | +61.4% worse |
-| one node per family | 0.233 | 0.580 | +13.2% worse |
-| **+ scale corrected** | **0.197** | 0.534 | **-4.4%** |
+| constant prior | 0.214 | - | - |
+| naive Bayes, all selected nodes | 0.231 | 0.619 | +8.1% worse |
+| one node per family | 0.235 | 0.460 | +9.9% worse |
+| + scale corrected | 0.228 | 0.430 | +6.6% worse |
 
 The raw model is overconfident because correlated indicators count similar evidence many
-times. Keeping one node per family removes most of the damage; a Platt scale correction
-does the rest for the headline target, `P(touch -7% within 30d)`.
+times. For the headline target, `P(touch -7% within 30d)`, both the family reduction
+and Platt correction still trail the constant prior out of sample. That result is useful:
+the single-condition measurements do not automatically compose into a better forecast.
 
-Across the composition sweep, 73 of 126 usable targets beat the prior out of sample. The
-strongest ranked target is `+10%` within `+3d`, at AUC 0.99.
+Across the complete composition sweep, 458 of 1,200 barrier/horizon targets beat the
+prior after correction. The sweep includes rare-event targets, so its extreme AUC cells
+are diagnostics rather than headline claims; inspect realized rates and scored counts in
+`06_bayes.json` before interpreting any individual cell.
 
 ## Run It
 

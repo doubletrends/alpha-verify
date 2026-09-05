@@ -4,13 +4,12 @@ from __future__ import annotations
 
 from engine.report_diagnostics import fig_null, fig_null_gap_ranking
 from engine.report_single_node import fig_band, fig_shift_all
-from universe import load_universe
 
 
 def build(ws) -> None:
     """Render every figure this workspace has the artifacts for."""
     out = ws.result_dir
-    universe = load_universe(ws.universe_path)
+    universe = ws.catalog.raw
     cleared = ws.read_json(ws.cleared_path)
 
     if not cleared:

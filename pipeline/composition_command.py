@@ -16,6 +16,16 @@ from workspace import BASELINE_NODE, Workspace
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def composition_targets(ws: Workspace) -> list[tuple[float, int]]:
+    """Every non-zero barrier and horizon pair on the workspace grid."""
+    return [
+        (float(delta), int(horizon))
+        for delta in ws.shift_deltas
+        if abs(delta) > 1e-12
+        for horizon in ws.shift_horizons
+    ]
+
+
 def cmd_bayes(ws: Workspace) -> None:
     """
     Stage 6: do the selected conditions compose, and does that survive out of sample?
@@ -79,19 +89,26 @@ def cmd_bayes(ws: Workspace) -> None:
         f"{1 / a_mean:.1f}x"
     )
 
-    th, ts = ws.shift_Δs, ws.shift_horizons
-    targets = [(float(t), int(t)) for t in th if abs(t) > 1e-12 for t in ts]
+    targets = composition_targets(ws)
     print(f"\n  sweeping the full shift grid: {len(targets)} targets", end="", flush=True)
     grid = []
-    for t, t in targets:
+    for delta, sweep_horizon in targets:
         try:
-            r = bayes.walk_forward(data, feats, fams, t, t, n_bins=ws.n_bins, folds=ws.bayes_folds)
+            r = bayes.walk_forward(
+                data,
+                feats,
+                fams,
+                delta,
+                sweep_horizon,
+                n_bins=ws.n_bins,
+                folds=ws.bayes_folds,
+            )
         except Exception:
             continue
         g = r["metrics"]
         grid.append({
-            "Δ": t,
-            "horizon": t,
+            "Δ": delta,
+            "horizon": sweep_horizon,
             "auc": g["one_per_family_scaled"]["auc"],
             "brier_prior": g["prior_only"]["brier"],
             "brier_all": g["all_nodes"]["brier"],

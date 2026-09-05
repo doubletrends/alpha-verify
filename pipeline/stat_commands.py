@@ -9,7 +9,6 @@ import numpy as np
 
 from engine import selection, shift, validate as val, writer
 from pipeline.runtime import artifact_node_feature
-from universe import all_nodes, load_universe
 from workspace import Workspace
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,11 +31,6 @@ def _validation_matches_selection(ws: Workspace, row: dict) -> bool:
     )
 
 
-def _validation_matches_shift(ws: Workspace, node: dict) -> bool:
-    rows = [r for r in _selected_rows(ws) if r.get("node") == node["id"] and ws.has_selection_array(r)]
-    return bool(rows) and all(_validation_matches_selection(ws, r) for r in rows)
-
-
 def _selected_rows(ws: Workspace, family: str | None = None) -> list[dict]:
     sel = ws.read_json(ws.selection_path)
     rows = sel.get("selected", [])
@@ -47,7 +41,6 @@ def _selected_rows(ws: Workspace, family: str | None = None) -> list[dict]:
 
 def cmd_validation(ws: Workspace, family: str | None = None, rerun: bool = False) -> None:
     """Stage 4: null-test nodes that own selected bin sheets."""
-    universe = load_universe(ws.universe_path)
     rows = _selected_rows(ws, family)
     if not rows:
         print("No selected sheets - run --selection first.")
@@ -56,7 +49,7 @@ def cmd_validation(ws: Workspace, family: str | None = None, rerun: bool = False
     if not rows:
         print("No 03_selection_array artifacts - run --selection first.")
         return
-    by_id = {n["id"]: n for n in all_nodes(universe)}
+    by_id = {n["id"]: n for n in ws.catalog.all_nodes()}
     rows = [
         r for r in rows
         if r["node"] in by_id and ws.has_shift_cube(r["family"], r["node"])
@@ -71,7 +64,7 @@ def cmd_validation(ws: Workspace, family: str | None = None, rerun: bool = False
         print("Nothing to validate or render (use --rerun to redo selected sheets).")
         return
 
-    th, ts = ws.shift_Δs, ws.shift_horizons
+    th, ts = ws.shift_deltas, ws.shift_horizons
     print(f"\n=== 4. 04_validation_array [{ws.dir.name}] - {len(rows)} selected sheets ===")
     print(
         f"  selected sheets are tested as {len(th)} Δ x {len(ts)} horizon surfaces; "

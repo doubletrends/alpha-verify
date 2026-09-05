@@ -2,65 +2,53 @@
 
 from __future__ import annotations
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 
+from artifacts import feature_from_artifact, market_data_from_artifact
 from data import features, fetcher
 from engine import barrier, shift
-from universe import all_nodes, load_universe
 from workspace import BASELINE_NODE, Workspace
 
 
-def loader(ws: Workspace):
-    """Return a per-workspace data loader with process-local source-set caching."""
-    cache: dict[tuple, pd.DataFrame] = {}
+class RunContext:
+    """Per-command dependencies: workspace declaration and cached source data."""
 
-    def load(sources: list) -> pd.DataFrame:
+    def __init__(self, workspace: Workspace):
+        self.workspace = workspace
+        self.catalog = workspace.catalog
+        self.artifacts = workspace.artifacts
+        self._data_cache: dict[tuple, pd.DataFrame] = {}
+
+    def load_data(self, sources: list[str]) -> pd.DataFrame:
         key = tuple(sorted(sources))
-        if key not in cache:
-            cache[key] = fetcher.fetch(
+        if key not in self._data_cache:
+            self._data_cache[key] = fetcher.fetch(
                 list(sources),
-                start=ws.start_date,
-                asset=ws.asset,
+                start=self.workspace.start_date,
+                asset=self.workspace.asset,
             ).dropna(subset=["close"])
-        return cache[key]
+        return self._data_cache[key]
 
-    return load
-
-
-def node_feature(ws: Workspace, node: dict, get_data):
-    """Return ``(data, feature series)`` for a node, or raise if unavailable."""
-    data = get_data(node["data"])
-    if data.empty:
-        raise ValueError("empty data")
-    feat = features.compute(data, node["feature"], node["params"]).reindex(data.index)
-    n_valid = int(feat.notna().sum())
-    if n_valid < ws.min_obs:
-        raise ValueError(f"only {n_valid} valid observations")
-    return data, feat
+    def node_feature(self, node: dict) -> tuple[pd.DataFrame, pd.Series]:
+        """Return ``(data, feature series)`` for a node, or raise if unavailable."""
+        data = self.load_data(node["data"])
+        if data.empty:
+            raise ValueError("empty data")
+        feat = features.compute(data, node["feature"], node["params"]).reindex(data.index)
+        n_valid = int(feat.notna().sum())
+        if n_valid < self.workspace.min_obs:
+            raise ValueError(f"only {n_valid} valid observations")
+        return data, feat
 
 
 def artifact_node_feature(cube: dict, min_obs: int | None = None) -> tuple[pd.DataFrame, pd.Series]:
     """Reconstruct ``(data, feature)`` from a Stage 2 shift artifact."""
-    needed = ("index", "feature_values", "high", "low", "close")
-    missing = [k for k in needed if k not in cube]
-    if missing:
-        raise ValueError(
-            "shift artifact lacks ordered history "
-            f"({', '.join(missing)}) - rerun --surface and --shift"
-        )
-
-    idx = pd.to_datetime(cube["index"])
-    data = pd.DataFrame(
-        {k: cube[k].astype(float) for k in ("open", "high", "low", "close", "volume") if k in cube},
-        index=idx,
-    )
-    data.index.name = "Date"
-    data = data.dropna(subset=["close"])
-    if data.empty:
-        raise ValueError("empty artifact history")
-
-    feat = pd.Series(cube["feature_values"].astype(float), index=idx, name="feature").reindex(data.index)
+    try:
+        data = market_data_from_artifact(cube)
+        feat = feature_from_artifact(cube, data.index)
+    except ValueError as error:
+        raise ValueError(f"{error} - rerun --surface and --shift") from error
     n_valid = int(feat.notna().sum())
     if min_obs is not None and n_valid < min_obs:
         raise ValueError(f"only {n_valid} valid observations")
@@ -83,25 +71,14 @@ def artifact_feature_panel(ws: Workspace) -> tuple[pd.DataFrame, dict, dict]:
     stores the ordered market and feature arrays, Stage 2 copies them into the shift
     artifacts, and Bayes reads those files instead of fetching data again.
     """
-    universe = load_universe(ws.universe_path)
     base_path = ws.shift_cube_path("_base", BASELINE_NODE)
     if not base_path.exists():
         raise ValueError("missing baseline shift artifact - run --shift first")
     base = shift.load(base_path)
-    needed = ("index", "high", "low", "close")
-    missing = [k for k in needed if k not in base]
-    if missing:
-        raise ValueError(
-            "baseline shift artifact lacks ordered history "
-            f"({', '.join(missing)}) - rerun --surface and --shift"
-        )
-
-    idx = pd.to_datetime(base["index"])
-    data = pd.DataFrame(
-        {k: base[k].astype(float) for k in ("open", "high", "low", "close", "volume") if k in base},
-        index=idx,
-    )
-    data.index.name = "Date"
+    try:
+        data = market_data_from_artifact(base)
+    except ValueError as error:
+        raise ValueError(f"baseline {error} - rerun --surface and --shift") from error
 
     selected = [r for r in ws.read_json(ws.selection_path).get("selected", []) if ws.has_selection_array(r)]
     selected_ids = {r["node"] for r in selected}
@@ -109,7 +86,7 @@ def artifact_feature_panel(ws: Workspace) -> tuple[pd.DataFrame, dict, dict]:
         raise ValueError("missing selection artifact - run --selection first")
 
     feats, fams = {}, {}
-    for node in all_nodes(universe):
+    for node in ws.catalog.all_nodes():
         if node["id"] == BASELINE_NODE:
             continue
         if node["id"] not in selected_ids:
@@ -118,13 +95,12 @@ def artifact_feature_panel(ws: Workspace) -> tuple[pd.DataFrame, dict, dict]:
         if not path.exists():
             continue
         cube = shift.load(path)
-        if "feature_values" not in cube or "index" not in cube:
+        try:
+            feats[node["id"]] = feature_from_artifact(cube, data.index)
+        except ValueError as error:
             raise ValueError(
-                f"{node['id']} shift artifact lacks ordered feature values - "
-                "rerun --surface and --shift"
-            )
-        s = pd.Series(cube["feature_values"].astype(float), index=pd.to_datetime(cube["index"]))
-        feats[node["id"]] = s.reindex(data.index)
+                f"{node['id']} {error} - rerun --surface and --shift"
+            ) from error
         fams[node["id"]] = node["family"]
 
     if not feats:

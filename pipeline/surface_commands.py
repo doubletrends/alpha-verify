@@ -6,18 +6,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from engine import barrier, shift, writer
-from pipeline.runtime import baseline_surface, loader, node_feature
-from universe import all_in_family, all_nodes, load_universe
+from pipeline.runtime import RunContext, baseline_surface
 from workspace import BASELINE_NODE, Workspace
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def build_cube(ws: Workspace, node: dict, get_data, quiet: bool = False) -> None:
+def build_cube(context: RunContext, node: dict, quiet: bool = False) -> None:
     """Measure one node across every horizon and barrier level; write the full cube."""
-    data, feat = node_feature(ws, node, get_data)
+    ws = context.workspace
+    data, feat = context.node_feature(node)
     edges = barrier.bin_edges(feat, ws.n_bins)
-    cube = barrier.touch_tensor(data, feat, ws.horizons, ws.Δs, edges)
+    cube = barrier.touch_tensor(data, feat, ws.horizons, ws.deltas, edges)
     cube["index"] = data.index.astype(str).to_numpy()
     cube["feature_values"] = feat.reindex(data.index).to_numpy(float)
     for col in ("open", "high", "low", "close", "volume"):
@@ -40,28 +40,27 @@ def build_cube(ws: Workspace, node: dict, get_data, quiet: bool = False) -> None
 
 def _write_surface_array(ws: Workspace, family: str | None = None, rerun: bool = False) -> None:
     """Stage 1a. The faithful record: every barrier level, every horizon."""
-    universe = load_universe(ws.universe_path)
-    nodes = all_in_family(universe, family) if family else all_nodes(universe)
+    nodes = ws.catalog.in_family(family) if family else ws.catalog.all_nodes()
     if not rerun:
         nodes = [n for n in nodes if not ws.has_cube(n["family"], n["id"])]
     if not nodes:
         print("No missing surface arrays (use --rerun to rebuild existing arrays).")
         return
 
-    get_data = loader(ws)
+    context = RunContext(ws)
     ts = ws.horizons
     print(f"\n=== 1. 01_surface_array [{ws.dir.name}] - {len(nodes)} nodes ===")
     print(
-        f"  {len(ws.Δs)} Δ x {ws.n_bins} bins x {len(ts)} horizons "
+        f"  {len(ws.deltas)} Δ x {ws.n_bins} bins x {len(ts)} horizons "
         f"(+{ts[0]}{ws.horizon_unit}..+{ts[-1]}{ws.horizon_unit})   "
-        f"Δ {ws.Δs[0]:+.0%}..{ws.Δs[-1]:+.0%} step {ws.Δ_step:.0%}"
+        f"Δ {ws.deltas[0]:+.0%}..{ws.deltas[-1]:+.0%} step {ws.delta_step:.0%}"
     )
     print("  value = P(touch Δ in t | bin); intraday high/low\n")
 
     skipped = {}
     for node in nodes:
         try:
-            build_cube(ws, node, get_data)
+            build_cube(context, node)
         except Exception as e:
             skipped[node["id"]] = str(e)
             print(f"  {node['id']:<26} [skip] {e}")
@@ -90,9 +89,8 @@ def _write_shift_array(ws: Workspace, family: str | None = None) -> None:
     horizon axes as Stage 1; the value is the deviation from the baseline in percentage
     points.
     """
-    universe = load_universe(ws.universe_path)
     nodes = [
-        n for n in (all_in_family(universe, family) if family else all_nodes(universe))
+        n for n in (ws.catalog.in_family(family) if family else ws.catalog.all_nodes())
         if ws.has_cube(n["family"], n["id"])
     ]
     if not nodes:
@@ -109,7 +107,7 @@ def _write_shift_array(ws: Workspace, family: str | None = None) -> None:
         + [n for n in nodes if n["id"] != BASELINE_NODE]
     )
 
-    th, ts = ws.shift_Δs, ws.shift_horizons
+    th, ts = ws.shift_deltas, ws.shift_horizons
     print(f"\n=== 2. 02_shift_array [{ws.dir.name}] - {len(nodes)} nodes ===")
     print(f"  {len(th)} Δ x {ws.n_bins} bins x {len(ts)} horizons = {len(th) * ws.n_bins * len(ts)} cells")
     print("  value = P(touch Δ in t | bin) - P(touch Δ in t baseline), percentage points")
@@ -147,9 +145,8 @@ def cmd_shift(ws: Workspace, family: str | None = None) -> None:
 
 
 def _render_surface(ws: Workspace, family: str | None) -> None:
-    universe = load_universe(ws.universe_path)
     nodes = [
-        n for n in (all_in_family(universe, family) if family else all_nodes(universe))
+        n for n in (ws.catalog.in_family(family) if family else ws.catalog.all_nodes())
         if ws.has_cube(n["family"], n["id"])
     ]
     if not nodes:
@@ -181,9 +178,8 @@ def _render_surface(ws: Workspace, family: str | None) -> None:
 
 
 def _render_shift(ws: Workspace, family: str | None) -> None:
-    universe = load_universe(ws.universe_path)
     nodes = [
-        n for n in (all_in_family(universe, family) if family else all_nodes(universe))
+        n for n in (ws.catalog.in_family(family) if family else ws.catalog.all_nodes())
         if ws.has_shift_cube(n["family"], n["id"])
     ]
     if not nodes:

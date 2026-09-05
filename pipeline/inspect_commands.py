@@ -6,13 +6,12 @@ from collections import defaultdict
 
 import numpy as np
 
-from engine import selection, shift, validate as val
-from pipeline.stat_commands import _validation_matches_selection, _validation_matches_shift
-from universe import all_nodes, find_node, load_universe
+from engine import shift, validate as val
+from pipeline.stat_commands import _validation_matches_selection
 from workspace import Workspace
 
 
-def _gate_is_current(ws: Workspace, universe: dict, cleared: dict) -> bool:
+def _gate_is_current(ws: Workspace, cleared: dict) -> bool:
     if not cleared:
         return False
     sel = ws.read_json(ws.selection_path)
@@ -34,12 +33,10 @@ def _gate_is_current(ws: Workspace, universe: dict, cleared: dict) -> bool:
 
 
 def cmd_status(ws: Workspace) -> None:
-    universe = load_universe(ws.universe_path)
     sel = ws.read_json(ws.selection_path)
     selected = [r for r in sel.get("selected", []) if ws.has_selection_array(r)]
-    selected_bins = selection.selected_bins_by_node({"selected": selected})
     cl = ws.read_json(ws.cleared_path)
-    gate_current = _gate_is_current(ws, universe, cl)
+    gate_current = _gate_is_current(ws, cl)
     cleared_rows = cl.get("cleared", []) if gate_current else []
     cleared = {c["node"] for c in cleared_rows}
     disc = {t["node"] for t in cl.get("tests", []) if t.get("verdict") == "discovery"} if gate_current else set()
@@ -48,14 +45,13 @@ def cmd_status(ws: Workspace) -> None:
         "nodes", "cube", "sheet", "shift", "sheet", "select", "s-sheet", "valid", "v-sheet", "econ", "cleared",
     ]
     by_fam = defaultdict(lambda: [0] * len(cols))
-    for n in all_nodes(universe):
+    for n in ws.catalog.all_nodes():
         c = by_fam[n["family"]]
         c[0] += 1
         c[1] += bool(ws.has_cube(n["family"], n["id"]))
         c[2] += bool(ws.has_surface(n["family"], n["id"]))
         c[3] += bool(ws.has_shift_cube(n["family"], n["id"]))
         c[4] += bool(ws.has_shift_surface(n["family"], n["id"]))
-        selected_for_node = selected_bins.get(n["id"], set())
         selected_rows = [r for r in selected if r["node"] == n["id"]]
         c[5] += sum(1 for r in selected_rows if ws.has_selection_array(r))
         c[6] += sum(1 for r in selected_rows if ws.has_selection_surface(r))
@@ -67,7 +63,7 @@ def cmd_status(ws: Workspace) -> None:
 
     print(f"\n=== Status [{ws.dir.name}] ===")
     print(
-        f"  Δ {ws.Δs[0]:+.0%}..{ws.Δs[-1]:+.0%}   "
+        f"  Δ {ws.deltas[0]:+.0%}..{ws.deltas[-1]:+.0%}   "
         f"horizons +{ws.horizons[0]}{ws.horizon_unit}..+{ws.horizons[-1]}{ws.horizon_unit}   "
         f"{ws.n_bins} bins"
     )
@@ -89,7 +85,7 @@ def cmd_status(ws: Workspace) -> None:
     print("  " + "-" * (len(hdr) - 2))
     print(f"  {'TOTAL':<15}" + "".join(f"{v:>9}" for v in tot))
     print(
-        f"\n  full grid {len(ws.Δs)}Δ x {len(ws.horizons)}t   |   "
+        f"\n  full grid {len(ws.deltas)}Δ x {len(ws.horizons)}t   |   "
         f"03_selection keeps top {len(selected)} node/bin sheets"
     )
 
@@ -99,8 +95,7 @@ def cmd_read(ws: Workspace, node_id: str) -> None:
     Print one node's shift cube in the terminal: the Δ rows carrying a qualifying
     cell, for whichever bin is strongest, with the null test beside them.
     """
-    universe = load_universe(ws.universe_path)
-    node = find_node(universe, node_id)
+    node = ws.catalog.find(node_id)
     path = ws.shift_cube_path(node["family"], node_id)
     if not path.exists():
         print(f"No shift array for {node_id} - run --shift first.")
@@ -156,7 +151,7 @@ def cmd_read(ws: Workspace, node_id: str) -> None:
     avail = {int(x) for x in ts}
     show = [t for t in (1, 2, 3, 5, 7, 10, 14, 21, 30) if t in avail]
     cols = [int(np.flatnonzero(ts == t)[0]) for t in show]
-    pct_dec = 1 if ws.Δ_step < 0.01 else 0
+    pct_dec = 1 if ws.delta_step < 0.01 else 0
     Δ_fmt = f"+.{pct_dec}%"
 
     print()

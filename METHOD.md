@@ -43,6 +43,14 @@ by those stages. Validation is the one exception that may
 recompute the circular-shift null from source data, because the null needs ordered
 feature alignment rather than only aggregate cube rates.
 
+## Implementation Boundaries
+
+`workspace.py` is a small compatibility facade. `workspace_config.py` owns immutable
+run settings, `catalog.py` owns node traversal, `artifacts.py` owns artifact paths and
+artifact-history reconstruction, and `workspace_plugins.py` is the sole loading boundary
+for workspace-local registrations. Pipeline commands orchestrate those services; engine
+modules compute or render from explicitly supplied data and artifacts.
+
 ## 0. Orient
 
 ```bash
@@ -230,6 +238,12 @@ expanding walk-forward design:
 4. Predict the test block.
 5. Score every `horizon`th bar so forward windows do not overlap.
 
+After the configured headline target, Stage 6 evaluates every non-zero barrier/horizon
+pair in the workspace grid. A sweep row is always one explicit `(Delta, horizon)` pair;
+the zero barrier is excluded because its touch event is near-degenerate. The resulting
+grid is a diagnostic surface, not a collection of automatically publishable claims:
+rare-event rows must be interpreted with their realized rate and scored-bar count.
+
 It writes:
 
 ```text
@@ -237,9 +251,9 @@ It writes:
 06_bayes.json
 ```
 
-The report compares prior-only, all-node naive Bayes, one-node-per-family, and Platt
-scale-corrected probabilities. The point is not to claim a trading strategy; it is to
-test whether the measured conditional tables compose without leaking future data.
+`06_bayes.json` records prior-only, all-node naive Bayes, one-node-per-family, and Platt
+scale-corrected metrics. The point is not to claim a trading strategy; it is to test
+whether the measured conditional tables compose without leaking future data.
 
 ## 7. Report
 

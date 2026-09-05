@@ -21,4 +21,4 @@ volatility-matrix = "pipeline.cli:main"
 
 [tool.setuptools]
 packages = ["data", "engine", "pipeline"]
-py-modules = ["run", "workspace", "universe"]
+py-modules = ["run", "workspace", "workspace_config", "workspace_plugins", "catalog", "artifacts"]
