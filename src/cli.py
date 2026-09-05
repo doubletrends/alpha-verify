@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 
-from infrastructure.workspaces.workspace import Workspace
+from infrastructure.workspace import Workspace
 from pipeline.step_01_surface import cmd_surface
 from pipeline.step_02_shift import cmd_shift
 from pipeline.step_03_selection import cmd_selection

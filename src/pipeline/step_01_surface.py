@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from domain import barrier
-from infrastructure.workspaces.workspace import Workspace
+from infrastructure.workspace import Workspace
 from pipeline.context import RunContext
 from presentation import workbooks
 

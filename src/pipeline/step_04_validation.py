@@ -7,8 +7,8 @@ from datetime import datetime, timezone
 import numpy as np
 
 from domain import selection as selection_artifacts, validation as val
-from infrastructure.artifacts.store import feature_from_artifact, market_data_from_artifact
-from infrastructure.workspaces.workspace import Workspace
+from infrastructure.artifacts import feature_from_artifact, market_data_from_artifact
+from infrastructure.workspace import Workspace
 from presentation import workbooks
 
 

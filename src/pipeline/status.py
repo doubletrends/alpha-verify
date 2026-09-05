@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from infrastructure.workspaces.workspace import Workspace
+from infrastructure.workspace import Workspace
 from pipeline.step_04_validation import (
     validation_artifact_is_current,
     validation_summary_is_current,

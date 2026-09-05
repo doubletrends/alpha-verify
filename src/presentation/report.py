@@ -2,22 +2,20 @@
 
 from __future__ import annotations
 
-from presentation.reports.diagnostics import fig_null, fig_null_gap_ranking
-from presentation.reports.single_node import fig_band, fig_shift_all
+from presentation.report_diagnostics import fig_null, fig_null_gap_ranking
+from presentation.report_nodes import fig_band, fig_shift_all
 
 
 def build(ws, validation: dict) -> None:
     """Render figures from a validation summary accepted by the pipeline."""
     out = ws.result_dir
-    universe = ws.catalog.raw
-
     print(f"\n=== 7. Report [{ws.dir.name}] ===")
-    print(f"  rendering from artifacts on disk; nothing here re-measures\n")
+    print("  rendering from stored artifacts; no market data fetched\n")
 
     jobs = [
         ('A band', 'A_band.png', lambda: fig_band(ws, out)),
-        ('B null', 'B_null.png', lambda: fig_null(ws, universe, validation, out)),
-        ('C shifts', None, lambda: fig_shift_all(ws, universe, validation, out)),
+        ('B null', 'B_null.png', lambda: fig_null(ws, validation, out)),
+        ('C shifts', None, lambda: fig_shift_all(ws, validation, out)),
         ('D null gap ranking', 'D_null_gap_ranking.png',
          lambda: fig_null_gap_ranking(ws, validation, out)),
     ]

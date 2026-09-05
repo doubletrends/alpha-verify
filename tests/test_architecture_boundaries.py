@@ -20,6 +20,11 @@ def imported_roots(path: Path) -> set[str]:
 
 
 class ArchitectureBoundaryTests(unittest.TestCase):
+    def test_infrastructure_and_presentation_are_flat_packages(self) -> None:
+        for package in (ROOT / "infrastructure", ROOT / "presentation"):
+            nested_modules = [path for path in package.rglob("*.py") if path.parent != package]
+            self.assertEqual(nested_modules, [], package)
+
     def test_domain_has_no_outward_layer_dependencies(self) -> None:
         forbidden = {"infrastructure", "pipeline", "presentation"}
         for path in (ROOT / "domain").glob("*.py"):

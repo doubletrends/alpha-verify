@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from domain import barrier, shift
-from infrastructure.workspaces.workspace import BASELINE_NODE, Workspace
+from infrastructure.workspace import BASELINE_NODE, Workspace
 from pipeline.context import baseline_surface
 from presentation import workbooks
 

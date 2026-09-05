@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from infrastructure.workspaces.workspace import Workspace
+from infrastructure.workspace import Workspace
 from pipeline.step_04_validation import validation_summary_is_current
 
 
@@ -13,6 +13,6 @@ def cmd_report(ws: Workspace) -> None:
         print("No current complete 04_validation/validation.json - run validation first.")
         return
 
-    from presentation.reports import build
+    from presentation.report import build
 
-    build.build(ws, validation)
+    build(ws, validation)

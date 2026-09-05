@@ -7,8 +7,8 @@ from pathlib import Path
 import numpy as np
 
 from domain import selection, validation as val
-from infrastructure.artifacts.store import feature_from_artifact, market_data_from_artifact
-from presentation.reports.style import (
+from infrastructure.artifacts import feature_from_artifact, market_data_from_artifact
+from presentation.report_style import (
     INK,
     INK_2,
     S1,
@@ -20,7 +20,7 @@ from presentation.reports.style import (
     save as _save,
     title as _title,
 )
-from infrastructure.workspaces.workspace import BASELINE_NODE
+from infrastructure.workspace import BASELINE_NODE
 from presentation.workbooks import feature_label
 
 
@@ -116,7 +116,7 @@ def _null_distribution_for_gate_row(ws, gate_row: dict) -> dict | None:
     )
 
 
-def fig_null(ws, universe, cleared, out: Path) -> Path | None:
+def fig_null(ws, cleared, out: Path) -> Path | None:
     """The pooled exact null distribution behind every cleared selected sheet."""
     rows = [r for r in cleared.get('cleared', [])
             if r.get('best_cell') and r.get('node') != BASELINE_NODE]

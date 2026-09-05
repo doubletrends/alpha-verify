@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from domain import shift, validation as val  # noqa: E402
-from infrastructure.workspaces.workspace import Workspace  # noqa: E402
+from infrastructure.workspace import Workspace  # noqa: E402
 from pipeline.step_04_validation import validation_artifact_is_current  # noqa: E402
 
 

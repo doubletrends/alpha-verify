@@ -9,7 +9,7 @@ import pandas as pd
 from matplotlib.colors import TwoSlopeNorm
 
 from domain import barrier, shift
-from presentation.reports.style import (
+from presentation.report_style import (
     CMAP_DIV,
     GRID,
     INK,
@@ -25,7 +25,6 @@ from presentation.reports.style import (
     save as _save,
     title as _title,
 )
-from infrastructure.workspaces.catalog import find_node
 from presentation.workbooks import feature_label
 
 SHIFT_CMAP_LIMIT_PP = 30.0
@@ -207,14 +206,14 @@ def _render_shift(ws, head: dict, out_path: Path) -> Path | None:
     return _save(fig, out_path)
 
 
-def fig_shift_all(ws, universe, cleared, out: Path) -> list[Path]:
+def fig_shift_all(ws, cleared, out: Path) -> list[Path]:
     """Render one conditional-shift figure for every node that cleared all three filters."""
     paths: list[Path] = []
     for row in cleared.get('cleared', []):
         if not row.get('best_cell'):
             continue
         try:
-            node = find_node(universe, row['node'])
+            node = ws.catalog.find(row['node'])
             head = {**node, 'cell': row['best_cell'], 'gate': row}
             suffix = f'{node["id"]}_bin{int(row.get("bin_number", row["best_cell"]["bin"] + 1))}'
             path = _render_shift(ws, head, out / f'C_shift_{suffix}.png')

@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import numpy as np
 
 from domain import bayes, shift
-from infrastructure.workspaces.workspace import BASELINE_NODE, Workspace
+from infrastructure.workspace import BASELINE_NODE, Workspace
 from pipeline.context import artifact_feature_panel
 from pipeline.step_04_validation import validation_summary_is_current
 from presentation import workbooks

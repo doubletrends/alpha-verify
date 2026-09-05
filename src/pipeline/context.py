@@ -7,10 +7,10 @@ import pandas as pd
 
 from domain.features import FeatureRegistry, register_builtin_features
 from domain import barrier, shift
-from infrastructure.artifacts.store import feature_from_artifact, market_data_from_artifact
-from infrastructure.market_data.fetcher import SourceRegistry, register_builtin_sources
-from infrastructure.workspaces.plugins import load_workspace_plugin
-from infrastructure.workspaces.workspace import BASELINE_NODE, Workspace
+from infrastructure.artifacts import feature_from_artifact, market_data_from_artifact
+from infrastructure.market_data import SourceRegistry, register_builtin_sources
+from infrastructure.workspace import BASELINE_NODE, Workspace
+from infrastructure.workspace_plugins import load_workspace_plugin
 
 
 class RunContext:

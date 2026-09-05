@@ -1,1 +1,0 @@
-"""Artifact-backed report figures."""

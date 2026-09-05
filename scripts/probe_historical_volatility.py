@@ -22,7 +22,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
 from domain import bayes  # noqa: E402
-from infrastructure.workspaces.workspace import Workspace  # noqa: E402
+from infrastructure.workspace import Workspace  # noqa: E402
 from pipeline.context import artifact_feature_panel  # noqa: E402
 from presentation import workbooks  # noqa: E402
 from scripts.probe_expectancy import _print, _write_csv, exhaust_surface  # noqa: E402

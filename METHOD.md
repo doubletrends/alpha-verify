@@ -51,9 +51,10 @@ carried by each selected-node artifact because aggregate cube rates alone are in
 
 ## Implementation Boundaries
 
-`infrastructure/workspaces` owns workspace configuration, node traversal, and plugin
-loading. `infrastructure/artifacts` owns artifact paths, JSON persistence, and artifact
-history reconstruction. `pipeline` owns numbered stage orchestration, `domain` owns
+`infrastructure/workspace.py` owns workspace configuration and node traversal;
+`infrastructure/workspace_plugins.py` owns plugin loading. `infrastructure/artifacts.py`
+owns artifact paths, JSON persistence, and artifact history reconstruction. `pipeline`
+owns numbered stage orchestration, `domain` owns
 numerical models and feature transforms, and `presentation` owns workbooks and figures.
 Workspace plugins expose `register(sources, features)` and receive per-run registries;
 they no longer mutate process-global registries during import.
