@@ -11,6 +11,16 @@ import pandas as pd
 _MARKET_COLUMNS = ("open", "high", "low", "close", "volume")
 _REQUIRED_HISTORY_COLUMNS = ("index", "high", "low", "close")
 
+STAGE_DIRECTORIES = {
+    "surface": "01_surface",
+    "shift": "02_shift",
+    "selection": "03_selection",
+    "validation": "04_validation",
+    "redundancy": "05_redundancy",
+    "composition": "06_composition",
+    "report": "07_report",
+}
+
 
 class ArtifactPaths:
     def __init__(self, workspace_dir: Path):
@@ -20,76 +30,79 @@ class ArtifactPaths:
     def universe_path(self) -> Path:
         return self.workspace_dir / "universe.json"
 
+    def stage_dir(self, stage: str) -> Path:
+        return self.workspace_dir / STAGE_DIRECTORIES[stage]
+
     def cube_path(self, family: str, node_id: str) -> Path:
-        return self.workspace_dir / "01_surface" / family / f"{node_id}.npz"
+        return self.stage_dir("surface") / family / f"{node_id}.npz"
 
     def surface_path(self, family: str, node_id: str) -> Path:
-        return self.workspace_dir / "01_surface" / family / f"{node_id}.xlsx"
+        return self.stage_dir("surface") / family / f"{node_id}.xlsx"
 
     def shift_cube_path(self, family: str, node_id: str) -> Path:
-        return self.workspace_dir / "02_shift" / family / f"{node_id}.npz"
+        return self.stage_dir("shift") / family / f"{node_id}.npz"
 
     def shift_surface_path(self, family: str, node_id: str) -> Path:
-        return self.workspace_dir / "02_shift" / family / f"{node_id}.xlsx"
+        return self.stage_dir("shift") / family / f"{node_id}.xlsx"
 
     @property
     def selection_path(self) -> Path:
-        return self.workspace_dir / "03_selection" / "selection.json"
+        return self.stage_dir("selection") / "selection.json"
 
     def selection_array_path(self, row: dict) -> Path:
-        return self._ranked_path("03_selection", row, ".npz")
+        return self._ranked_path("selection", row, ".npz")
 
     def selection_surface_path(self, row: dict) -> Path:
-        return self._ranked_path("03_selection", row, ".xlsx")
+        return self._ranked_path("selection", row, ".xlsx")
 
     def validation_array_path(self, row: dict) -> Path:
-        return self._ranked_path("04_validation", row, ".npz")
+        return self._ranked_path("validation", row, ".npz")
 
     def validation_surface_path(self, row: dict) -> Path:
-        return self._ranked_path("04_validation", row, ".xlsx")
+        return self._ranked_path("validation", row, ".xlsx")
 
     def _ranked_path(self, stage: str, row: dict, suffix: str) -> Path:
         rank = int(row["rank"])
         return (
-            self.workspace_dir / stage / row["family"]
+            self.stage_dir(stage) / row["family"]
             / f"rank_{rank:03d}__{row['node']}__bin_{int(row['bin_number']):02d}{suffix}"
         )
 
     @property
     def validation_summary_path(self) -> Path:
-        return self.workspace_dir / "04_validation" / "validation.json"
+        return self.stage_dir("validation") / "validation.json"
 
     @property
     def redundancy_path(self) -> Path:
-        return self.workspace_dir / "05_redundancy" / "redundancy.json"
+        return self.stage_dir("redundancy") / "redundancy.json"
 
     @property
     def redundancy_array_path(self) -> Path:
-        return self.workspace_dir / "05_redundancy" / "redundancy.npz"
+        return self.stage_dir("redundancy") / "redundancy.npz"
 
     @property
     def redundancy_workbook_path(self) -> Path:
-        return self.workspace_dir / "05_redundancy" / "redundancy.xlsx"
+        return self.stage_dir("redundancy") / "redundancy.xlsx"
 
     @property
-    def bayes_path(self) -> Path:
-        return self.workspace_dir / "06_bayes" / "bayes.npz"
+    def composition_array_path(self) -> Path:
+        return self.stage_dir("composition") / "composition.npz"
 
     @property
-    def bayes_summary_path(self) -> Path:
-        return self.workspace_dir / "06_bayes" / "bayes.json"
+    def composition_summary_path(self) -> Path:
+        return self.stage_dir("composition") / "composition.json"
 
     @property
-    def bayes_workbook_path(self) -> Path:
-        return self.workspace_dir / "06_bayes" / "bayes.xlsx"
+    def composition_probability_workbook_path(self) -> Path:
+        return self.stage_dir("composition") / "probability.xlsx"
 
     @property
-    def bayes_shift_workbook_path(self) -> Path:
-        return self.workspace_dir / "06_bayes" / "bayes_shift.xlsx"
+    def composition_shift_workbook_path(self) -> Path:
+        return self.stage_dir("composition") / "shift.xlsx"
 
     @property
-    def result_dir(self) -> Path:
-        return self.workspace_dir / "result"
+    def report_dir(self) -> Path:
+        return self.stage_dir("report")
 
 
 def read_json(path: Path) -> dict:

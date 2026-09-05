@@ -3,16 +3,81 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
+from dataclasses import dataclass
 
+from infrastructure.artifacts import STAGE_DIRECTORIES
 from infrastructure.workspace import Workspace
 from pipeline.step_01_surface import cmd_surface
 from pipeline.step_02_shift import cmd_shift
 from pipeline.step_03_selection import cmd_selection
 from pipeline.step_04_validation import cmd_validation
 from pipeline.step_05_redundancy import cmd_redundancy
-from pipeline.step_06_composition import cmd_bayes
+from pipeline.step_06_composition import cmd_composition
 from pipeline.step_07_report import cmd_report
 from pipeline.status import cmd_status
+
+
+@dataclass(frozen=True)
+class Command:
+    name: str
+    help: str
+    handler: Callable[..., None]
+    stage_directory: str | None = None
+    accepts_node: bool = False
+
+
+COMMANDS = (
+    Command(
+        "surface",
+        "1. write surface arrays and workbooks",
+        cmd_surface,
+        STAGE_DIRECTORIES["surface"],
+    ),
+    Command(
+        "shift",
+        "2. write baseline-subtracted arrays and workbooks",
+        cmd_shift,
+        STAGE_DIRECTORIES["shift"],
+    ),
+    Command(
+        "selection",
+        "3. rank and retain the strongest nodes",
+        cmd_selection,
+        STAGE_DIRECTORIES["selection"],
+    ),
+    Command(
+        "validation",
+        "4. validate selected nodes and write final verdicts",
+        cmd_validation,
+        STAGE_DIRECTORIES["validation"],
+    ),
+    Command(
+        "redundancy",
+        "5. map dependence among cleared nodes",
+        cmd_redundancy,
+        STAGE_DIRECTORIES["redundancy"],
+    ),
+    Command(
+        "composition",
+        "6. evaluate out-of-sample composition and current forecasts",
+        cmd_composition,
+        STAGE_DIRECTORIES["composition"],
+    ),
+    Command(
+        "report",
+        "7. render audience-facing figures",
+        cmd_report,
+        STAGE_DIRECTORIES["report"],
+    ),
+    Command(
+        "status",
+        "show workspace or node artifact and validation status",
+        cmd_status,
+        accepts_node=True,
+    ),
+)
+COMMAND_BY_NAME = {command.name: command for command in COMMANDS}
 
 
 def _add_workspace(parser: argparse.ArgumentParser) -> None:
@@ -28,38 +93,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     commands = parser.add_subparsers(dest="command", metavar="COMMAND")
 
-    surface = commands.add_parser("surface", help="1. write 01_surface artifacts")
-    _add_workspace(surface)
-
-    shift = commands.add_parser("shift", help="2. write 02_shift artifacts")
-    _add_workspace(shift)
-
-    selection = commands.add_parser("selection", help="3. write 03_selection artifacts")
-    _add_workspace(selection)
-
-    validation = commands.add_parser(
-        "validation",
-        help="4. validate selected nodes and write final verdicts",
-    )
-    _add_workspace(validation)
-
-    redundancy = commands.add_parser(
-        "redundancy",
-        help="5. write redundancy NPZ, workbook, and manifest for cleared nodes",
-    )
-    _add_workspace(redundancy)
-
-    bayes = commands.add_parser(
-        "bayes",
-        help="6. evaluate weighted Bayes and write current probability and shift workbooks",
-    )
-    _add_workspace(bayes)
-
-    report = commands.add_parser("report", help="7. render figures into workspace result/")
-    _add_workspace(report)
-
-    status = commands.add_parser("status", help="show artifact and validation status")
-    _add_workspace(status)
+    for command in COMMANDS:
+        subparser = commands.add_parser(command.name, help=command.help)
+        if command.accepts_node:
+            subparser.add_argument(
+                "node",
+                nargs="?",
+                metavar="NODE",
+                help="show detailed status for this node ID",
+            )
+        _add_workspace(subparser)
     return parser
 
 
@@ -71,22 +114,11 @@ def main(argv: list[str] | None = None) -> None:
         return
     ws = Workspace(args.workspace)
 
-    if args.command == "surface":
-        cmd_surface(ws)
-    elif args.command == "shift":
-        cmd_shift(ws)
-    elif args.command == "selection":
-        cmd_selection(ws)
-    elif args.command == "validation":
-        cmd_validation(ws)
-    elif args.command == "redundancy":
-        cmd_redundancy(ws)
-    elif args.command == "bayes":
-        cmd_bayes(ws)
-    elif args.command == "report":
-        cmd_report(ws)
-    elif args.command == "status":
-        cmd_status(ws)
+    command = COMMAND_BY_NAME[args.command]
+    if command.accepts_node:
+        command.handler(ws, args.node)
+    else:
+        command.handler(ws)
 
 
 if __name__ == "__main__":

@@ -40,7 +40,7 @@ def cmd_selection(ws: Workspace) -> None:
     if not baseline_path.exists():
         print("No baseline shift array - run shift first.")
         return
-    delta, horizon = ws.bayes_target(shift.load(baseline_path)["base"])
+    delta, horizon = ws.composition_target(shift.load(baseline_path)["base"])
     result = selection.rank_nodes(
         nodes,
         load_cube,

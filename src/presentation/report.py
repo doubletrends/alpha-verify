@@ -8,7 +8,7 @@ from presentation.report_nodes import fig_band, fig_shift_all
 
 def build(ws, validation: dict) -> None:
     """Render figures from a validation summary accepted by the pipeline."""
-    out = ws.result_dir
+    out = ws.report_dir
     print(f"\n=== 7. Report [{ws.dir.name}] ===")
     print("  rendering from stored artifacts; no market data fetched\n")
 
@@ -44,4 +44,4 @@ def build(ws, validation: dict) -> None:
         else:
             print(f"  {name:<20} {len(paths)} files")
 
-    print(f"\n  wrote {len(written)} figures to workspaces/{ws.dir.name}/result/")
+    print(f"\n  wrote {len(written)} figures to workspaces/{ws.dir.name}/07_report/")

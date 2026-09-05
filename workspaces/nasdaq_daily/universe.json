@@ -28,7 +28,7 @@
       "min": 1,
       "max": 30
     },
-    "bayes": {
+    "composition": {
       "Δ": -0.07,
       "horizon": 30,
       "folds": 5

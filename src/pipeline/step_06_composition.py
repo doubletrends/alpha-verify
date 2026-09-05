@@ -23,7 +23,7 @@ def composition_targets(ws: Workspace) -> list[tuple[float, int]]:
     ]
 
 
-def cmd_bayes(ws: Workspace) -> None:
+def cmd_composition(ws: Workspace) -> None:
     """
     Stage 6: do the best training-window node tables compose out of sample?
 
@@ -39,7 +39,7 @@ def cmd_bayes(ws: Workspace) -> None:
         return
 
     baseline = shift.load(baseline_path)["base"]
-    Δ, horizon = ws.bayes_target(baseline)
+    Δ, horizon = ws.composition_target(baseline)
     validation = ws.read_json(ws.validation_summary_path)
     if not validation_summary_is_current(ws, validation):
         print("No current complete validation summary - run validation first.")
@@ -61,7 +61,7 @@ def cmd_bayes(ws: Workspace) -> None:
     )
     print(
         f"  target: P(touch {Δ:+.0%} within {horizon}{ws.horizon_unit})   "
-        f"expanding walk forward, {ws.bayes_folds} folds over the last half"
+        f"expanding walk forward, {ws.composition_folds} folds over the last half"
     )
     print(
         f"  {horizon}-bar embargo between train and test; scored on every "
@@ -73,7 +73,7 @@ def cmd_bayes(ws: Workspace) -> None:
     )
 
     head = bayes.walk_forward(
-        data, feats, fams, Δ, horizon, n_bins=ws.n_bins, folds=ws.bayes_folds,
+        data, feats, fams, Δ, horizon, n_bins=ws.n_bins, folds=ws.composition_folds,
         top_k=ws.selection_top_k, weighted=True,
     )
     m = head["metrics"]
@@ -169,7 +169,7 @@ def cmd_bayes(ws: Workspace) -> None:
                 delta,
                 sweep_horizon,
                 n_bins=ws.n_bins,
-                folds=ws.bayes_folds,
+                folds=ws.composition_folds,
                 top_k=ws.selection_top_k,
             )
         except Exception:
@@ -193,7 +193,7 @@ def cmd_bayes(ws: Workspace) -> None:
 
     try:
         workbooks.write_bayes_xlsx(
-            ws.bayes_workbook_path,
+            ws.composition_probability_workbook_path,
             current_probability,
             surface_deltas,
             surface_horizons,
@@ -201,7 +201,7 @@ def cmd_bayes(ws: Workspace) -> None:
             ws.horizon_unit,
         )
         workbooks.write_bayes_shift_xlsx(
-            ws.bayes_shift_workbook_path,
+            ws.composition_shift_workbook_path,
             current_shift,
             current_probability,
             baseline,
@@ -211,12 +211,15 @@ def cmd_bayes(ws: Workspace) -> None:
             ws.horizon_unit,
         )
     except PermissionError:
-        print("A Bayes workbook is locked; close it in Excel and run bayes again.")
+        print(
+            "A composition workbook is locked; close it in Excel and run "
+            "composition again."
+        )
         return
 
-    ws.bayes_path.parent.mkdir(parents=True, exist_ok=True)
+    ws.composition_array_path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(
-        ws.bayes_path,
+        ws.composition_array_path,
         y=head["y"],
         p_all=head["p_all"],
         p_dedup=head["p_dedup"],
@@ -272,12 +275,12 @@ def cmd_bayes(ws: Workspace) -> None:
             "generated": datetime.now(timezone.utc).isoformat(),
         })),
     )
-    ws.write_json(ws.bayes_summary_path, {
+    ws.write_json(ws.composition_summary_path, {
         "workspace": ws.dir.name,
         "generated": datetime.now(timezone.utc).isoformat(),
         "target": {"Δ": Δ, "horizon": horizon, "unit": ws.horizon_unit},
         "design": {
-            "folds": ws.bayes_folds,
+            "folds": ws.composition_folds,
             "embargo_bars": horizon,
             "scored_every": horizon,
             "n_candidates": head["n_candidates"],
@@ -318,9 +321,11 @@ def cmd_bayes(ws: Workspace) -> None:
             "maximum_probability": float(np.max(current_probability)),
             "ridge_fallback_cells": current_surface["ridge_fallback_cells"],
             "ridge_fallback": current_surface["ridge_fallback"],
-            "workbook": str(ws.bayes_workbook_path.relative_to(ws.dir)).replace("\\", "/"),
+            "workbook": str(
+                ws.composition_probability_workbook_path.relative_to(ws.dir)
+            ).replace("\\", "/"),
             "shift_workbook": str(
-                ws.bayes_shift_workbook_path.relative_to(ws.dir)
+                ws.composition_shift_workbook_path.relative_to(ws.dir)
             ).replace("\\", "/"),
             "shift_definition": "100 * (weighted Bayes probability - unconditional baseline probability)",
             "minimum_shift_pp": float(np.min(current_shift)),
@@ -344,7 +349,9 @@ def cmd_bayes(ws: Workspace) -> None:
             }
         ),
     })
-    print(f"\n  wrote {ws.bayes_path.relative_to(ws.root_dir)}")
-    print(f"  wrote {ws.bayes_summary_path.relative_to(ws.root_dir)}")
-    print(f"  wrote {ws.bayes_workbook_path.relative_to(ws.root_dir)}")
-    print(f"  wrote {ws.bayes_shift_workbook_path.relative_to(ws.root_dir)}")
+    print(f"\n  wrote {ws.composition_array_path.relative_to(ws.root_dir)}")
+    print(f"  wrote {ws.composition_summary_path.relative_to(ws.root_dir)}")
+    print(
+        f"  wrote {ws.composition_probability_workbook_path.relative_to(ws.root_dir)}"
+    )
+    print(f"  wrote {ws.composition_shift_workbook_path.relative_to(ws.root_dir)}")

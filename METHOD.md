@@ -26,14 +26,15 @@ The product workflow has seven stages:
 05_redundancy/            redundancy    numerical matrix and readable workbook
 05_redundancy/redundancy.json
                           redundancy    compact manifest and cluster summary
-06_bayes/bayes.npz
-                          bayes         walk-forward composition arrays
-06_bayes/bayes.json
-                          bayes         walk-forward composition summary
-06_bayes/bayes.xlsx       bayes         current weighted probability surface
-06_bayes/bayes_shift.xlsx
-                          bayes         current weighted shift from baseline
-workspaces/<name>/result/ report        audience-facing figures
+06_composition/composition.npz
+                          composition   walk-forward composition arrays
+06_composition/composition.json
+                          composition   walk-forward composition summary
+06_composition/probability.xlsx
+                          composition   current weighted probability surface
+06_composition/shift.xlsx
+                          composition   current weighted shift from baseline
+07_report/                report        audience-facing figures
 ```
 
 Stages 1-4 build the measured, selected and validated surfaces and assign final
@@ -44,8 +45,8 @@ the saved null distribution from Stage 3 history but does not fetch or remeasure
 The artifact flow is a one-way DAG rather than a strict chain. Shift reads surface
 artifacts; selection promotes each top-ranked node's complete shift cube and records its
 representative bin; validation reads only those selection artifacts. Redundancy is an
-audit branch from the validation decisions. Bayes separately reads the Stage 2 candidate
-panel and Stage 4 cleared-node decisions, then report reads the stored artifacts needed
+audit branch from the validation decisions. Composition separately reads the Stage 2
+candidate panel and Stage 4 cleared-node decisions, then report reads the stored artifacts needed
 by each figure. Validation recomputes the circular-shift null from the ordered history
 carried by each selected-node artifact because aggregate cube rates alone are insufficient.
 
@@ -62,11 +63,14 @@ they no longer mutate process-global registries during import.
 ## 0. Orient
 
 ```bash
+volatility-matrix status --workspace <name>
+volatility-matrix status <node> --workspace <name>
 ```
 
 The status table is the funnel: nodes declared, surfaces measured, shift artifacts
 written, selected representative bins copied, nulls validated, representative-bin
-economics passed, and nodes that cleared all three validation gates.
+economics passed, and nodes that cleared all three validation gates. Passing a node ID
+instead prints that node's strongest baseline-relative shift and available null result.
 
 ## 1. Surface
 
@@ -128,7 +132,7 @@ volatility-matrix selection --workspace <name>
 ```
 
 Selection ranks one *node* per predictor, rather than allowing several decile sheets
-from one predictor to consume the shortlist. It uses the workspace's Bayes target
+from one predictor to consume the shortlist. It uses the workspace's composition target
 `P(touch Δ within t)`, and scores the full conditional table:
 
 ```text
@@ -255,7 +259,7 @@ volatility-matrix redundancy --workspace <name>
 ## 6. Compose
 
 ```bash
-volatility-matrix bayes --workspace <name>
+volatility-matrix composition --workspace <name>
 ```
 
 Stages 1-5 evaluate one selected condition sheet at a time. Composition asks whether
@@ -299,13 +303,13 @@ likely than shorter horizons. The raw fitted face remains in the NPZ for auditab
 It writes:
 
 ```text
-06_bayes/bayes.npz
-06_bayes/bayes.json
-06_bayes/bayes.xlsx
-06_bayes/bayes_shift.xlsx
+06_composition/composition.npz
+06_composition/composition.json
+06_composition/probability.xlsx
+06_composition/shift.xlsx
 ```
 
-`06_bayes/bayes.json` records prior-only, raw top-node Naive Bayes,
+`06_composition/composition.json` records prior-only, raw top-node Naive Bayes,
 one-node-per-family,
 Platt-scaled, and redundancy-aware weighted metrics. Every outer fold records its node
 weights, ridge strength, and fold-local redundancy clusters. The point is not to claim a
@@ -315,10 +319,10 @@ probability face and its observation counts. When `report.demonstration_date` is
 `universe.json`, it also stores a leakage-safe historical face fit from the node states
 and completed outcomes available on that date. Historical cells without enough
 cross-fitted labels to learn reliability weights fall back to that target's historical
-prior, rather than silently presenting unit-weight Naive Bayes. The `bayes.xlsx`
+prior, rather than silently presenting unit-weight Naive Bayes. The `probability.xlsx`
 single-sheet workbook renders the current face with exactly the same layout, percentage
 format, fixed color scale, and frozen panes as a Stage 1 probability sheet.
-`bayes_shift.xlsx` subtracts the Stage 2 unconditional baseline from that face and
+`shift.xlsx` subtracts the Stage 2 unconditional baseline from that face and
 renders the percentage-point difference with Stage 2's signed formatting and fixed
 blue/white/red color scale.
 
@@ -328,7 +332,7 @@ blue/white/red color scale.
 volatility-matrix report --workspace <name>
 ```
 
-The report renders `workspaces/<name>/result/*.png` plus a local index. Figures read
+The report renders `workspaces/<name>/07_report/*.png`. Figures read
 from `.npz` and `.json` artifacts; they do not recompute the pipeline. Plot A uses the
 historical full-Bayes face produced by Stage 6 for `report.demonstration_date` and
 overlays the subsequently realized price path.
@@ -372,7 +376,7 @@ There is no progress field. Progress is inferred from artifacts on disk.
 | `n_bins` | condition bins per feature |
 | `evaluate` | economic filter thresholds |
 | `validation` | raw node-null threshold, default `null_alpha: 0.01` |
-| `bayes` | composition target and fold count |
+| `composition` | composition target and fold count |
 
 Scale `Δ` to the asset and horizon. BTC daily can support wider barriers than a
 daily equity index; a good workspace spends barrier rows where touches occur often
@@ -396,11 +400,11 @@ enough to estimate.
 | `05_redundancy/redundancy.npz` | `redundancy` | numerical conditional-NMI matrix and clusters |
 | `05_redundancy/redundancy.xlsx` | `redundancy` | six-sheet readable redundancy map |
 | `05_redundancy/redundancy.json` | `redundancy` | compact manifest and cluster summary |
-| `06_bayes/bayes.npz` | `bayes` | pooled walk-forward predictions |
-| `06_bayes/bayes.json` | `bayes` | walk-forward metrics and fold metadata |
-| `06_bayes/bayes.xlsx` | `bayes` | one-sheet current weighted probability surface |
-| `06_bayes/bayes_shift.xlsx` | `bayes` | one-sheet current weighted shift from baseline |
-| `workspaces/<name>/result/*.png` | `report` | product figures |
+| `06_composition/composition.npz` | `composition` | pooled walk-forward predictions |
+| `06_composition/composition.json` | `composition` | walk-forward metrics and fold metadata |
+| `06_composition/probability.xlsx` | `composition` | one-sheet current weighted probability surface |
+| `06_composition/shift.xlsx` | `composition` | one-sheet current weighted shift from baseline |
+| `07_report/*.png` | `report` | product figures |
 
 All generated workspace artifacts and report images are git-ignored. Only
 `universe.json` and an optional `plugin.py` are source-controlled per workspace.

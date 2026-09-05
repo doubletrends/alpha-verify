@@ -20,6 +20,9 @@ class WorkspaceContractTests(unittest.TestCase):
         self.assertEqual(self.workspace.catalog.find("vix_level")["family"], "vix")
         self.assertNotIn("summary", self.workspace.catalog.meta)
         self.assertEqual(self.workspace.null_alpha, 0.01)
+        self.assertEqual(self.workspace.composition_delta, -0.07)
+        self.assertEqual(self.workspace.composition_horizon, 30)
+        self.assertEqual(self.workspace.composition_folds, 5)
         self.assertEqual(self.workspace.demonstration_date, "2025-03-28")
         self.assertEqual(Workspace("btc_daily").demonstration_date, "2021-07-07")
 
@@ -84,20 +87,26 @@ class WorkspaceContractTests(unittest.TestCase):
             ["04_validation", "validation.json"],
         )
         self.assertEqual(
-            self.workspace.bayes_workbook_path.as_posix().split("/")[-2:],
-            ["06_bayes", "bayes.xlsx"],
+            self.workspace.composition_probability_workbook_path.as_posix().split("/")[
+                -2:
+            ],
+            ["06_composition", "probability.xlsx"],
         )
         self.assertEqual(
-            self.workspace.bayes_shift_workbook_path.as_posix().split("/")[-2:],
-            ["06_bayes", "bayes_shift.xlsx"],
+            self.workspace.composition_shift_workbook_path.as_posix().split("/")[-2:],
+            ["06_composition", "shift.xlsx"],
         )
         self.assertEqual(
-            self.workspace.bayes_path.as_posix().split("/")[-2:],
-            ["06_bayes", "bayes.npz"],
+            self.workspace.composition_array_path.as_posix().split("/")[-2:],
+            ["06_composition", "composition.npz"],
         )
         self.assertEqual(
-            self.workspace.bayes_summary_path.as_posix().split("/")[-2:],
-            ["06_bayes", "bayes.json"],
+            self.workspace.composition_summary_path.as_posix().split("/")[-2:],
+            ["06_composition", "composition.json"],
+        )
+        self.assertEqual(
+            self.workspace.report_dir.as_posix().split("/")[-1],
+            "07_report",
         )
 
     def test_artifact_history_helpers_align_feature_to_valid_prices(self) -> None:

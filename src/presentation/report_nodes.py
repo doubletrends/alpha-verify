@@ -40,10 +40,10 @@ def fig_band(ws, out: Path) -> Path | None:
     envelope, drawn on the chart it belongs to. Stage 6 fits this complete face using only
     outcomes completed by the configured demonstration date; Stage 7 only renders it.
     """
-    if not ws.bayes_path.exists() or ws.demonstration_date is None:
+    if not ws.composition_array_path.exists() or ws.demonstration_date is None:
         return None
 
-    with np.load(ws.bayes_path, allow_pickle=False) as artifact:
+    with np.load(ws.composition_array_path, allow_pickle=False) as artifact:
         needed = (
             "demonstration_probability",
             "demonstration_as_of",
@@ -67,7 +67,8 @@ def fig_band(ws, out: Path) -> Path | None:
         return None
     if as_of != ws.demonstration_date:
         raise ValueError(
-            f"Bayes demonstration is {as_of}, expected {ws.demonstration_date}; run bayes again"
+            "Bayes demonstration is "
+            f"{as_of}, expected {ws.demonstration_date}; run composition again"
         )
 
     cube = shift.load(ws.shift_cube_path("_base", "baseline"))
@@ -150,7 +151,7 @@ def fig_band(ws, out: Path) -> Path | None:
            f'after the model cutoff.')
     _note(fig, f'{ws.asset["ticker"]} · +1..+{int(ts[j])}{ws.horizon_unit} · model fit '
                f'only with outcomes completed by {as_of} · coherent surface from '
-               f'06_bayes/bayes.npz · {fallback_cells}/{current_surface.size} '
+               f'06_composition/composition.npz · {fallback_cells}/{current_surface.size} '
                f'sparse cells use their historical prior · demonstration date selected retrospectively')
     fig.subplots_adjust(top=0.78, right=0.78, bottom=0.10)
     return _save(fig, out / 'A_band.png')

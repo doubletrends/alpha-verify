@@ -109,7 +109,7 @@ def cmd_redundancy(ws: Workspace) -> None:
     if not baseline_path.exists():
         print("No baseline shift array - run shift first.")
         return
-    delta, horizon = ws.bayes_target(shift.load(baseline_path)["base"])
+    delta, horizon = ws.composition_target(shift.load(baseline_path)["base"])
     try:
         data, features, families = artifact_feature_panel(ws)
     except ValueError as error:
