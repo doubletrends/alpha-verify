@@ -9,11 +9,9 @@ from pipeline.step_01_surface import cmd_surface
 from pipeline.step_02_shift import cmd_shift
 from pipeline.step_03_selection import cmd_selection
 from pipeline.step_04_validation import cmd_validation
-from pipeline.step_05_gate import cmd_gate
 from pipeline.step_05_redundancy import cmd_redundancy
 from pipeline.step_06_composition import cmd_bayes
 from pipeline.step_07_report import cmd_report
-from pipeline.step_08_inspect import cmd_read, cmd_status
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -50,12 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--validation",
         action="store_true",
         help=("4. validate selected nodes, apply BH/economic verdicts, write "
-              "04_validation/04_validation.json"),
-    )
-    g.add_argument(
-        "--gate",
-        action="store_true",
-        help="deprecated alias: finalize existing validation arrays",
+              "04_validation/validation.json"),
     )
     g.add_argument(
         "--redundancy",
@@ -68,8 +61,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="6. evaluate weighted Bayes and write current probability and shift workbooks",
     )
     g.add_argument("--report", action="store_true", help="7. render figures into workspace result/")
-    g.add_argument("--status", action="store_true", help="Inventory by family")
-    g.add_argument("--read", metavar="ID", help="Print a node shift surface")
     return parser
 
 
@@ -86,18 +77,12 @@ def main(argv: list[str] | None = None) -> None:
         cmd_selection(ws, args.family)
     elif args.validation:
         cmd_validation(ws, args.family, args.rerun, args.fdr)
-    elif args.gate:
-        cmd_gate(ws, args.fdr)
     elif args.redundancy:
         cmd_redundancy(ws)
     elif args.bayes:
         cmd_bayes(ws)
     elif args.report:
         cmd_report(ws)
-    elif args.status:
-        cmd_status(ws)
-    elif args.read:
-        cmd_read(ws, args.read)
     else:
         parser.print_help()
 

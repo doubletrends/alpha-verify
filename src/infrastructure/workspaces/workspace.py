@@ -132,10 +132,6 @@ class Workspace:
         return self.artifacts.validation_summary_path
 
     @property
-    def legacy_gate_path(self) -> Path:
-        return self.artifacts.legacy_gate_path
-
-    @property
     def redundancy_path(self) -> Path:
         return self.artifacts.redundancy_path
 

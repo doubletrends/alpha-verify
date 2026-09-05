@@ -69,7 +69,7 @@ class WorkspaceContractTests(unittest.TestCase):
         )
         self.assertEqual(
             self.workspace.redundancy_path.as_posix().split("/")[-2:],
-            ["05_redundancy", "05_redundancy.json"],
+            ["05_redundancy", "redundancy.json"],
         )
         self.assertEqual(
             self.workspace.redundancy_array_path.as_posix().split("/")[-2:],
@@ -81,10 +81,9 @@ class WorkspaceContractTests(unittest.TestCase):
         )
         self.assertEqual(
             self.workspace.validation_summary_path.as_posix().split("/")[-2:],
-            ["04_validation", "04_validation.json"],
+            ["04_validation", "validation.json"],
         )
         self.assertEqual(self.workspace.cleared_path, self.workspace.validation_summary_path)
-        self.assertEqual(self.workspace.legacy_gate_path.name, "05_gate.json")
         self.assertEqual(
             self.workspace.bayes_workbook_path.as_posix().split("/")[-2:],
             ["06_bayes", "bayes.xlsx"],
@@ -95,11 +94,11 @@ class WorkspaceContractTests(unittest.TestCase):
         )
         self.assertEqual(
             self.workspace.bayes_path.as_posix().split("/")[-2:],
-            ["06_bayes", "06_bayes.npz"],
+            ["06_bayes", "bayes.npz"],
         )
         self.assertEqual(
             self.workspace.bayes_summary_path.as_posix().split("/")[-2:],
-            ["06_bayes", "06_bayes.json"],
+            ["06_bayes", "bayes.json"],
         )
 
     def test_artifact_history_helpers_align_feature_to_valid_prices(self) -> None:

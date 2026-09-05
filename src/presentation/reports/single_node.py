@@ -156,7 +156,7 @@ def fig_band(ws, out: Path) -> Path | None:
            f'after the model cutoff.')
     _note(fig, f'{ws.asset["ticker"]} · +1..+{int(ts[j])}{ws.horizon_unit} · model fit '
                f'only with outcomes completed by {as_of} · coherent surface from '
-               f'06_bayes/06_bayes.npz · {fallback_cells}/{current_surface.size} '
+               f'06_bayes/bayes.npz · {fallback_cells}/{current_surface.size} '
                f'sparse cells use their historical prior · demonstration date selected retrospectively')
     fig.subplots_adjust(top=0.78, right=0.78, bottom=0.10)
     return _save(fig, out / 'A_band.png')

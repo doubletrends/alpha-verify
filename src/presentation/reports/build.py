@@ -14,7 +14,7 @@ def build(ws) -> None:
     cleared = ws.read_json(ws.validation_summary_path)
 
     if not validation_summary_is_current(ws, cleared):
-        print('No current complete 04_validation/04_validation.json - run --validation first.')
+        print('No current complete 04_validation/validation.json - run --validation first.')
         return
 
     print(f"\n=== 7. Report [{ws.dir.name}] ===")

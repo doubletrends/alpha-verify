@@ -57,7 +57,7 @@ class ArtifactPaths:
 
     @property
     def validation_summary_path(self) -> Path:
-        return self.workspace_dir / "04_validation" / "04_validation.json"
+        return self.workspace_dir / "04_validation" / "validation.json"
 
     @property
     def cleared_path(self) -> Path:
@@ -65,12 +65,8 @@ class ArtifactPaths:
         return self.validation_summary_path
 
     @property
-    def legacy_gate_path(self) -> Path:
-        return self.workspace_dir / "05_gate.json"
-
-    @property
     def redundancy_path(self) -> Path:
-        return self.workspace_dir / "05_redundancy" / "05_redundancy.json"
+        return self.workspace_dir / "05_redundancy" / "redundancy.json"
 
     @property
     def redundancy_array_path(self) -> Path:
@@ -82,11 +78,11 @@ class ArtifactPaths:
 
     @property
     def bayes_path(self) -> Path:
-        return self.workspace_dir / "06_bayes" / "06_bayes.npz"
+        return self.workspace_dir / "06_bayes" / "bayes.npz"
 
     @property
     def bayes_summary_path(self) -> Path:
-        return self.workspace_dir / "06_bayes" / "06_bayes.json"
+        return self.workspace_dir / "06_bayes" / "bayes.json"
 
     @property
     def bayes_workbook_path(self) -> Path:

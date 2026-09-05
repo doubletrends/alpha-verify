@@ -20,15 +20,15 @@ The product workflow has seven stages:
 03_selection/             --selection   ranked arrays, manifest, and workbooks
 
 04_validation/            --validation  exact null arrays and workbooks
-04_validation/04_validation.json
+04_validation/validation.json
                           --validation  raw null + BH + economic intersection
 
 05_redundancy/            --redundancy  numerical matrix and readable workbook
-05_redundancy/05_redundancy.json
+05_redundancy/redundancy.json
                           --redundancy  compact manifest and cluster summary
-06_bayes/06_bayes.npz
+06_bayes/bayes.npz
                           --bayes       walk-forward composition arrays
-06_bayes/06_bayes.json
+06_bayes/bayes.json
                           --bayes       walk-forward composition summary
 06_bayes/bayes.xlsx       --bayes       current weighted probability surface
 06_bayes/bayes_shift.xlsx
@@ -61,7 +61,6 @@ they no longer mutate process-global registries during import.
 ## 0. Orient
 
 ```bash
-volatility-matrix --workspace <name> --status
 ```
 
 The status table is the funnel: nodes declared, surfaces measured, shift artifacts
@@ -209,7 +208,7 @@ A selected node clears the product claim only when all three are true at one hor
 - **FDR:** the test survives Benjamini-Hochberg at `q = 0.05` by default.
 - **Economic:** a stable, useful-size deviation from the baseline exists.
 
-The result is written to `04_validation/04_validation.json`:
+The result is written to `04_validation/validation.json`:
 
 ```text
 summary.null_pass    selected node/horizons passing the raw null threshold
@@ -229,9 +228,7 @@ a screen of this size.
 
 Partial `--family` runs may refresh individual null artifacts, but cannot publish a
 smaller correction universe. Until every selected node is current,
-`04_validation/04_validation.json` records `complete: false` and the missing nodes. The deprecated
-`--gate` compatibility alias can only finalize already-complete null artifacts; it is
-not a separate pipeline stage.
+`04_validation/validation.json` records `complete: false` and the missing nodes.
 
 ## 5. Redundancy
 
@@ -250,7 +247,7 @@ Stage 5 writes three synchronized artifacts. `05_redundancy/redundancy.npz` is
 the numerical source of truth: ordered node ids, information scores, the square
 conditional-NMI matrix, cluster ids, representative flags, target, threshold, sample
 count and outcome rate. `05_redundancy/redundancy.xlsx` renders Overview, Matrix,
-Clusters, Nodes, Pairs and Definitions sheets. `05_redundancy/05_redundancy.json`
+Clusters, Nodes, Pairs and Definitions sheets. `05_redundancy/redundancy.json`
 is written last as a
 compact manifest; `complete: true` certifies that both larger artifacts exist and match
 the current Stage 4 validation fingerprint.
@@ -306,13 +303,13 @@ likely than shorter horizons. The raw fitted face remains in the NPZ for auditab
 It writes:
 
 ```text
-06_bayes/06_bayes.npz
-06_bayes/06_bayes.json
+06_bayes/bayes.npz
+06_bayes/bayes.json
 06_bayes/bayes.xlsx
 06_bayes/bayes_shift.xlsx
 ```
 
-`06_bayes/06_bayes.json` records prior-only, raw top-node Naive Bayes,
+`06_bayes/bayes.json` records prior-only, raw top-node Naive Bayes,
 one-node-per-family,
 Platt-scaled, and redundancy-aware weighted metrics. Every outer fold records its node
 weights, ridge strength, and fold-local redundancy clusters. The point is not to claim a
@@ -399,12 +396,12 @@ enough to estimate.
 | `03_selection/<family>/rank_*.xlsx` | `--selection` | representative-bin workbooks |
 | `04_validation/<family>/<node>.npz` | `--validation` | exact null artifacts |
 | `04_validation/<family>/<node>.xlsx` | `--validation` | readable validation workbook |
-| `04_validation/04_validation.json` | `--validation` | three-gate verdicts and cleared rows |
+| `04_validation/validation.json` | `--validation` | three-gate verdicts and cleared rows |
 | `05_redundancy/redundancy.npz` | `--redundancy` | numerical conditional-NMI matrix and clusters |
 | `05_redundancy/redundancy.xlsx` | `--redundancy` | six-sheet readable redundancy map |
-| `05_redundancy/05_redundancy.json` | `--redundancy` | compact manifest and cluster summary |
-| `06_bayes/06_bayes.npz` | `--bayes` | pooled walk-forward predictions |
-| `06_bayes/06_bayes.json` | `--bayes` | walk-forward metrics and fold metadata |
+| `05_redundancy/redundancy.json` | `--redundancy` | compact manifest and cluster summary |
+| `06_bayes/bayes.npz` | `--bayes` | pooled walk-forward predictions |
+| `06_bayes/bayes.json` | `--bayes` | walk-forward metrics and fold metadata |
 | `06_bayes/bayes.xlsx` | `--bayes` | one-sheet current weighted probability surface |
 | `06_bayes/bayes_shift.xlsx` | `--bayes` | one-sheet current weighted shift from baseline |
 | `workspaces/<name>/result/*.png` | `--report` | product figures |

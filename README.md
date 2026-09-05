@@ -116,7 +116,7 @@ information improves one workspace, but weighting is not automatically superior.
 Across the complete NASDAQ composition sweep, 456 of 1,200 barrier/horizon targets beat the
 prior after correction. The sweep includes rare-event targets, so its extreme AUC cells
 are diagnostics rather than headline claims; inspect realized rates and scored counts in
-`06_bayes/06_bayes.json` before interpreting any individual cell.
+`06_bayes/bayes.json` before interpreting any individual cell.
 
 ## Run It
 
@@ -130,14 +130,17 @@ volatility-matrix --validation     # 4. exact nulls + BH/economic final verdicts
 volatility-matrix --redundancy     # 5. write redundancy NPZ, XLSX, and manifest
 volatility-matrix --bayes          # 6. evaluate composition + write current probability sheet
 volatility-matrix --report         # 7. render workspaces/nasdaq_daily/result
-
-volatility-matrix --status
-volatility-matrix --read vix_level
 ```
 
 `volatility-matrix` defaults to `nasdaq_daily`. Pass `--workspace btc_daily` to rerun
 the BTC comparison workspace. `--family <name>` restricts a stage, `--rerun` rebuilds
 existing artifacts, and `--fdr Q` sets the Benjamini-Hochberg rate used by `--validation`.
+
+Node inspection is available separately from the pipeline CLI:
+
+```bash
+python scripts/read_node.py vix_level --workspace nasdaq_daily
+```
 
 ### What Lands On Disk
 
@@ -152,12 +155,12 @@ workspaces/<name>/
   03_selection/<family>/rank_*.xlsx       view     selected shift sheet workbook
   04_validation/<family>/<node>.npz       compute  exact shuffled null
   04_validation/<family>/<node>.xlsx      view     readable validation sheet
-  04_validation/04_validation.json        three-gate verdicts and cleared nodes
+  04_validation/validation.json           three-gate verdicts and cleared nodes
   05_redundancy/redundancy.npz            numerical conditional-NMI matrix
   05_redundancy/redundancy.xlsx           readable redundancy workbook
-  05_redundancy/05_redundancy.json        redundancy manifest and cluster summary
-  06_bayes/06_bayes.npz                   numerical predictions and surfaces
-  06_bayes/06_bayes.json                  composition metrics and metadata
+  05_redundancy/redundancy.json           redundancy manifest and cluster summary
+  06_bayes/bayes.npz                      numerical predictions and surfaces
+  06_bayes/bayes.json                     composition metrics and metadata
   06_bayes/bayes.xlsx                     current weighted probability surface
   06_bayes/bayes_shift.xlsx               current weighted shift from baseline
 workspaces/<name>/result/*.png                                report figures
