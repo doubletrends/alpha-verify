@@ -159,6 +159,7 @@ workspaces/<name>/
   06_bayes_array/06_bayes.npz                 numerical predictions and surfaces
   06_bayes_array/06_bayes.json                composition metrics and metadata
   06_bayes_xlsx/bayes.xlsx                    current weighted probability surface
+  06_bayes_xlsx/bayes_shift.xlsx              current weighted shift from baseline
 workspaces/<name>/result/*.png                                report figures
 ```
 

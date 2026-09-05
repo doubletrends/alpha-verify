@@ -36,6 +36,8 @@ The product workflow has seven stages:
 06_bayes_array/06_bayes.json
                           --bayes       walk-forward composition summary
 06_bayes_xlsx/bayes.xlsx  --bayes       current weighted probability surface
+06_bayes_xlsx/bayes_shift.xlsx
+                          --bayes       current weighted shift from baseline
 workspaces/<name>/result/ --report      audience-facing figures
 ```
 
@@ -312,6 +314,7 @@ It writes:
 06_bayes_array/06_bayes.npz
 06_bayes_array/06_bayes.json
 06_bayes_xlsx/bayes.xlsx
+06_bayes_xlsx/bayes_shift.xlsx
 ```
 
 `06_bayes_array/06_bayes.json` records prior-only, raw top-node Naive Bayes,
@@ -324,9 +327,12 @@ probability face and its observation counts. When `report.demonstration_date` is
 `universe.json`, it also stores a leakage-safe historical face fit from the node states
 and completed outcomes available on that date. Historical cells without enough
 cross-fitted labels to learn reliability weights fall back to that target's historical
-prior, rather than silently presenting unit-weight Naive Bayes. The single-sheet
-workbook renders the current face with exactly the same layout, percentage format,
-fixed color scale, and frozen panes as a Stage 1 probability sheet.
+prior, rather than silently presenting unit-weight Naive Bayes. The `bayes.xlsx`
+single-sheet workbook renders the current face with exactly the same layout, percentage
+format, fixed color scale, and frozen panes as a Stage 1 probability sheet.
+`bayes_shift.xlsx` subtracts the Stage 2 unconditional baseline from that face and
+renders the percentage-point difference with Stage 2's signed formatting and fixed
+blue/white/red color scale.
 
 ## 7. Report
 
@@ -405,6 +411,7 @@ enough to estimate.
 | `06_bayes_array/06_bayes.npz` | `--bayes` | pooled walk-forward predictions |
 | `06_bayes_array/06_bayes.json` | `--bayes` | walk-forward metrics and fold metadata |
 | `06_bayes_xlsx/bayes.xlsx` | `--bayes` | one-sheet current weighted probability surface |
+| `06_bayes_xlsx/bayes_shift.xlsx` | `--bayes` | one-sheet current weighted shift from baseline |
 | `workspaces/<name>/result/*.png` | `--report` | product figures |
 
 Rendered workbooks are git-ignored. The `.npz` files are the measurement record.

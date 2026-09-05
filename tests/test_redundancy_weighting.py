@@ -154,6 +154,35 @@ class WeightedBayesTests(unittest.TestCase):
             self.assertEqual(len(sheet.conditional_formatting), 1)
             workbook.close()
 
+    def test_stage_six_shift_workbook_is_one_stage_two_formatted_shift_sheet(self) -> None:
+        probability = np.array([[0.20, 0.40], [0.80, 0.90]])
+        baseline = np.array([[0.25, 0.35], [0.70, 0.95]])
+        shift_pp = (probability - baseline) * 100.0
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "bayes_shift.xlsx"
+            workbooks.write_bayes_shift_xlsx(
+                path,
+                shift_pp,
+                probability,
+                baseline,
+                np.array([-0.1, 0.1]),
+                np.array([1, 7]),
+                np.array([500, 494]),
+            )
+            workbook = load_workbook(path, read_only=False)
+            sheet = workbook["Weighted Bayes"]
+            self.assertEqual(workbook.sheetnames, ["Weighted Bayes"])
+            self.assertEqual(sheet["A1"].value, "Condition —— Weighted Bayes")
+            self.assertEqual(
+                sheet["A2"].value,
+                "P (Price touches Δ within t | Condition) - P (Price touches Δ within t)",
+            )
+            self.assertEqual(sheet["B5"].value, 0.1)
+            self.assertEqual(sheet["B5"].number_format, "+0.0%;-0.0%;0.0%")
+            self.assertEqual(sheet.freeze_panes, "B5")
+            self.assertEqual(len(sheet.conditional_formatting), 1)
+            workbook.close()
+
     def test_current_surface_obeys_barrier_and_horizon_nesting(self) -> None:
         deltas = np.array([-0.2, -0.1, 0.0, 0.1, 0.2])
         raw = np.array([

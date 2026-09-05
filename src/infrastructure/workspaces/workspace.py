@@ -160,6 +160,10 @@ class Workspace:
         return self.artifacts.bayes_workbook_path
 
     @property
+    def bayes_shift_workbook_path(self) -> Path:
+        return self.artifacts.bayes_shift_workbook_path
+
+    @property
     def result_dir(self) -> Path:
         return self.artifacts.result_dir
 

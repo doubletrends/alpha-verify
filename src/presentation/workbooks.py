@@ -494,6 +494,47 @@ def write_bayes_xlsx(
     )
 
 
+def write_bayes_shift_xlsx(
+    path: Path,
+    shift_pp: np.ndarray,
+    probability: np.ndarray,
+    baseline: np.ndarray,
+    deltas: np.ndarray,
+    horizons: np.ndarray,
+    n_observations: np.ndarray,
+    unit: str = "d",
+) -> None:
+    """Render one weighted-Bayes shift face with Stage 2's exact formatting."""
+    shifts = np.asarray(shift_pp, dtype=float)
+    probabilities = np.asarray(probability, dtype=float)
+    baseline_surface = np.asarray(baseline, dtype=float)
+    expected_shape = (len(deltas), len(horizons))
+    if shifts.shape != expected_shape:
+        raise ValueError("Bayes shift surface must be shaped delta x horizon")
+    if probabilities.shape != expected_shape or baseline_surface.shape != expected_shape:
+        raise ValueError("Bayes probability and baseline surfaces must be shaped delta x horizon")
+    counts = np.asarray(n_observations, dtype=int)
+    if counts.shape != (len(horizons),):
+        raise ValueError("Bayes observation counts must have one value per horizon")
+    write_shift_xlsx(
+        {
+            "shift": shifts[:, None, :],
+            "prob": probabilities[:, None, :],
+            "base": baseline_surface,
+            "Δs": np.asarray(deltas, dtype=float),
+            "horizons": np.asarray(horizons, dtype=int),
+            "bin_n": counts[None, :],
+            "meta": {"bin_labels": ["Weighted Bayes"]},
+            "edges": np.array([], dtype=float),
+        },
+        path,
+        node_id="weighted_bayes",
+        feature="weighted_bayes",
+        params={},
+        unit=unit,
+    )
+
+
 def write_redundancy_xlsx(
     path: Path,
     names: list[str],

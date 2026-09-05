@@ -93,6 +93,10 @@ class ArtifactPaths:
         return self.workspace_dir / "06_bayes_xlsx" / "bayes.xlsx"
 
     @property
+    def bayes_shift_workbook_path(self) -> Path:
+        return self.workspace_dir / "06_bayes_xlsx" / "bayes_shift.xlsx"
+
+    @property
     def result_dir(self) -> Path:
         return self.workspace_dir / "result"
 

@@ -66,6 +66,10 @@ class WorkspaceContractTests(unittest.TestCase):
             ["06_bayes_xlsx", "bayes.xlsx"],
         )
         self.assertEqual(
+            self.workspace.bayes_shift_workbook_path.as_posix().split("/")[-2:],
+            ["06_bayes_xlsx", "bayes_shift.xlsx"],
+        )
+        self.assertEqual(
             self.workspace.bayes_path.as_posix().split("/")[-2:],
             ["06_bayes_array", "06_bayes.npz"],
         )

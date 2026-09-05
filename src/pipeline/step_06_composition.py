@@ -124,6 +124,13 @@ def cmd_bayes(ws: Workspace) -> None:
     current_probability_raw = current_surface["raw_probability"]
     current_n = current_surface["n_observations"]
     current_as_of = current_surface["as_of"]
+    if baseline.shape != current_probability.shape:
+        raise ValueError(
+            "Stage 2 baseline shape does not match the Bayes surface: "
+            f"{baseline.shape} vs {current_probability.shape}"
+        )
+    current_shift = (current_probability - baseline) * 100.0
+    current_shift_raw = (current_probability_raw - baseline) * 100.0
     print("done")
 
     demonstration_surface = None
@@ -193,8 +200,18 @@ def cmd_bayes(ws: Workspace) -> None:
             current_n,
             ws.horizon_unit,
         )
+        workbooks.write_bayes_shift_xlsx(
+            ws.bayes_shift_workbook_path,
+            current_shift,
+            current_probability,
+            baseline,
+            surface_deltas,
+            surface_horizons,
+            current_n,
+            ws.horizon_unit,
+        )
     except PermissionError:
-        print("Bayes workbook is locked; close it in Excel and rerun --bayes.")
+        print("A Bayes workbook is locked; close it in Excel and rerun --bayes.")
         return
 
     ws.bayes_path.parent.mkdir(parents=True, exist_ok=True)
@@ -219,6 +236,9 @@ def cmd_bayes(ws: Workspace) -> None:
         grid_n_scored=np.array([g["n_scored"] for g in grid], dtype=int),
         current_probability=current_probability,
         current_probability_raw=current_probability_raw,
+        current_shift=current_shift,
+        current_shift_raw=current_shift_raw,
+        current_baseline=baseline,
         current_n=current_n,
         current_Δ=surface_deltas,
         current_horizon=surface_horizons,
@@ -299,6 +319,12 @@ def cmd_bayes(ws: Workspace) -> None:
             "ridge_fallback_cells": current_surface["ridge_fallback_cells"],
             "ridge_fallback": current_surface["ridge_fallback"],
             "workbook": str(ws.bayes_workbook_path.relative_to(ws.dir)).replace("\\", "/"),
+            "shift_workbook": str(
+                ws.bayes_shift_workbook_path.relative_to(ws.dir)
+            ).replace("\\", "/"),
+            "shift_definition": "100 * (weighted Bayes probability - unconditional baseline probability)",
+            "minimum_shift_pp": float(np.min(current_shift)),
+            "maximum_shift_pp": float(np.max(current_shift)),
         },
         "demonstration_surface": (
             None if demonstration_surface is None else {
@@ -321,3 +347,4 @@ def cmd_bayes(ws: Workspace) -> None:
     print(f"\n  wrote {ws.bayes_path.relative_to(ws.root_dir)}")
     print(f"  wrote {ws.bayes_summary_path.relative_to(ws.root_dir)}")
     print(f"  wrote {ws.bayes_workbook_path.relative_to(ws.root_dir)}")
+    print(f"  wrote {ws.bayes_shift_workbook_path.relative_to(ws.root_dir)}")

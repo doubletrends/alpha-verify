@@ -65,7 +65,7 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument(
         "--bayes",
         action="store_true",
-        help="6. evaluate weighted Bayes and write its current probability workbook",
+        help="6. evaluate weighted Bayes and write current probability and shift workbooks",
     )
     g.add_argument("--report", action="store_true", help="7. render figures into workspace result/")
     g.add_argument("--status", action="store_true", help="Inventory by family")
