@@ -73,7 +73,7 @@ def fig_band(ws, out: Path) -> Path | None:
         return None
     if as_of != ws.demonstration_date:
         raise ValueError(
-            f"Bayes demonstration is {as_of}, expected {ws.demonstration_date}; rerun --bayes"
+            f"Bayes demonstration is {as_of}, expected {ws.demonstration_date}; run bayes again"
         )
 
     cube = shift.load(ws.shift_cube_path("_base", "baseline"))

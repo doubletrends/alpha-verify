@@ -8,18 +8,18 @@ from pipeline.context import baseline_surface
 from presentation import workbooks
 
 
-def _write_shift_array(ws: Workspace, family: str | None = None) -> None:
+def _write_shift_array(ws: Workspace) -> None:
     nodes = [
-        node for node in (ws.catalog.in_family(family) if family else ws.catalog.all_nodes())
+        node for node in ws.catalog.all_nodes()
         if ws.has_cube(node["family"], node["id"])
     ]
     if not nodes:
-        print("No full surface arrays to shift - run --surface first.")
+        print("No full surface arrays to shift - run surface first.")
         return
 
     baseline = baseline_surface(ws)
     if baseline is None:
-        print("No baseline surface array - run --surface first.")
+        print("No baseline surface array - run surface first.")
         return
 
     nodes = [node for node in nodes if node["id"] == BASELINE_NODE] + [
@@ -53,13 +53,13 @@ def _write_shift_array(ws: Workspace, family: str | None = None) -> None:
         print(f"\n  skipped {len(skipped)} nodes")
 
 
-def _render_shift(ws: Workspace, family: str | None) -> None:
+def _render_shift(ws: Workspace) -> None:
     nodes = [
-        node for node in (ws.catalog.in_family(family) if family else ws.catalog.all_nodes())
+        node for node in ws.catalog.all_nodes()
         if ws.has_shift_cube(node["family"], node["id"])
     ]
     if not nodes:
-        print("No shift arrays to render - run --shift first.")
+        print("No shift arrays to render - run shift first.")
         return
 
     print(f"\n=== 2. 02_shift workbooks [{ws.dir.name}] - {len(nodes)} nodes ===")
@@ -86,7 +86,7 @@ def _render_shift(ws: Workspace, family: str | None) -> None:
     print(f"  wrote {written} workbooks under {ws.dir.relative_to(ws.root_dir)}/02_shift/")
 
 
-def cmd_shift(ws: Workspace, family: str | None = None) -> None:
+def cmd_shift(ws: Workspace) -> None:
     """Write full baseline-subtracted shift arrays and workbooks."""
-    _write_shift_array(ws, family)
-    _render_shift(ws, family)
+    _write_shift_array(ws)
+    _render_shift(ws)

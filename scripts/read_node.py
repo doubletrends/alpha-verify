@@ -28,7 +28,7 @@ def read_node(ws: Workspace, node_id: str) -> None:
     node = ws.catalog.find(node_id)
     path = ws.shift_cube_path(node["family"], node_id)
     if not path.exists():
-        print(f"No shift array for {node_id} - run --shift first.")
+        print(f"No shift array for {node_id} - run the shift command first.")
         return
 
     cube = shift.load(path)

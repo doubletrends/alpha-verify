@@ -51,7 +51,7 @@ def artifact_node_feature(cube: dict, min_obs: int | None = None) -> tuple[pd.Da
         data = market_data_from_artifact(cube)
         feat = feature_from_artifact(cube, data.index)
     except ValueError as error:
-        raise ValueError(f"{error} - rerun --surface and --shift") from error
+        raise ValueError(f"{error} - run surface and shift again") from error
     n_valid = int(feat.notna().sum())
     if min_obs is not None and n_valid < min_obs:
         raise ValueError(f"only {n_valid} valid observations")
@@ -76,12 +76,12 @@ def artifact_feature_panel(ws: Workspace) -> tuple[pd.DataFrame, dict, dict]:
     """
     base_path = ws.shift_cube_path("_base", BASELINE_NODE)
     if not base_path.exists():
-        raise ValueError("missing baseline shift artifact - run --shift first")
+        raise ValueError("missing baseline shift artifact - run shift first")
     base = shift.load(base_path)
     try:
         data = market_data_from_artifact(base)
     except ValueError as error:
-        raise ValueError(f"baseline {error} - rerun --surface and --shift") from error
+        raise ValueError(f"baseline {error} - run surface and shift again") from error
 
     feats, fams = {}, {}
     for node in ws.catalog.all_nodes():
@@ -95,7 +95,7 @@ def artifact_feature_panel(ws: Workspace) -> tuple[pd.DataFrame, dict, dict]:
             feats[node["id"]] = feature_from_artifact(cube, data.index)
         except ValueError as error:
             raise ValueError(
-                f"{node['id']} {error} - rerun --surface and --shift"
+                f"{node['id']} {error} - run surface and shift again"
             ) from error
         fams[node["id"]] = node["family"]
 

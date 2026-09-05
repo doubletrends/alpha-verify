@@ -97,17 +97,17 @@ def cmd_redundancy(ws: Workspace) -> None:
     """Write numerical, workbook, and manifest views of full-history redundancy."""
     validation = ws.read_json(ws.validation_summary_path)
     if not validation_summary_is_current(ws, validation):
-        print("No current complete validation summary - run --validation first.")
+        print("No current complete validation summary - run validation first.")
         return
     cleared = validation.get("cleared", [])
     node_ids = {row["node"] for row in cleared}
     if not node_ids:
-        print("No cleared nodes - run --validation first.")
+        print("No cleared nodes - run validation first.")
         return
 
     baseline_path = ws.shift_cube_path("_base", BASELINE_NODE)
     if not baseline_path.exists():
-        print("No baseline shift array - run --shift first.")
+        print("No baseline shift array - run shift first.")
         return
     delta, horizon = ws.bayes_target(shift.load(baseline_path)["base"])
     try:
@@ -224,7 +224,7 @@ def cmd_redundancy(ws: Workspace) -> None:
             meta,
         )
     except PermissionError:
-        print("Redundancy workbook is locked; close it in Excel and rerun --redundancy.")
+        print("Redundancy workbook is locked; close it in Excel and run redundancy again.")
         return
 
     above_threshold = sum(row["above_threshold"] for row in pairs)

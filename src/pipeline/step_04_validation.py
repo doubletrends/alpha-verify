@@ -37,12 +37,9 @@ def _validation_matches_selection(ws: Workspace, row: dict) -> bool:
     )
 
 
-def _selected_rows(ws: Workspace, family: str | None = None) -> list[dict]:
+def _selected_rows(ws: Workspace) -> list[dict]:
     selection = ws.read_json(ws.selection_path)
-    rows = selection.get("selected", [])
-    if family:
-        rows = [row for row in rows if row.get("family") == family]
-    return rows
+    return selection.get("selected", [])
 
 
 def selection_fingerprint(selected: list[dict]) -> list[dict]:
@@ -121,7 +118,7 @@ def finalize_validation(ws: Workspace, q: float = 0.05) -> bool:
     """Apply global BH and the economic intersection once every null is current."""
     selected = _selected_rows(ws)
     if not selected:
-        print("No 03_selection/selection.json - run --selection first.")
+        print("No 03_selection/selection.json - run selection first.")
         return False
 
     missing = [
@@ -334,37 +331,21 @@ def finalize_validation(ws: Workspace, q: float = 0.05) -> bool:
     return True
 
 
-def cmd_validation(
-    ws: Workspace,
-    family: str | None = None,
-    rerun: bool = False,
-    q: float = 0.05,
-) -> None:
+def cmd_validation(ws: Workspace) -> None:
     """Run selected-node nulls, then finalize correction and economic verdicts."""
-    rows = _selected_rows(ws, family)
+    rows = _selected_rows(ws)
     if not rows:
-        print("No selected nodes - run --selection first.")
+        print("No selected nodes - run selection first.")
         return
     rows = [row for row in rows if ws.has_selection_array(row)]
     if not rows:
-        print("No 03_selection artifacts - run --selection first.")
+        print("No 03_selection artifacts - run selection first.")
         return
     nodes = {node["id"]: node for node in ws.catalog.all_nodes()}
     rows = [
         row for row in rows
         if row["node"] in nodes and ws.has_shift_cube(row["family"], row["node"])
     ]
-    if not rerun:
-        rows = [
-            row for row in rows
-            if not _validation_matches_selection(ws, row)
-            or not ws.has_validation_surface(row)
-        ]
-    if not rows:
-        print("Nothing to validate or render (use --rerun to redo selected nodes).")
-        finalize_validation(ws, q)
-        return
-
     deltas, horizons = ws.shift_deltas, ws.shift_horizons
     print(f"\n=== 4. 04_validation [{ws.dir.name}] - {len(rows)} selected nodes ===")
     print(
@@ -437,4 +418,4 @@ def cmd_validation(
     relative_dir = ws.dir.relative_to(ws.root_dir)
     print(f"\n  wrote {array_count} .npz artifacts under {relative_dir}/04_validation/")
     print(f"  wrote {workbook_count} workbooks under {relative_dir}/04_validation/")
-    finalize_validation(ws, q)
+    finalize_validation(ws)

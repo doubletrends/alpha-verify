@@ -384,7 +384,7 @@ def write_validation_xlsx(
     The first sheet is the horizon-level node search statistic. The
     remaining sheets render the per-cell signed deviation and pointwise p-value for
     each condition bin. Pointwise p-values are for reading the surface; discoveries are
-    assigned by --validation across the selected node/horizon sweep.
+    assigned by validation across the selected node/horizon sweep.
     """
     Δs = result['Δs']
     horizons = result['horizons']
@@ -398,7 +398,7 @@ def write_validation_xlsx(
     _write_headers(
         ws,
         f'{feature_label(node_id)} — validation summary',
-        'Peak null test by horizon; this is the statistic --validation corrects',
+        'Peak null test by horizon; this is the statistic validation corrects',
         f'node {node_id}   params={params}   p floor = 1/(usable shifts + 1)',
         merge_end=end,
     )

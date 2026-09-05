@@ -13,27 +13,27 @@ engine uses high/low extremes rather than close-to-close returns.
 The product workflow has seven stages:
 
 ```text
-01_surface/               --surface     full arrays and surface workbooks
+01_surface/               surface       full arrays and surface workbooks
 
-02_shift/                 --shift       baseline-subtracted arrays and workbooks
+02_shift/                 shift         baseline-subtracted arrays and workbooks
 
-03_selection/             --selection   ranked arrays, manifest, and workbooks
+03_selection/             selection     ranked arrays, manifest, and workbooks
 
-04_validation/            --validation  exact null arrays and workbooks
+04_validation/            validation    exact null arrays and workbooks
 04_validation/validation.json
-                          --validation  raw null + BH + economic intersection
+                          validation    raw null + BH + economic intersection
 
-05_redundancy/            --redundancy  numerical matrix and readable workbook
+05_redundancy/            redundancy    numerical matrix and readable workbook
 05_redundancy/redundancy.json
-                          --redundancy  compact manifest and cluster summary
+                          redundancy    compact manifest and cluster summary
 06_bayes/bayes.npz
-                          --bayes       walk-forward composition arrays
+                          bayes         walk-forward composition arrays
 06_bayes/bayes.json
-                          --bayes       walk-forward composition summary
-06_bayes/bayes.xlsx       --bayes       current weighted probability surface
+                          bayes         walk-forward composition summary
+06_bayes/bayes.xlsx       bayes         current weighted probability surface
 06_bayes/bayes_shift.xlsx
-                          --bayes       current weighted shift from baseline
-workspaces/<name>/result/ --report      audience-facing figures
+                          bayes         current weighted shift from baseline
+workspaces/<name>/result/ report        audience-facing figures
 ```
 
 Stages 1-4 build the measured, selected and validated surfaces and assign final
@@ -70,8 +70,7 @@ economics passed, and nodes that cleared all three validation gates.
 ## 1. Surface
 
 ```bash
-volatility-matrix --workspace <name> --surface
-volatility-matrix --workspace <name> --surface --family volatility
+volatility-matrix surface --workspace <name>
 ```
 
 This stage computes one probability cube per node:
@@ -105,8 +104,7 @@ tab per condition bin, with barrier rows and horizon columns.
 ## 2. Shift
 
 ```bash
-volatility-matrix --workspace <name> --shift
-volatility-matrix --workspace <name> --shift --family volatility
+volatility-matrix shift --workspace <name>
 ```
 
 The shift stage keeps the full Stage 1 grid and subtracts the baseline node from every
@@ -125,8 +123,7 @@ reached more often than baseline, blue cells mean less often.
 ## 3. Selection
 
 ```bash
-volatility-matrix --workspace <name> --selection
-volatility-matrix --workspace <name> --selection --family volatility
+volatility-matrix selection --workspace <name>
 ```
 
 Selection ranks one *node* per predictor, rather than allowing several decile sheets
@@ -152,9 +149,7 @@ table can rank well even when no individual bin meets a product-effect threshold
 ## 4. Validation and Decision
 
 ```bash
-volatility-matrix --workspace <name> --validation
-volatility-matrix --workspace <name> --validation --family volatility
-volatility-matrix --workspace <name> --validation --fdr 0.05
+volatility-matrix validation --workspace <name>
 ```
 
 Validation tests every selected node against an exact circular-shift null. The workbook
@@ -226,13 +221,12 @@ the exact null's p-value floor, making it unreachable on these workspaces. BH co
 the expected false-discovery share among discoveries, which is the useful correction for
 a screen of this size.
 
-Partial `--family` runs may refresh individual null artifacts, but cannot publish a
-smaller correction universe. Until every selected node is current,
+Until every selected node has a current null artifact,
 `04_validation/validation.json` records `complete: false` and the missing nodes.
 
 ## 5. Redundancy
 
-`--redundancy` maps the validation-cleared nodes using normalized
+`redundancy` maps the validation-cleared nodes using normalized
 conditional mutual information between their ten-bin states:
 
 ```text
@@ -253,13 +247,13 @@ compact manifest; `complete: true` certifies that both larger artifacts exist an
 the current Stage 4 validation fingerprint.
 
 ```bash
-volatility-matrix --workspace <name> --redundancy
+volatility-matrix redundancy --workspace <name>
 ```
 
 ## 6. Compose
 
 ```bash
-volatility-matrix --workspace <name> --bayes
+volatility-matrix bayes --workspace <name>
 ```
 
 Stages 1-5 evaluate one selected condition sheet at a time. Composition asks whether
@@ -329,7 +323,7 @@ blue/white/red color scale.
 ## 7. Report
 
 ```bash
-volatility-matrix --workspace <name> --report
+volatility-matrix report --workspace <name>
 ```
 
 The report renders `workspaces/<name>/result/*.png` plus a local index. Figures read
@@ -387,23 +381,24 @@ enough to estimate.
 | path | written by | contents |
 |---|---|---|
 | `universe.json` | you | nodes and asset config |
-| `01_surface/<family>/<node>.npz` | `--surface` | full measured cube |
-| `01_surface/<family>/<node>.xlsx` | `--surface` | readable full workbook |
-| `02_shift/<family>/<node>.npz` | `--shift` | full baseline-subtracted shift cube |
-| `02_shift/<family>/<node>.xlsx` | `--shift` | red/blue shift workbook |
-| `03_selection/selection.json` | `--selection` | ranking index for selected nodes |
-| `03_selection/<family>/rank_*.npz` | `--selection` | copied representative-bin arrays |
-| `03_selection/<family>/rank_*.xlsx` | `--selection` | representative-bin workbooks |
-| `04_validation/<family>/<node>.npz` | `--validation` | exact null artifacts |
-| `04_validation/<family>/<node>.xlsx` | `--validation` | readable validation workbook |
-| `04_validation/validation.json` | `--validation` | three-gate verdicts and cleared rows |
-| `05_redundancy/redundancy.npz` | `--redundancy` | numerical conditional-NMI matrix and clusters |
-| `05_redundancy/redundancy.xlsx` | `--redundancy` | six-sheet readable redundancy map |
-| `05_redundancy/redundancy.json` | `--redundancy` | compact manifest and cluster summary |
-| `06_bayes/bayes.npz` | `--bayes` | pooled walk-forward predictions |
-| `06_bayes/bayes.json` | `--bayes` | walk-forward metrics and fold metadata |
-| `06_bayes/bayes.xlsx` | `--bayes` | one-sheet current weighted probability surface |
-| `06_bayes/bayes_shift.xlsx` | `--bayes` | one-sheet current weighted shift from baseline |
-| `workspaces/<name>/result/*.png` | `--report` | product figures |
+| `01_surface/<family>/<node>.npz` | `surface` | full measured cube |
+| `01_surface/<family>/<node>.xlsx` | `surface` | readable full workbook |
+| `02_shift/<family>/<node>.npz` | `shift` | full baseline-subtracted shift cube |
+| `02_shift/<family>/<node>.xlsx` | `shift` | red/blue shift workbook |
+| `03_selection/selection.json` | `selection` | ranking index for selected nodes |
+| `03_selection/<family>/rank_*.npz` | `selection` | copied representative-bin arrays |
+| `03_selection/<family>/rank_*.xlsx` | `selection` | representative-bin workbooks |
+| `04_validation/<family>/<node>.npz` | `validation` | exact null artifacts |
+| `04_validation/<family>/<node>.xlsx` | `validation` | readable validation workbook |
+| `04_validation/validation.json` | `validation` | three-gate verdicts and cleared rows |
+| `05_redundancy/redundancy.npz` | `redundancy` | numerical conditional-NMI matrix and clusters |
+| `05_redundancy/redundancy.xlsx` | `redundancy` | six-sheet readable redundancy map |
+| `05_redundancy/redundancy.json` | `redundancy` | compact manifest and cluster summary |
+| `06_bayes/bayes.npz` | `bayes` | pooled walk-forward predictions |
+| `06_bayes/bayes.json` | `bayes` | walk-forward metrics and fold metadata |
+| `06_bayes/bayes.xlsx` | `bayes` | one-sheet current weighted probability surface |
+| `06_bayes/bayes_shift.xlsx` | `bayes` | one-sheet current weighted shift from baseline |
+| `workspaces/<name>/result/*.png` | `report` | product figures |
 
-Rendered workbooks are git-ignored. The `.npz` files are the measurement record.
+All generated workspace artifacts and report images are git-ignored. Only
+`universe.json` and an optional `plugin.py` are source-controlled per workspace.

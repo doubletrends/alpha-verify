@@ -35,14 +35,14 @@ def cmd_bayes(ws: Workspace) -> None:
     """
     baseline_path = ws.shift_cube_path("_base", BASELINE_NODE)
     if not baseline_path.exists():
-        print("No baseline shift array - run --shift first.")
+        print("No baseline shift array - run shift first.")
         return
 
     baseline = shift.load(baseline_path)["base"]
     Δ, horizon = ws.bayes_target(baseline)
     validation = ws.read_json(ws.validation_summary_path)
     if not validation_summary_is_current(ws, validation):
-        print("No current complete validation summary - run --validation first.")
+        print("No current complete validation summary - run validation first.")
         return
     try:
         data, feats, fams = artifact_feature_panel(ws)
@@ -211,7 +211,7 @@ def cmd_bayes(ws: Workspace) -> None:
             ws.horizon_unit,
         )
     except PermissionError:
-        print("A Bayes workbook is locked; close it in Excel and rerun --bayes.")
+        print("A Bayes workbook is locked; close it in Excel and run bayes again.")
         return
 
     ws.bayes_path.parent.mkdir(parents=True, exist_ok=True)

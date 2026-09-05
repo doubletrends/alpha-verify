@@ -12,6 +12,11 @@ from pipeline.step_04_validation import cmd_validation
 from pipeline.step_05_redundancy import cmd_redundancy
 from pipeline.step_06_composition import cmd_bayes
 from pipeline.step_07_report import cmd_report
+from pipeline.status import cmd_status
+
+
+def _add_workspace(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--workspace", metavar="NAME", default="nasdaq_daily")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -21,70 +26,67 @@ def build_parser() -> argparse.ArgumentParser:
             "measured on a full grid and judged after subtracting the baseline."
         )
     )
-    parser.add_argument("--workspace", metavar="NAME", default="nasdaq_daily")
-    parser.add_argument("--family", metavar="NAME", help="Restrict to one family")
-    parser.add_argument("--rerun", action="store_true", help="Rebuild artifacts that already exist")
-    parser.add_argument(
-        "--fdr",
-        type=float,
-        default=0.05,
-        metavar="Q",
-        help="Benjamini-Hochberg false-discovery rate for --validation (default 0.05)",
-    )
+    commands = parser.add_subparsers(dest="command", metavar="COMMAND")
 
-    g = parser.add_mutually_exclusive_group()
-    g.add_argument("--surface", action="store_true", help="1. write 01_surface artifacts")
-    g.add_argument(
-        "--shift",
-        action="store_true",
-        help="2. write 02_shift artifacts",
+    surface = commands.add_parser("surface", help="1. write 01_surface artifacts")
+    _add_workspace(surface)
+
+    shift = commands.add_parser("shift", help="2. write 02_shift artifacts")
+    _add_workspace(shift)
+
+    selection = commands.add_parser("selection", help="3. write 03_selection artifacts")
+    _add_workspace(selection)
+
+    validation = commands.add_parser(
+        "validation",
+        help="4. validate selected nodes and write final verdicts",
     )
-    g.add_argument(
-        "--selection",
-        action="store_true",
-        help="3. write 03_selection artifacts",
-    )
-    g.add_argument(
-        "--validation",
-        action="store_true",
-        help=("4. validate selected nodes, apply BH/economic verdicts, write "
-              "04_validation/validation.json"),
-    )
-    g.add_argument(
-        "--redundancy",
-        action="store_true",
+    _add_workspace(validation)
+
+    redundancy = commands.add_parser(
+        "redundancy",
         help="5. write redundancy NPZ, workbook, and manifest for cleared nodes",
     )
-    g.add_argument(
-        "--bayes",
-        action="store_true",
+    _add_workspace(redundancy)
+
+    bayes = commands.add_parser(
+        "bayes",
         help="6. evaluate weighted Bayes and write current probability and shift workbooks",
     )
-    g.add_argument("--report", action="store_true", help="7. render figures into workspace result/")
+    _add_workspace(bayes)
+
+    report = commands.add_parser("report", help="7. render figures into workspace result/")
+    _add_workspace(report)
+
+    status = commands.add_parser("status", help="show artifact and validation status")
+    _add_workspace(status)
     return parser
 
 
 def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.command is None:
+        parser.print_help()
+        return
     ws = Workspace(args.workspace)
 
-    if args.surface:
-        cmd_surface(ws, args.family, args.rerun)
-    elif args.shift:
-        cmd_shift(ws, args.family)
-    elif args.selection:
-        cmd_selection(ws, args.family)
-    elif args.validation:
-        cmd_validation(ws, args.family, args.rerun, args.fdr)
-    elif args.redundancy:
+    if args.command == "surface":
+        cmd_surface(ws)
+    elif args.command == "shift":
+        cmd_shift(ws)
+    elif args.command == "selection":
+        cmd_selection(ws)
+    elif args.command == "validation":
+        cmd_validation(ws)
+    elif args.command == "redundancy":
         cmd_redundancy(ws)
-    elif args.bayes:
+    elif args.command == "bayes":
         cmd_bayes(ws)
-    elif args.report:
+    elif args.command == "report":
         cmd_report(ws)
-    else:
-        parser.print_help()
+    elif args.command == "status":
+        cmd_status(ws)
 
 
 if __name__ == "__main__":

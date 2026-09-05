@@ -35,14 +35,8 @@ def _build_cube(context: RunContext, node: dict, quiet: bool = False) -> None:
         print(f"  {node['id']:<26} {cube['prob'].shape}  n={int(cube['n_obs'][0])}")
 
 
-def _write_surface_arrays(workspace: Workspace, family: str | None, rerun: bool) -> None:
-    nodes = workspace.catalog.in_family(family) if family else workspace.catalog.all_nodes()
-    if not rerun:
-        nodes = [node for node in nodes if not workspace.has_cube(node["family"], node["id"])]
-    if not nodes:
-        print("No missing surface arrays (use --rerun to rebuild existing arrays).")
-        return
-
+def _write_surface_arrays(workspace: Workspace) -> None:
+    nodes = workspace.catalog.all_nodes()
     context = RunContext(workspace)
     horizons = workspace.horizons
     print(f"\n=== 1. 01_surface arrays [{workspace.dir.name}] - {len(nodes)} nodes ===")
@@ -63,13 +57,13 @@ def _write_surface_arrays(workspace: Workspace, family: str | None, rerun: bool)
     print(f"\n  wrote to {workspace.dir.relative_to(workspace.root_dir)}/01_surface/{suffix}")
 
 
-def _render_surface(workspace: Workspace, family: str | None) -> None:
+def _render_surface(workspace: Workspace) -> None:
     nodes = [
-        node for node in (workspace.catalog.in_family(family) if family else workspace.catalog.all_nodes())
+        node for node in workspace.catalog.all_nodes()
         if workspace.has_cube(node["family"], node["id"])
     ]
     if not nodes:
-        print("No full arrays to render - run --surface first.")
+        print("No full arrays to render - run surface first.")
         return
 
     print(f"\n=== 1. 01_surface workbooks [{workspace.dir.name}] - {len(nodes)} nodes ===")
@@ -93,7 +87,7 @@ def _render_surface(workspace: Workspace, family: str | None) -> None:
     print(f"  wrote {written} workbooks under {workspace.dir.relative_to(workspace.root_dir)}/01_surface/")
 
 
-def cmd_surface(workspace: Workspace, family: str | None = None, rerun: bool = False) -> None:
+def cmd_surface(workspace: Workspace) -> None:
     """Write full surface arrays and their workbook views."""
-    _write_surface_arrays(workspace, family, rerun)
-    _render_surface(workspace, family)
+    _write_surface_arrays(workspace)
+    _render_surface(workspace)

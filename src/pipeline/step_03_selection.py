@@ -23,14 +23,14 @@ def _copy_selected_workbook_sheet(source: Path, target: Path, bin_index: int) ->
     wb.close()
 
 
-def cmd_selection(ws: Workspace, family: str | None = None) -> None:
+def cmd_selection(ws: Workspace) -> None:
     """Stage 3: score every node's full bin table and retain top distinct nodes."""
     nodes = [
-        n for n in (ws.catalog.in_family(family) if family else ws.catalog.all_nodes())
+        n for n in ws.catalog.all_nodes()
         if n["id"] != BASELINE_NODE and ws.has_shift_cube(n["family"], n["id"])
     ]
     if not nodes:
-        print("No shift arrays to select from - run --shift first.")
+        print("No shift arrays to select from - run shift first.")
         return
 
     def load_cube(node: dict) -> dict:
@@ -38,7 +38,7 @@ def cmd_selection(ws: Workspace, family: str | None = None) -> None:
 
     baseline_path = ws.shift_cube_path("_base", BASELINE_NODE)
     if not baseline_path.exists():
-        print("No baseline shift array - run --shift first.")
+        print("No baseline shift array - run shift first.")
         return
     delta, horizon = ws.bayes_target(shift.load(baseline_path)["base"])
     result = selection.rank_nodes(
@@ -85,7 +85,7 @@ def cmd_selection(ws: Workspace, family: str | None = None) -> None:
         except PermissionError:
             print(f"  rank {row['rank']:>3} {row['node']:<26} [locked] close it in Excel and re-run")
         except FileNotFoundError:
-            print(f"  rank {row['rank']:>3} {row['node']:<26} [no shift workbook] run --shift to render it")
+            print(f"  rank {row['rank']:>3} {row['node']:<26} [no shift workbook] run shift to render it")
 
     ws.write_json(ws.selection_path, result)
 
