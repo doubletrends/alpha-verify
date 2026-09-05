@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 from barrierlab.domain.features import FeatureRegistry, register_builtin_features
-from barrierlab.domain import barrier, shift
+from barrierlab.infrastructure import artifact_io
 from barrierlab.infrastructure.artifacts import (
     feature_from_artifact,
     market_data_from_artifact,
@@ -51,7 +51,7 @@ def baseline_surface(ws: Workspace) -> np.ndarray | None:
     path = ws.baseline_cube
     if not path.exists():
         return None
-    return barrier.load_cube(path)["prob"][:, 0, :]
+    return artifact_io.load_surface(path)["prob"][:, 0, :]
 
 
 def artifact_feature_panel(ws: Workspace) -> tuple[pd.DataFrame, dict, dict]:
@@ -65,7 +65,7 @@ def artifact_feature_panel(ws: Workspace) -> tuple[pd.DataFrame, dict, dict]:
     base_path = ws.shift_cube_path("_base", BASELINE_NODE)
     if not base_path.exists():
         raise ValueError("missing baseline shift artifact - run shift first")
-    base = shift.load(base_path)
+    base = artifact_io.load_shift(base_path)
     try:
         data = market_data_from_artifact(base)
     except ValueError as error:
@@ -78,7 +78,7 @@ def artifact_feature_panel(ws: Workspace) -> tuple[pd.DataFrame, dict, dict]:
         path = ws.shift_cube_path(node["family"], node["id"])
         if not path.exists():
             continue
-        cube = shift.load(path)
+        cube = artifact_io.load_shift(path)
         try:
             feats[node["id"]] = feature_from_artifact(cube, data.index)
         except ValueError as error:

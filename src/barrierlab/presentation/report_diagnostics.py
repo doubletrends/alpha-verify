@@ -6,7 +6,8 @@ from pathlib import Path
 
 import numpy as np
 
-from barrierlab.domain import selection, validation as val
+from barrierlab.domain import validation as val
+from barrierlab.infrastructure import artifact_io
 from barrierlab.infrastructure.artifacts import (
     feature_from_artifact,
     market_data_from_artifact,
@@ -101,7 +102,7 @@ def _null_distribution_for_gate_row(ws, gate_row: dict) -> dict | None:
                 if x.get('node') == gate_row['node'] and int(x.get('bin', -1)) == b), None)
     if not row or not ws.has_selection_array(row):
         return None
-    artifact = selection.load_selected_node(ws.selection_array_path(row))
+    artifact = artifact_io.load_selected_node(ws.selection_array_path(row))
     try:
         data = market_data_from_artifact(artifact)
         feat = feature_from_artifact(artifact, data.index)
@@ -200,4 +201,3 @@ def fig_null(ws, cleared, out: Path) -> Path | None:
                f'{float(np.nanmin(floors)):.2g}')
     fig.subplots_adjust(top=0.74, right=0.64)
     return _save(fig, out / 'B_null.png')
-

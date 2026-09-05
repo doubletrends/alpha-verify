@@ -23,9 +23,6 @@ Two things differ from the close-to-close machinery this replaces:
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 import numpy as np
 import pandas as pd
 
@@ -300,38 +297,3 @@ def evaluate(
     return {'passed': best_overall is not None, 'best': best_overall,
             'per_horizon': per_t,
             'criteria': {'min_dev': min_dev, 'min_bin_n': min_bin_n, 'min_run': min_run}}
-
-
-def save_cube(cube: dict, path: Path, meta: dict) -> None:
-    """
-    Write a cube to a compressed .npz.
-
-    Self-describing: the probability array travels with its three coordinate vectors
-    and the counts it was built from, so a reader needs nothing but the file. Loads in milliseconds and stays well under a megabyte, which
-    matters because there is one per node.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        'prob': cube['prob'].astype(np.float32),
-        'hits': cube['hits'],
-        'bin_n': cube['bin_n'],
-        'n_obs': cube['n_obs'],
-        'Δs': cube['Δs'],
-        'horizons': cube['horizons'],
-        'edges': cube['edges'],
-        'meta': np.array(json.dumps(meta)),
-    }
-    for key in ('index', 'feature_values', 'open', 'high', 'low', 'close', 'volume'):
-        if key in cube:
-            payload[key] = np.asarray(cube[key], dtype=str) if key == 'index' else cube[key]
-    np.savez_compressed(path, **payload)
-
-
-def load_cube(path: Path) -> dict:
-    """Read a cube back, with `meta` decoded and the rate arrays widened to float64."""
-    z = np.load(path, allow_pickle=False)
-    out = {k: z[k] for k in z.files if k != 'meta'}
-    for k in ('prob',):
-        out[k] = out[k].astype(np.float64)
-    out['meta'] = json.loads(str(z['meta']))
-    return out

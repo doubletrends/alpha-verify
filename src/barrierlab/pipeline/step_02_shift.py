@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from barrierlab.domain import barrier, shift
+from barrierlab.domain import shift
+from barrierlab.infrastructure import artifact_io
 from barrierlab.infrastructure.workspace import BASELINE_NODE, Workspace
 from barrierlab.pipeline.context import baseline_surface
 from barrierlab.presentation import workbooks
@@ -37,9 +38,9 @@ def _write_shift_array(ws: Workspace) -> None:
     skipped = {}
     for node in nodes:
         try:
-            full = barrier.load_cube(ws.cube_path(node["family"], node["id"]))
+            full = artifact_io.load_surface(ws.cube_path(node["family"], node["id"]))
             shifted = shift.from_cube(full, baseline)
-            shift.save(
+            artifact_io.save_shift(
                 shifted,
                 ws.shift_cube_path(node["family"], node["id"]),
                 {**full["meta"], "grid": "shift", "value": "conditional_minus_baseline_pp"},
@@ -69,7 +70,7 @@ def _render_shift(ws: Workspace) -> None:
     )
     written = 0
     for node in nodes:
-        cube = shift.load(ws.shift_cube_path(node["family"], node["id"]))
+        cube = artifact_io.load_shift(ws.shift_cube_path(node["family"], node["id"]))
         try:
             workbooks.write_shift_xlsx(
                 cube,

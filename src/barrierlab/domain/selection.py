@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-import json
-from pathlib import Path
-
 import numpy as np
 
 
@@ -123,9 +119,6 @@ def rank_nodes(
         row["selected"] = rank <= top_k
 
     return {
-        "generated": datetime.now(timezone.utc).isoformat(),
-        "artifact": "03_selection",
-        "source": "02_shift",
         "method": {
             "score": "sample-weighted KL(Bernoulli(P(touch | bin)) || Bernoulli(P(touch))) across all bins",
             "unit": "nats per observation",
@@ -170,51 +163,4 @@ def selected_node_from_shift_cube(cube: dict, row: dict) -> dict:
     for key in ("index", "feature_values", "open", "high", "low", "close", "volume"):
         if key in cube:
             out[key] = cube[key]
-    return out
-
-
-def save_selected_node(cube: dict, path: Path, meta: dict) -> None:
-    """Write one complete selected node as a Stage 3 array artifact."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "shift": cube["shift"].astype(np.float32),
-        "prob": cube["prob"].astype(np.float32),
-        "base": cube["base"].astype(np.float32),
-        "hits": cube["hits"],
-        "bin_n": cube["bin_n"],
-        "n_obs": cube["n_obs"],
-        "Δs": cube["Δs"],
-        "horizons": cube["horizons"],
-        "edges": cube["edges"],
-        "source_bin": cube["source_bin"],
-        "source_bin_number": cube["source_bin_number"],
-        "selection_rank": cube["selection_rank"],
-        "selection_score": cube["selection_score"],
-        "meta": np.array(json.dumps(meta)),
-    }
-    for key in ("index", "feature_values", "open", "high", "low", "close", "volume"):
-        if key in cube:
-            payload[key] = np.asarray(cube[key], dtype=str) if key == "index" else cube[key]
-    np.savez_compressed(path, **payload)
-
-
-def load_selected_node(path: Path) -> dict:
-    """Read and validate one complete Stage 3 selected-node artifact."""
-    z = np.load(path, allow_pickle=False)
-    out = {k: z[k] for k in z.files if k != "meta"}
-    for k in ("shift", "prob", "base"):
-        out[k] = out[k].astype(np.float64)
-    out["meta"] = json.loads(str(z["meta"]))
-    expected_bins = len(out["edges"]) + 1
-    expected_shape = (len(out["Δs"]), expected_bins, len(out["horizons"]))
-    source_bin = int(np.asarray(out.get("source_bin", -1)))
-    if (
-        out["shift"].shape != expected_shape
-        or out["prob"].shape != expected_shape
-        or out["hits"].shape != expected_shape
-        or out["bin_n"].shape != expected_shape[1:]
-        or out["base"].shape != (expected_shape[0], expected_shape[2])
-        or not 0 <= source_bin < expected_bins
-    ):
-        raise ValueError("selected-node artifact does not contain the complete bin cube")
     return out

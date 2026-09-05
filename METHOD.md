@@ -54,10 +54,11 @@ carried by each selected-node artifact because aggregate cube rates alone are in
 
 `src/barrierlab/infrastructure/workspace.py` owns workspace configuration and node
 traversal; `src/barrierlab/infrastructure/workspace_plugins.py` owns plugin loading.
-`src/barrierlab/infrastructure/artifacts.py` owns artifact paths, JSON persistence,
-and artifact history reconstruction. `src/barrierlab/pipeline` owns numbered stage
-orchestration, `src/barrierlab/domain` owns numerical models and feature transforms,
-and `src/barrierlab/presentation` owns workbooks and figures.
+`src/barrierlab/infrastructure/artifacts.py` owns artifact paths and history
+reconstruction; `src/barrierlab/infrastructure/artifact_io.py` owns JSON and NPZ
+persistence. `src/barrierlab/pipeline` owns numbered stage orchestration,
+`src/barrierlab/domain` owns numerical models and feature transforms, and
+`src/barrierlab/presentation` owns workbooks and figures.
 Workspace plugins expose `register(sources, features)` and receive per-run registries;
 they no longer mutate process-global registries during import.
 

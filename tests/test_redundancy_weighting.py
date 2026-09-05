@@ -9,6 +9,7 @@ import pandas as pd
 from openpyxl import load_workbook
 
 from barrierlab.domain import bayes, redundancy
+from barrierlab.infrastructure import artifact_io
 from barrierlab.pipeline.step_05_redundancy import validation_fingerprint
 from barrierlab.presentation import workbooks
 
@@ -30,13 +31,13 @@ class RedundancyTests(unittest.TestCase):
     def test_numerical_artifact_round_trips_without_pickle(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "redundancy.npz"
-            redundancy.save(path, {
+            artifact_io.save_redundancy(path, {
                 "node_ids": np.array(["atr", "rv"], dtype=str),
                 "conditional_nmi": np.array([[1.0, 0.8], [0.8, 1.0]]),
                 "cluster_id": np.array([1, 1]),
             }, {"source_validation_fingerprint": "abc"})
 
-            result = redundancy.load(path)
+            result = artifact_io.load_redundancy(path)
 
         np.testing.assert_array_equal(result["node_ids"], np.array(["atr", "rv"]))
         np.testing.assert_allclose(result["conditional_nmi"], [[1.0, 0.8], [0.8, 1.0]])

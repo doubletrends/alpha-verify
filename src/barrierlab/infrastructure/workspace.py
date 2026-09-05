@@ -8,7 +8,8 @@ from pathlib import Path
 
 import numpy as np
 
-from barrierlab.infrastructure.artifacts import ArtifactPaths, read_json, write_json
+from barrierlab.infrastructure.artifact_io import read_json, write_json
+from barrierlab.infrastructure.artifacts import ArtifactPaths
 
 BASELINE_NODE = "baseline"
 

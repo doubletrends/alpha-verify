@@ -6,7 +6,8 @@ from datetime import datetime, timezone
 
 import numpy as np
 
-from barrierlab.domain import selection as selection_artifacts, validation as val
+from barrierlab.domain import validation as val
+from barrierlab.infrastructure import artifact_io
 from barrierlab.infrastructure.artifacts import (
     feature_from_artifact,
     market_data_from_artifact,
@@ -20,8 +21,8 @@ def validation_artifact_is_current(ws: Workspace, row: dict) -> bool:
     if not ws.has_validation_array(row):
         return False
     try:
-        selected_node = selection_artifacts.load_selected_node(ws.selection_array_path(row))
-        existing = val.load(ws.validation_array_path(row))
+        selected_node = artifact_io.load_selected_node(ws.selection_array_path(row))
+        existing = artifact_io.load_validation(ws.validation_array_path(row))
     except Exception:
         return False
     return (
@@ -80,7 +81,7 @@ def _economic_criteria(ws: Workspace) -> dict:
 def _evaluate_economics(ws: Workspace, selected: list[dict]) -> list[dict]:
     rows = []
     for row in selected:
-        cube = selection_artifacts.load_selected_node(ws.selection_array_path(row))
+        cube = artifact_io.load_selected_node(ws.selection_array_path(row))
         result = val.economic_filter_sheet(
             cube,
             int(row["bin"]),
@@ -175,7 +176,7 @@ def finalize_validation(ws: Workspace, q: float = 0.05) -> bool:
 
     rows = []
     for selection in selected:
-        result = val.load(ws.validation_array_path(selection))
+        result = artifact_io.load_validation(ws.validation_array_path(selection))
         source_bin = int(selection["bin"])
         for index, horizon in enumerate(result["horizons"]):
             rows.append({
@@ -371,7 +372,7 @@ def cmd_validation(ws: Workspace) -> None:
     for row in rows:
         node = nodes[row["node"]]
         try:
-            selected_node = selection_artifacts.load_selected_node(
+            selected_node = artifact_io.load_selected_node(
                 ws.selection_array_path(row)
             )
             data = market_data_from_artifact(selected_node)
@@ -387,7 +388,7 @@ def cmd_validation(ws: Workspace) -> None:
                 selected_node["edges"],
             )
             result = val.sheet_from_node_result(node_result, row)
-            val.save(result, ws.validation_array_path(row), {
+            artifact_io.save_validation(result, ws.validation_array_path(row), {
                 "node": node["id"],
                 "family": node["family"],
                 "feature": node["feature"],

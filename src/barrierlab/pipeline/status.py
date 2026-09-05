@@ -7,6 +7,7 @@ from collections import defaultdict
 import numpy as np
 
 from barrierlab.domain import shift, validation as val
+from barrierlab.infrastructure import artifact_io
 from barrierlab.infrastructure.workspace import Workspace
 from barrierlab.pipeline.step_04_validation import (
     validation_artifact_is_current,
@@ -23,7 +24,7 @@ def _print_node_status(ws: Workspace, node_id: str) -> None:
         print(f"No shift array for {node_id} - run the shift command first.")
         return
 
-    cube = shift.load(path)
+    cube = artifact_io.load_shift(path)
     dev = cube["shift"]
     deltas = cube["Δs"]
     horizons = cube["horizons"]
@@ -60,7 +61,7 @@ def _print_node_status(ws: Workspace, node_id: str) -> None:
         None,
     )
     if selected_row and validation_artifact_is_current(ws, selected_row):
-        validation = val.load(ws.validation_array_path(selected_row))
+        validation = artifact_io.load_validation(ws.validation_array_path(selected_row))
         horizon_index = int(
             np.flatnonzero(validation["horizons"] == best["horizon"])[0]
         )

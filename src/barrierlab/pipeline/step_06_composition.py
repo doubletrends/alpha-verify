@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 import numpy as np
 
-from barrierlab.domain import bayes, shift
+from barrierlab.domain import bayes
+from barrierlab.infrastructure import artifact_io
 from barrierlab.infrastructure.workspace import BASELINE_NODE, Workspace
 from barrierlab.pipeline.context import artifact_feature_panel
 from barrierlab.pipeline.step_04_validation import validation_summary_is_current
@@ -38,7 +38,7 @@ def cmd_composition(ws: Workspace) -> None:
         print("No baseline shift array - run shift first.")
         return
 
-    baseline = shift.load(baseline_path)["base"]
+    baseline = artifact_io.load_shift(baseline_path)["base"]
     Δ, horizon = ws.composition_target(baseline)
     validation = ws.read_json(ws.validation_summary_path)
     if not validation_summary_is_current(ws, validation):
@@ -217,8 +217,7 @@ def cmd_composition(ws: Workspace) -> None:
         )
         return
 
-    ws.composition_array_path.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(
+    artifact_io.save_composition(
         ws.composition_array_path,
         y=head["y"],
         p_all=head["p_all"],
@@ -267,13 +266,13 @@ def cmd_composition(ws: Workspace) -> None:
             if demonstration_surface is not None else 0,
             dtype=int,
         ),
-        meta=np.array(json.dumps({
+        meta={
             "workspace": ws.dir.name,
             "Δ": Δ,
             "horizon": horizon,
             "unit": ws.horizon_unit,
             "generated": datetime.now(timezone.utc).isoformat(),
-        })),
+        },
     )
     ws.write_json(ws.composition_summary_path, {
         "workspace": ws.dir.name,

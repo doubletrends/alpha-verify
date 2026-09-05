@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from barrierlab.domain import barrier
+from barrierlab.infrastructure import artifact_io
 from barrierlab.infrastructure.workspace import Workspace
 from barrierlab.pipeline.context import RunContext
 from barrierlab.presentation import workbooks
@@ -21,7 +22,7 @@ def _build_cube(context: RunContext, node: dict, quiet: bool = False) -> None:
         if column in data:
             cube[column] = data[column].to_numpy(float)
 
-    barrier.save_cube(cube, workspace.cube_path(node["family"], node["id"]), {
+    artifact_io.save_surface(cube, workspace.cube_path(node["family"], node["id"]), {
         "node": node["id"],
         "family": node["family"],
         "feature": node["feature"],
@@ -70,7 +71,7 @@ def _render_surface(workspace: Workspace) -> None:
     print(f"  {workspace.n_bins} tabs per node, one per condition bin\n")
     written = 0
     for node in nodes:
-        cube = barrier.load_cube(workspace.cube_path(node["family"], node["id"]))
+        cube = artifact_io.load_surface(workspace.cube_path(node["family"], node["id"]))
         try:
             workbooks.write_barrier_xlsx(
                 cube,

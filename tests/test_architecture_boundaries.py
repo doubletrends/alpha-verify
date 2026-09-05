@@ -42,6 +42,44 @@ class ArchitectureBoundaryTests(unittest.TestCase):
         for path in (PACKAGE_ROOT / "domain").glob("*.py"):
             self.assertFalse(imported_layers(path) & forbidden, path)
 
+    def test_domain_has_no_persistence_dependencies_or_entry_points(self) -> None:
+        forbidden_dependencies = {"datetime", "json", "pathlib"}
+        forbidden_functions = {
+            "load",
+            "load_cube",
+            "load_selected_node",
+            "save",
+            "save_cube",
+            "save_selected_node",
+        }
+        for path in (PACKAGE_ROOT / "domain").glob("*.py"):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            public_functions = {
+                node.name
+                for node in tree.body
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            }
+            self.assertFalse(imported_layers(path) & forbidden_dependencies, path)
+            self.assertFalse(public_functions & forbidden_functions, path)
+
+    def test_npz_persistence_is_owned_by_infrastructure(self) -> None:
+        owner = PACKAGE_ROOT / "infrastructure" / "artifact_io.py"
+        violations = []
+        for path in PACKAGE_ROOT.rglob("*.py"):
+            if path == owner:
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "np"
+                    and node.func.attr in {"load", "save", "savez", "savez_compressed"}
+                ):
+                    violations.append((path, node.lineno, node.func.attr))
+        self.assertEqual(violations, [])
+
     def test_presentation_does_not_depend_on_pipeline_or_cli(self) -> None:
         forbidden = {"cli", "pipeline"}
         for path in (PACKAGE_ROOT / "presentation").rglob("*.py"):

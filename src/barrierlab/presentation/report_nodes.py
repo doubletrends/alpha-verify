@@ -8,7 +8,8 @@ import numpy as np
 import pandas as pd
 from matplotlib.colors import TwoSlopeNorm
 
-from barrierlab.domain import barrier, shift
+from barrierlab.domain import barrier
+from barrierlab.infrastructure import artifact_io
 from barrierlab.presentation.report_style import (
     CMAP_DIV,
     GRID,
@@ -43,25 +44,24 @@ def fig_band(ws, out: Path) -> Path | None:
     if not ws.composition_array_path.exists() or ws.demonstration_date is None:
         return None
 
-    with np.load(ws.composition_array_path, allow_pickle=False) as artifact:
-        needed = (
-            "demonstration_probability",
-            "demonstration_as_of",
-            "current_Δ",
-            "current_horizon",
-            "current_node_ids",
-        )
-        if any(key not in artifact for key in needed):
-            return None
-        current_surface = artifact["demonstration_probability"].astype(float)
-        as_of = str(np.asarray(artifact["demonstration_as_of"]).item())
-        th = artifact["current_Δ"].astype(float)
-        ts = artifact["current_horizon"].astype(int)
-        n_nodes = len(artifact["current_node_ids"])
-        fallback_cells = int(np.asarray(
-            artifact["demonstration_ridge_fallback_cells"]
-            if "demonstration_ridge_fallback_cells" in artifact else 0
-        ).item())
+    artifact = artifact_io.load_composition(ws.composition_array_path)
+    needed = (
+        "demonstration_probability",
+        "demonstration_as_of",
+        "current_Δ",
+        "current_horizon",
+        "current_node_ids",
+    )
+    if any(key not in artifact for key in needed):
+        return None
+    current_surface = artifact["demonstration_probability"].astype(float)
+    as_of = str(np.asarray(artifact["demonstration_as_of"]).item())
+    th = artifact["current_Δ"].astype(float)
+    ts = artifact["current_horizon"].astype(int)
+    n_nodes = len(artifact["current_node_ids"])
+    fallback_cells = int(np.asarray(
+        artifact.get("demonstration_ridge_fallback_cells", 0)
+    ).item())
 
     if current_surface.shape != (len(th), len(ts)) or not as_of:
         return None
@@ -71,7 +71,7 @@ def fig_band(ws, out: Path) -> Path | None:
             f"{as_of}, expected {ws.demonstration_date}; run composition again"
         )
 
-    cube = shift.load(ws.shift_cube_path("_base", "baseline"))
+    cube = artifact_io.load_shift(ws.shift_cube_path("_base", "baseline"))
     if "index" not in cube or "close" not in cube:
         return None
     idx = pd.to_datetime(cube["index"])
@@ -159,7 +159,7 @@ def fig_band(ws, out: Path) -> Path | None:
 
 def _render_shift(ws, head: dict, out_path: Path) -> Path | None:
     """Render one cleared node's strongest bin as a deviation from the baseline."""
-    cube = shift.load(ws.shift_cube_path(head['family'], head['id']))
+    cube = artifact_io.load_shift(ws.shift_cube_path(head['family'], head['id']))
     b = int(head['cell']['bin'])
 
     th, ts = cube['Δs'], cube['horizons']
@@ -223,4 +223,3 @@ def fig_shift_all(ws, cleared, out: Path) -> list[Path]:
         if path is not None:
             paths.append(path)
     return paths
-

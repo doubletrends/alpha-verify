@@ -33,9 +33,7 @@ reference -- and correctly uses the baseline node for it.
 
 from __future__ import annotations
 
-import json
 import warnings
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -434,35 +432,6 @@ def verdict(
     return 'noise'
 
 
-# ── artifact io ───────────────────────────────────────────────────────────────
-
-def save(result: dict, path: Path, meta: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        'cell_real': result['cell_real'].astype(np.float32),
-        'cell_p': result['cell_p'].astype(np.float32),
-        'cell_p95': result['cell_p95'].astype(np.float32),
-        'sheet_peak_real': result['sheet_peak_real'].astype(np.float32),
-        'sheet_peak_p': result['sheet_peak_p'].astype(np.float64),
-        'sheet_peak_p95': result['sheet_peak_p95'].astype(np.float32),
-        'peak_real': result['peak_real'].astype(np.float32),
-        'peak_p': result['peak_p'].astype(np.float64),
-        'peak_p95': result['peak_p95'].astype(np.float32),
-        'n_shifts': result['n_shifts'],
-        'Δs': result['Δs'],
-        'horizons': result['horizons'],
-        'meta': np.array(json.dumps(meta)),
-    }
-    for key in ('node_peak_real', 'node_peak_p', 'node_peak_p95'):
-        if key in result:
-            dtype = np.float64 if key.endswith('_p') else np.float32
-            payload[key] = np.asarray(result[key], dtype=dtype)
-    for key in ('source_bin', 'source_bin_number', 'selection_rank', 'selection_score'):
-        if key in result:
-            payload[key] = result[key]
-    np.savez_compressed(path, **payload)
-
-
 def sheet_from_node_result(result: dict, row: dict) -> dict:
     """Copy one selected bin sheet out of a full node validation result."""
     b = int(row["bin"])
@@ -498,11 +467,4 @@ def sheet_from_node_result(result: dict, row: dict) -> dict:
             "selection_best_cell": row.get("best_cell"),
         },
     }
-    return out
-
-
-def load(path: Path) -> dict:
-    z = np.load(path, allow_pickle=False)
-    out = {k: z[k] for k in z.files if k != 'meta'}
-    out['meta'] = json.loads(str(z['meta']))
     return out

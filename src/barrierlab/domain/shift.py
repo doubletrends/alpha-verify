@@ -1,9 +1,6 @@
-"""Stage 2 shift artifacts: full conditional surfaces minus the baseline."""
+"""Stage 2 shift calculations: full conditional surfaces minus the baseline."""
 
 from __future__ import annotations
-
-import json
-from pathlib import Path
 
 import numpy as np
 
@@ -109,32 +106,3 @@ def evaluate(
         "per_horizon": per_t,
         "criteria": {"min_dev": min_dev, "min_bin_n": min_bin_n, "min_run": min_run},
     }
-
-
-def save(cube: dict, path: Path, meta: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "shift": cube["shift"].astype(np.float32),
-        "prob": cube["prob"].astype(np.float32),
-        "base": cube["base"].astype(np.float32),
-        "hits": cube["hits"],
-        "bin_n": cube["bin_n"],
-        "n_obs": cube["n_obs"],
-        "Δs": cube["Δs"],
-        "horizons": cube["horizons"],
-        "edges": cube["edges"],
-        "meta": np.array(json.dumps(meta)),
-    }
-    for key in ("index", "feature_values", "open", "high", "low", "close", "volume"):
-        if key in cube:
-            payload[key] = np.asarray(cube[key], dtype=str) if key == "index" else cube[key]
-    np.savez_compressed(path, **payload)
-
-
-def load(path: Path) -> dict:
-    z = np.load(path, allow_pickle=False)
-    out = {k: z[k] for k in z.files if k != "meta"}
-    for k in ("shift", "prob", "base"):
-        out[k] = out[k].astype(np.float64)
-    out["meta"] = json.loads(str(z["meta"]))
-    return out

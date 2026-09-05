@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 import numpy as np
 
 
@@ -96,19 +93,3 @@ def clusters(similarity: np.ndarray, threshold: float = 0.30) -> list[list[int]]
     for i in range(n):
         grouped.setdefault(find(i), []).append(i)
     return sorted(grouped.values(), key=lambda group: (group[0], len(group)))
-
-
-def save(path: Path, arrays: dict, meta: dict) -> None:
-    """Persist the numerical Stage 5 result without pickle-dependent objects."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {key: np.asarray(value) for key, value in arrays.items()}
-    payload["meta"] = np.array(json.dumps(meta))
-    np.savez_compressed(path, **payload)
-
-
-def load(path: Path) -> dict:
-    """Load a Stage 5 numerical artifact with its JSON metadata."""
-    with np.load(path, allow_pickle=False) as stored:
-        out = {key: stored[key] for key in stored.files if key != "meta"}
-        out["meta"] = json.loads(str(stored["meta"]))
-    return out

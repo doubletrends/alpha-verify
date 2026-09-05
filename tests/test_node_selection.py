@@ -7,12 +7,11 @@ import unittest
 import numpy as np
 
 from barrierlab.domain.selection import (
-    load_selected_node,
     rank_nodes,
-    save_selected_node,
     score_node_information,
     selected_node_from_shift_cube,
 )
+from barrierlab.infrastructure import artifact_io
 
 
 def _cube(rates: list[float]) -> dict:
@@ -75,6 +74,7 @@ class NodeInformationSelectionTests(unittest.TestCase):
 
         self.assertNotIn("economic", result["selected"][0])
         self.assertNotIn("economic", result["method"])
+        self.assertNotIn("generated", result)
 
     def test_selected_node_artifact_preserves_every_bin(self) -> None:
         cube = _cube([0.35, 0.45, 0.55, 0.65])
@@ -90,8 +90,8 @@ class NodeInformationSelectionTests(unittest.TestCase):
 
         with TemporaryDirectory() as directory:
             path = Path(directory) / "selected.npz"
-            save_selected_node(artifact, path, artifact["meta"])
-            loaded = load_selected_node(path)
+            artifact_io.save_selected_node(artifact, path, artifact["meta"])
+            loaded = artifact_io.load_selected_node(path)
 
         np.testing.assert_array_equal(loaded["shift"], cube["shift"])
         self.assertEqual(loaded["shift"].shape[1], 4)

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import shutil
 from pathlib import Path
 
 from openpyxl import load_workbook
 
-from barrierlab.domain import bayes, selection, shift
+from barrierlab.domain import bayes, selection
+from barrierlab.infrastructure import artifact_io
 from barrierlab.infrastructure.workspace import BASELINE_NODE, Workspace
 
 
@@ -34,21 +36,26 @@ def cmd_selection(ws: Workspace) -> None:
         return
 
     def load_cube(node: dict) -> dict:
-        return shift.load(ws.shift_cube_path(node["family"], node["id"]))
+        return artifact_io.load_shift(ws.shift_cube_path(node["family"], node["id"]))
 
     baseline_path = ws.shift_cube_path("_base", BASELINE_NODE)
     if not baseline_path.exists():
         print("No baseline shift array - run shift first.")
         return
-    delta, horizon = ws.composition_target(shift.load(baseline_path)["base"])
-    result = selection.rank_nodes(
-        nodes,
-        load_cube,
-        ws.selection_top_k,
-        delta,
-        horizon,
-        bayes.SHRINK_K,
-    )
+    delta, horizon = ws.composition_target(artifact_io.load_shift(baseline_path)["base"])
+    result = {
+        "generated": datetime.now(timezone.utc).isoformat(),
+        "artifact": "03_selection",
+        "source": "02_shift",
+        **selection.rank_nodes(
+            nodes,
+            load_cube,
+            ws.selection_top_k,
+            delta,
+            horizon,
+            bayes.SHRINK_K,
+        ),
+    }
     result["workspace"] = ws.dir.name
     result["families"] = sorted({n["family"] for n in nodes})
 
@@ -74,7 +81,7 @@ def cmd_selection(ws: Workspace) -> None:
                 "method": result["method"]["score"],
             },
         }
-        selection.save_selected_node(selected_node, ws.selection_array_path(row), meta)
+        artifact_io.save_selected_node(selected_node, ws.selection_array_path(row), meta)
         copied_npz += 1
 
         source_xlsx = ws.shift_surface_path(node["family"], node["id"])

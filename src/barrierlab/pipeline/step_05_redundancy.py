@@ -8,7 +8,8 @@ import json
 
 import numpy as np
 
-from barrierlab.domain import bayes, redundancy, shift
+from barrierlab.domain import bayes, redundancy
+from barrierlab.infrastructure import artifact_io
 from barrierlab.infrastructure.workspace import BASELINE_NODE, Workspace
 from barrierlab.pipeline.context import artifact_feature_panel
 from barrierlab.pipeline.step_04_validation import validation_summary_is_current
@@ -45,7 +46,7 @@ def redundancy_artifacts_are_current(
     if not ws.redundancy_array_path.exists() or not ws.redundancy_workbook_path.exists():
         return False
     try:
-        artifact = redundancy.load(ws.redundancy_array_path)
+        artifact = artifact_io.load_redundancy(ws.redundancy_array_path)
     except Exception:
         return False
     names = [str(value) for value in artifact.get("node_ids", [])]
@@ -109,7 +110,7 @@ def cmd_redundancy(ws: Workspace) -> None:
     if not baseline_path.exists():
         print("No baseline shift array - run shift first.")
         return
-    delta, horizon = ws.composition_target(shift.load(baseline_path)["base"])
+    delta, horizon = ws.composition_target(artifact_io.load_shift(baseline_path)["base"])
     try:
         data, features, families = artifact_feature_panel(ws)
     except ValueError as error:
@@ -195,7 +196,7 @@ def cmd_redundancy(ws: Workspace) -> None:
     }
     ws.write_json(ws.redundancy_path, pending)
 
-    redundancy.save(ws.redundancy_array_path, {
+    artifact_io.save_redundancy(ws.redundancy_array_path, {
         "node_ids": np.asarray(names, dtype=str),
         "families": np.asarray([families[name] for name in names], dtype=str),
         "information": relevance.astype(np.float64),
