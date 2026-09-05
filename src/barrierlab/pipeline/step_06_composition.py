@@ -6,11 +6,11 @@ import json
 from datetime import datetime, timezone
 import numpy as np
 
-from domain import bayes, shift
-from infrastructure.workspace import BASELINE_NODE, Workspace
-from pipeline.context import artifact_feature_panel
-from pipeline.step_04_validation import validation_summary_is_current
-from presentation import workbooks
+from barrierlab.domain import bayes, shift
+from barrierlab.infrastructure.workspace import BASELINE_NODE, Workspace
+from barrierlab.pipeline.context import artifact_feature_panel
+from barrierlab.pipeline.step_04_validation import validation_summary_is_current
+from barrierlab.presentation import workbooks
 
 
 def composition_targets(ws: Workspace) -> list[tuple[float, int]]:

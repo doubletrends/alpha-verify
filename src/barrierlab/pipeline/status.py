@@ -6,13 +6,13 @@ from collections import defaultdict
 
 import numpy as np
 
-from domain import shift, validation as val
-from infrastructure.workspace import Workspace
-from pipeline.step_04_validation import (
+from barrierlab.domain import shift, validation as val
+from barrierlab.infrastructure.workspace import Workspace
+from barrierlab.pipeline.step_04_validation import (
     validation_artifact_is_current,
     validation_summary_is_current,
 )
-from pipeline.step_05_redundancy import redundancy_artifacts_are_current
+from barrierlab.pipeline.step_05_redundancy import redundancy_artifacts_are_current
 
 
 def _print_node_status(ws: Workspace, node_id: str) -> None:

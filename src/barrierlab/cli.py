@@ -6,16 +6,16 @@ import argparse
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from infrastructure.artifacts import STAGE_DIRECTORIES
-from infrastructure.workspace import Workspace
-from pipeline.step_01_surface import cmd_surface
-from pipeline.step_02_shift import cmd_shift
-from pipeline.step_03_selection import cmd_selection
-from pipeline.step_04_validation import cmd_validation
-from pipeline.step_05_redundancy import cmd_redundancy
-from pipeline.step_06_composition import cmd_composition
-from pipeline.step_07_report import cmd_report
-from pipeline.status import cmd_status
+from barrierlab.infrastructure.artifacts import STAGE_DIRECTORIES
+from barrierlab.infrastructure.workspace import Workspace
+from barrierlab.pipeline.step_01_surface import cmd_surface
+from barrierlab.pipeline.step_02_shift import cmd_shift
+from barrierlab.pipeline.step_03_selection import cmd_selection
+from barrierlab.pipeline.step_04_validation import cmd_validation
+from barrierlab.pipeline.step_05_redundancy import cmd_redundancy
+from barrierlab.pipeline.step_06_composition import cmd_composition
+from barrierlab.pipeline.step_07_report import cmd_report
+from barrierlab.pipeline.status import cmd_status
 
 
 @dataclass(frozen=True)

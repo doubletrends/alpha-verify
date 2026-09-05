@@ -6,7 +6,7 @@ import unittest
 
 import numpy as np
 
-from domain.selection import (
+from barrierlab.domain.selection import (
     load_selected_node,
     rank_nodes,
     save_selected_node,

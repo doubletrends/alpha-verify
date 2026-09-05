@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from infrastructure.workspace import Workspace
-from pipeline.step_04_validation import validation_summary_is_current
+from barrierlab.infrastructure.workspace import Workspace
+from barrierlab.pipeline.step_04_validation import validation_summary_is_current
 
 
 def cmd_report(ws: Workspace) -> None:

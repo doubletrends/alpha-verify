@@ -8,9 +8,9 @@ import numpy as np
 import pandas as pd
 from openpyxl import load_workbook
 
-from domain import bayes, redundancy
-from pipeline.step_05_redundancy import validation_fingerprint
-from presentation import workbooks
+from barrierlab.domain import bayes, redundancy
+from barrierlab.pipeline.step_05_redundancy import validation_fingerprint
+from barrierlab.presentation import workbooks
 
 
 class RedundancyTests(unittest.TestCase):

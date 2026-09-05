@@ -5,12 +5,15 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from domain.features import FeatureRegistry, register_builtin_features
-from domain import barrier, shift
-from infrastructure.artifacts import feature_from_artifact, market_data_from_artifact
-from infrastructure.market_data import SourceRegistry, register_builtin_sources
-from infrastructure.workspace import BASELINE_NODE, Workspace
-from infrastructure.workspace_plugins import load_workspace_plugin
+from barrierlab.domain.features import FeatureRegistry, register_builtin_features
+from barrierlab.domain import barrier, shift
+from barrierlab.infrastructure.artifacts import (
+    feature_from_artifact,
+    market_data_from_artifact,
+)
+from barrierlab.infrastructure.market_data import SourceRegistry, register_builtin_sources
+from barrierlab.infrastructure.workspace import BASELINE_NODE, Workspace
+from barrierlab.infrastructure.workspace_plugins import load_workspace_plugin
 
 
 class RunContext:

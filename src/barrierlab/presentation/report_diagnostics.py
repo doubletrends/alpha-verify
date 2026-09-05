@@ -6,9 +6,12 @@ from pathlib import Path
 
 import numpy as np
 
-from domain import selection, validation as val
-from infrastructure.artifacts import feature_from_artifact, market_data_from_artifact
-from presentation.report_style import (
+from barrierlab.domain import selection, validation as val
+from barrierlab.infrastructure.artifacts import (
+    feature_from_artifact,
+    market_data_from_artifact,
+)
+from barrierlab.presentation.report_style import (
     INK,
     INK_2,
     S1,
@@ -20,8 +23,8 @@ from presentation.report_style import (
     save as _save,
     title as _title,
 )
-from infrastructure.workspace import BASELINE_NODE
-from presentation.workbooks import feature_label
+from barrierlab.infrastructure.workspace import BASELINE_NODE
+from barrierlab.presentation.workbooks import feature_label
 
 
 def fig_null_gap_ranking(ws, cleared, out: Path) -> Path | None:

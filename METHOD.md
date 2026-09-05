@@ -52,19 +52,20 @@ carried by each selected-node artifact because aggregate cube rates alone are in
 
 ## Implementation Boundaries
 
-`infrastructure/workspace.py` owns workspace configuration and node traversal;
-`infrastructure/workspace_plugins.py` owns plugin loading. `infrastructure/artifacts.py`
-owns artifact paths, JSON persistence, and artifact history reconstruction. `pipeline`
-owns numbered stage orchestration, `domain` owns
-numerical models and feature transforms, and `presentation` owns workbooks and figures.
+`src/barrierlab/infrastructure/workspace.py` owns workspace configuration and node
+traversal; `src/barrierlab/infrastructure/workspace_plugins.py` owns plugin loading.
+`src/barrierlab/infrastructure/artifacts.py` owns artifact paths, JSON persistence,
+and artifact history reconstruction. `src/barrierlab/pipeline` owns numbered stage
+orchestration, `src/barrierlab/domain` owns numerical models and feature transforms,
+and `src/barrierlab/presentation` owns workbooks and figures.
 Workspace plugins expose `register(sources, features)` and receive per-run registries;
 they no longer mutate process-global registries during import.
 
 ## 0. Orient
 
 ```bash
-volatility-matrix status --workspace <name>
-volatility-matrix status <node> --workspace <name>
+barrierlab status --workspace <name>
+barrierlab status <node> --workspace <name>
 ```
 
 The status table is the funnel: nodes declared, surfaces measured, shift artifacts
@@ -75,7 +76,7 @@ instead prints that node's strongest baseline-relative shift and available null 
 ## 1. Surface
 
 ```bash
-volatility-matrix surface --workspace <name>
+barrierlab surface --workspace <name>
 ```
 
 This stage computes one probability cube per node:
@@ -109,7 +110,7 @@ tab per condition bin, with barrier rows and horizon columns.
 ## 2. Shift
 
 ```bash
-volatility-matrix shift --workspace <name>
+barrierlab shift --workspace <name>
 ```
 
 The shift stage keeps the full Stage 1 grid and subtracts the baseline node from every
@@ -128,7 +129,7 @@ reached more often than baseline, blue cells mean less often.
 ## 3. Selection
 
 ```bash
-volatility-matrix selection --workspace <name>
+barrierlab selection --workspace <name>
 ```
 
 Selection ranks one *node* per predictor, rather than allowing several decile sheets
@@ -155,7 +156,7 @@ table can rank well even when no individual bin meets a product-effect threshold
 ## 4. Validation and Decision
 
 ```bash
-volatility-matrix validation --workspace <name>
+barrierlab validation --workspace <name>
 ```
 
 Validation tests every selected node against an exact circular-shift null. The workbook
@@ -253,13 +254,13 @@ compact manifest; `complete: true` certifies that both larger artifacts exist an
 the current Stage 4 validation fingerprint.
 
 ```bash
-volatility-matrix redundancy --workspace <name>
+barrierlab redundancy --workspace <name>
 ```
 
 ## 6. Compose
 
 ```bash
-volatility-matrix composition --workspace <name>
+barrierlab composition --workspace <name>
 ```
 
 Stages 1-5 evaluate one selected condition sheet at a time. Composition asks whether
@@ -329,7 +330,7 @@ blue/white/red color scale.
 ## 7. Report
 
 ```bash
-volatility-matrix report --workspace <name>
+barrierlab report --workspace <name>
 ```
 
 The report renders `workspaces/<name>/07_report/*.png`. Figures read
@@ -347,7 +348,7 @@ The main product figures show:
 
 ## Adding a Feature
 
-Register reusable feature functions in `src/domain/features.py`:
+Register reusable feature functions in `src/barrierlab/domain/features.py`:
 
 ```python
 def _my_feature(close: pd.Series, period: int) -> pd.Series:

@@ -6,8 +6,11 @@ from unittest.mock import patch
 
 import numpy as np
 
-from domain.validation import economic_filter_sheet, verdict
-from pipeline.step_04_validation import finalize_validation, validation_summary_is_current
+from barrierlab.domain.validation import economic_filter_sheet, verdict
+from barrierlab.pipeline.step_04_validation import (
+    finalize_validation,
+    validation_summary_is_current,
+)
 
 
 class _IncompleteWorkspace:
@@ -38,7 +41,10 @@ class _IncompleteWorkspace:
 class CombinedValidationTests(unittest.TestCase):
     def test_incomplete_null_set_cannot_publish_final_verdicts(self) -> None:
         workspace = _IncompleteWorkspace()
-        with patch("pipeline.step_04_validation.validation_artifact_is_current", return_value=False):
+        with patch(
+            "barrierlab.pipeline.step_04_validation.validation_artifact_is_current",
+            return_value=False,
+        ):
             complete = finalize_validation(workspace)
 
         self.assertFalse(complete)

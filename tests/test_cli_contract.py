@@ -5,8 +5,8 @@ from io import StringIO
 import unittest
 from unittest.mock import patch
 
-from cli import COMMANDS, build_parser
-from pipeline.status import cmd_status
+from barrierlab.cli import COMMANDS, build_parser
+from barrierlab.pipeline.status import cmd_status
 
 
 class CliContractTests(unittest.TestCase):
@@ -67,7 +67,9 @@ class CliContractTests(unittest.TestCase):
     def test_status_routes_a_node_to_the_detailed_view(self) -> None:
         workspace = object()
 
-        with patch("pipeline.status._print_node_status") as print_node_status:
+        with patch(
+            "barrierlab.pipeline.status._print_node_status"
+        ) as print_node_status:
             cmd_status(workspace, "vix_level")
 
         print_node_status.assert_called_once_with(workspace, "vix_level")

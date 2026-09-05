@@ -119,14 +119,14 @@ are diagnostics rather than headline claims; inspect realized rates and scored c
 ```bash
 pip install -e .
 
-volatility-matrix surface          # 1. write 01_surface arrays and workbooks
-volatility-matrix shift            # 2. write 02_shift arrays and workbooks
-volatility-matrix selection        # 3. write 03_selection artifacts
-volatility-matrix validation       # 4. exact nulls + BH/economic final verdicts
-volatility-matrix redundancy       # 5. write redundancy NPZ, XLSX, and manifest
-volatility-matrix composition      # 6. evaluate composition + write current probability sheet
-volatility-matrix report           # 7. render workspaces/nasdaq_daily/07_report
-volatility-matrix status           # inspect artifact and validation status
+barrierlab surface          # 1. write 01_surface arrays and workbooks
+barrierlab shift            # 2. write 02_shift arrays and workbooks
+barrierlab selection        # 3. write 03_selection artifacts
+barrierlab validation       # 4. exact nulls + BH/economic final verdicts
+barrierlab redundancy       # 5. write redundancy NPZ, XLSX, and manifest
+barrierlab composition      # 6. evaluate composition + write current probability sheet
+barrierlab report           # 7. render workspaces/nasdaq_daily/07_report
+barrierlab status           # inspect artifact and validation status
 ```
 
 Every command defaults to `nasdaq_daily`. Pass `--workspace btc_daily` after the command
@@ -135,7 +135,7 @@ to run the BTC comparison workspace.
 Pass a node ID to the read-only status command for a detailed shift and validation view:
 
 ```bash
-volatility-matrix status vix_level --workspace nasdaq_daily
+barrierlab status vix_level --workspace nasdaq_daily
 ```
 
 ### What Lands On Disk

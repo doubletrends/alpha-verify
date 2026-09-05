@@ -6,10 +6,13 @@ from datetime import datetime, timezone
 
 import numpy as np
 
-from domain import selection as selection_artifacts, validation as val
-from infrastructure.artifacts import feature_from_artifact, market_data_from_artifact
-from infrastructure.workspace import Workspace
-from presentation import workbooks
+from barrierlab.domain import selection as selection_artifacts, validation as val
+from barrierlab.infrastructure.artifacts import (
+    feature_from_artifact,
+    market_data_from_artifact,
+)
+from barrierlab.infrastructure.workspace import Workspace
+from barrierlab.presentation import workbooks
 
 
 def validation_artifact_is_current(ws: Workspace, row: dict) -> bool:

@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from domain import barrier, shift
-from infrastructure.workspace import BASELINE_NODE, Workspace
-from pipeline.context import baseline_surface
-from presentation import workbooks
+from barrierlab.domain import barrier, shift
+from barrierlab.infrastructure.workspace import BASELINE_NODE, Workspace
+from barrierlab.pipeline.context import baseline_surface
+from barrierlab.presentation import workbooks
 
 
 def _write_shift_array(ws: Workspace) -> None:

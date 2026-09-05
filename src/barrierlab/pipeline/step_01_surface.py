@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from domain import barrier
-from infrastructure.workspace import Workspace
-from pipeline.context import RunContext
-from presentation import workbooks
+from barrierlab.domain import barrier
+from barrierlab.infrastructure.workspace import Workspace
+from barrierlab.pipeline.context import RunContext
+from barrierlab.presentation import workbooks
 
 
 def _build_cube(context: RunContext, node: dict, quiet: bool = False) -> None:

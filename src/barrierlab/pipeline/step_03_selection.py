@@ -7,8 +7,8 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
-from domain import bayes, selection, shift
-from infrastructure.workspace import BASELINE_NODE, Workspace
+from barrierlab.domain import bayes, selection, shift
+from barrierlab.infrastructure.workspace import BASELINE_NODE, Workspace
 
 
 def _copy_selected_workbook_sheet(source: Path, target: Path, bin_index: int) -> None:

@@ -5,10 +5,13 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from infrastructure.artifacts import feature_from_artifact, market_data_from_artifact
-from infrastructure.workspace import Workspace
-from pipeline.context import RunContext
-from pipeline.step_06_composition import composition_targets
+from barrierlab.infrastructure.artifacts import (
+    feature_from_artifact,
+    market_data_from_artifact,
+)
+from barrierlab.infrastructure.workspace import Workspace
+from barrierlab.pipeline.context import RunContext
+from barrierlab.pipeline.step_06_composition import composition_targets
 
 
 class WorkspaceContractTests(unittest.TestCase):

@@ -5,11 +5,11 @@ import pandas as pd
 import yfinance as yf
 
 
-# yfinance persists timezone and cookie SQLite databases. Keep them inside the project
-# so clean pipeline runs also work in restricted environments with a read-only profile.
-_YFINANCE_CACHE = Path(__file__).resolve().parents[2] / ".yfinance-cache"
-_YFINANCE_CACHE.mkdir(parents=True, exist_ok=True)
-yf.set_tz_cache_location(str(_YFINANCE_CACHE))
+def _configure_yfinance_cache() -> None:
+    """Keep yfinance's writable databases with the current pipeline workspace."""
+    cache_path = Path.cwd() / ".yfinance-cache"
+    cache_path.mkdir(parents=True, exist_ok=True)
+    yf.set_tz_cache_location(str(cache_path))
 
 class SourceRegistry:
     """Explicit source registry and per-run market-data cache."""
@@ -50,6 +50,7 @@ def _clamp_intraday_start(start: str, interval: str) -> str:
 
 
 def _yfinance_ohlcv(ticker: str, interval: str, start: str) -> pd.DataFrame:
+    _configure_yfinance_cache()
     start = _clamp_intraday_start(start, interval)
     df = yf.download(ticker, start=start, interval=interval, auto_adjust=False, progress=False)
     if hasattr(df.columns, 'nlevels') and df.columns.nlevels > 1:

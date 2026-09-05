@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from presentation.report_diagnostics import fig_null, fig_null_gap_ranking
-from presentation.report_nodes import fig_band, fig_shift_all
+from barrierlab.presentation.report_diagnostics import fig_null, fig_null_gap_ranking
+from barrierlab.presentation.report_nodes import fig_band, fig_shift_all
 
 
 def build(ws, validation: dict) -> None:

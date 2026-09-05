@@ -8,8 +8,8 @@ import numpy as np
 import pandas as pd
 from matplotlib.colors import TwoSlopeNorm
 
-from domain import barrier, shift
-from presentation.report_style import (
+from barrierlab.domain import barrier, shift
+from barrierlab.presentation.report_style import (
     CMAP_DIV,
     GRID,
     INK,
@@ -25,7 +25,7 @@ from presentation.report_style import (
     save as _save,
     title as _title,
 )
-from presentation.workbooks import feature_label
+from barrierlab.presentation.workbooks import feature_label
 
 SHIFT_CMAP_LIMIT_PP = 30.0
 

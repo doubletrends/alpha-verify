@@ -42,7 +42,7 @@ import pandas as pd
 
 # One threshold, defined by the module that does the binning, so measurement and
 # validation partition the sample identically.
-from domain.barrier import MIN_BIN_N
+from barrierlab.domain.barrier import MIN_BIN_N
 
 # Shifts smaller than this leave the series almost aligned with itself and are not
 # honest null draws; the same applies to shifts near a full wrap.
