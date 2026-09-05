@@ -190,7 +190,7 @@ def validate_node(
     and the cube partition the sample identically.
 
     """
-    from domain import barrier
+    from barrierlab.domain import barrier
 
     t_max = int(np.max(horizons))
     mins, maxs = barrier.forward_extremes_upto(data, t_max)
@@ -257,7 +257,7 @@ def peak_shift_distribution(
 
     Returns {null, observed, p95, p_value, n_shifts, floor}.
     """
-    from domain import barrier
+    from barrierlab.domain import barrier
 
     mins, maxs = barrier.forward_extremes_upto(data, int(horizon))
     lo_t, hi_t = mins[int(horizon) - 1], maxs[int(horizon) - 1]

@@ -13,6 +13,6 @@ def cmd_report(ws: Workspace) -> None:
         print("No current complete 04_validation/validation.json - run validation first.")
         return
 
-    from presentation.report import build
+    from barrierlab.presentation.report import build
 
     build(ws, validation)

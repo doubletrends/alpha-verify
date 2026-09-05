@@ -29,6 +29,23 @@ def imported_layers(path: Path) -> set[str]:
 
 
 class ArchitectureBoundaryTests(unittest.TestCase):
+    def test_internal_imports_use_the_barrierlab_namespace(self) -> None:
+        legacy_roots = {"domain", "infrastructure", "pipeline", "presentation"}
+        violations = []
+        for path in PACKAGE_ROOT.rglob("*.py"):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom) and node.module:
+                    modules = [node.module]
+                elif isinstance(node, ast.Import):
+                    modules = [alias.name for alias in node.names]
+                else:
+                    continue
+                for module in modules:
+                    if module.split(".", 1)[0] in legacy_roots:
+                        violations.append((path, node.lineno, module))
+        self.assertEqual(violations, [])
+
     def test_infrastructure_and_presentation_are_flat_packages(self) -> None:
         for package in (
             PACKAGE_ROOT / "infrastructure",
