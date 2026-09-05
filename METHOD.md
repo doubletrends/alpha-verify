@@ -38,16 +38,16 @@ workspaces/<name>/result/ report        audience-facing figures
 
 Stages 1-4 build the measured, selected and validated surfaces and assign final
 validation verdicts. Stage 5 maps redundancy, Stage 6 is the out-of-sample composition
-check, and Stage 7 renders figures from
-stored artifacts and does not remeasure.
+check, and Stage 7 renders figures from stored artifacts. Its null figure reconstructs
+the saved null distribution from Stage 3 history but does not fetch or remeasure market data.
 
-The dependency chain is one-way: shift reads surface artifacts, selection copies each
-top-ranked node's representative-bin artifact from shift, validation reads those
-selection artifacts, validation finalizes its own global verdicts, redundancy maps the cleared nodes,
-Bayes ranks its full candidate panel within each training fold, and report reads the stored artifacts produced
-by those stages. Validation is the one exception that may
-recompute the circular-shift null from source data, because the null needs ordered
-feature alignment rather than only aggregate cube rates.
+The artifact flow is a one-way DAG rather than a strict chain. Shift reads surface
+artifacts; selection promotes each top-ranked node's complete shift cube and records its
+representative bin; validation reads only those selection artifacts. Redundancy is an
+audit branch from the validation decisions. Bayes separately reads the Stage 2 candidate
+panel and Stage 4 cleared-node decisions, then report reads the stored artifacts needed
+by each figure. Validation recomputes the circular-shift null from the ordered history
+carried by each selected-node artifact because aggregate cube rates alone are insufficient.
 
 ## Implementation Boundaries
 
@@ -141,8 +141,9 @@ rates use the same 25-pseudo-observation shrinkage as Bayes.
 
 The stage ranks all nodes globally and writes the top `selection.top_k` rows, defaulting
 to 20, to `03_selection/selection.json`. Each selected row records its highest-
-contributing **representative bin** and its effective number of contributing bins; that
-bin is copied to `03_selection/<family>/` as both an array and workbook. Stage 3
+contributing **representative bin** and its effective number of contributing bins. The
+complete selected-node cube is promoted to `03_selection/<family>/` as the computational
+artifact; its workbook retains only the representative bin as a concise view. Stage 3
 contains no economic verdict: a broad, modest
 table can rank well even when no individual bin meets a product-effect threshold.
 
@@ -195,7 +196,7 @@ discovery criterion. Validation uses `node_peak_p` for the nodes selected by
 Once every selected node has a current null artifact, validation applies a raw
 `node_peak_p <= validation.null_alpha` gate, then Benjamini-Hochberg correction across
 the selected node/horizon sweep, then intersects those results with the economic filter
-it calculated from the Stage 2 shift cube.
+it calculated from the Stage 3 selected-node cube.
 
 A selected node clears the product claim only when all three are true at one horizon:
 
@@ -386,7 +387,7 @@ enough to estimate.
 | `02_shift/<family>/<node>.npz` | `shift` | full baseline-subtracted shift cube |
 | `02_shift/<family>/<node>.xlsx` | `shift` | red/blue shift workbook |
 | `03_selection/selection.json` | `selection` | ranking index for selected nodes |
-| `03_selection/<family>/rank_*.npz` | `selection` | copied representative-bin arrays |
+| `03_selection/<family>/rank_*.npz` | `selection` | complete selected-node shift cubes |
 | `03_selection/<family>/rank_*.xlsx` | `selection` | representative-bin workbooks |
 | `04_validation/<family>/<node>.npz` | `validation` | exact null artifacts |
 | `04_validation/<family>/<node>.xlsx` | `validation` | readable validation workbook |

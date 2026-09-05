@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 
 import numpy as np
 
-from domain.selection import rank_nodes, score_node_information
+from domain.selection import (
+    load_selected_node,
+    rank_nodes,
+    save_selected_node,
+    score_node_information,
+    selected_node_from_shift_cube,
+)
 
 
 def _cube(rates: list[float]) -> dict:
@@ -16,8 +24,11 @@ def _cube(rates: list[float]) -> dict:
         "horizons": np.array([14]),
         "bin_n": np.full((n_bins, 1), 100),
         "hits": hits[None, :, None],
+        "prob": np.asarray(rates)[None, :, None],
         "base": np.array([[0.50]]),
         "shift": np.zeros((1, n_bins, 1)),
+        "n_obs": np.array([n_bins * 100]),
+        "edges": np.arange(1, n_bins, dtype=float),
         "meta": {"bin_labels": [f"bin {i + 1}" for i in range(n_bins)]},
     }
 
@@ -64,6 +75,26 @@ class NodeInformationSelectionTests(unittest.TestCase):
 
         self.assertNotIn("economic", result["selected"][0])
         self.assertNotIn("economic", result["method"])
+
+    def test_selected_node_artifact_preserves_every_bin(self) -> None:
+        cube = _cube([0.35, 0.45, 0.55, 0.65])
+        row = {"bin": 2, "rank": 1, "score": 0.02, "bin_label": "bin 3"}
+
+        artifact = selected_node_from_shift_cube(cube, row)
+
+        np.testing.assert_array_equal(artifact["shift"], cube["shift"])
+        np.testing.assert_array_equal(artifact["prob"], cube["prob"])
+        np.testing.assert_array_equal(artifact["bin_n"], cube["bin_n"])
+        self.assertEqual(int(artifact["source_bin"]), 2)
+        self.assertEqual(artifact["meta"]["bin_labels"], cube["meta"]["bin_labels"])
+
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "selected.npz"
+            save_selected_node(artifact, path, artifact["meta"])
+            loaded = load_selected_node(path)
+
+        np.testing.assert_array_equal(loaded["shift"], cube["shift"])
+        self.assertEqual(loaded["shift"].shape[1], 4)
 
 
 if __name__ == "__main__":

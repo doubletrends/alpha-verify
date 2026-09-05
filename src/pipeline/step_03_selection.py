@@ -59,9 +59,9 @@ def cmd_selection(ws: Workspace) -> None:
     for row in selected:
         node = by_id[row["node"]]
         source = load_cube(node)
-        sheet = selection.sheet_from_shift_cube(source, row)
+        selected_node = selection.selected_node_from_shift_cube(source, row)
         meta = {
-            **sheet["meta"],
+            **selected_node["meta"],
             "artifact": "03_selection",
             "source": str(ws.shift_cube_path(row["family"], row["node"]).relative_to(ws.root_dir)),
             "node": row["node"],
@@ -74,7 +74,7 @@ def cmd_selection(ws: Workspace) -> None:
                 "method": result["method"]["score"],
             },
         }
-        selection.save_sheet(sheet, ws.selection_array_path(row), meta)
+        selection.save_selected_node(selected_node, ws.selection_array_path(row), meta)
         copied_npz += 1
 
         source_xlsx = ws.shift_surface_path(node["family"], node["id"])

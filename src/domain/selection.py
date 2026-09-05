@@ -139,15 +139,17 @@ def rank_nodes(
     }
 
 
-def sheet_from_shift_cube(cube: dict, row: dict) -> dict:
-    """Copy one selected bin sheet out of a Stage 2 shift cube."""
+def selected_node_from_shift_cube(cube: dict, row: dict) -> dict:
+    """Promote a complete selected-node cube and attach its representative bin."""
     b = int(row["bin"])
+    if not 0 <= b < cube["shift"].shape[1]:
+        raise ValueError(f"representative bin {b} is outside the selected node cube")
     out = {
-        "shift": cube["shift"][:, b:b + 1, :],
-        "prob": cube["prob"][:, b:b + 1, :],
+        "shift": cube["shift"],
+        "prob": cube["prob"],
         "base": cube["base"],
-        "hits": cube["hits"][:, b:b + 1, :],
-        "bin_n": cube["bin_n"][b:b + 1, :],
+        "hits": cube["hits"],
+        "bin_n": cube["bin_n"],
         "n_obs": cube["n_obs"],
         "Δs": cube["Δs"],
         "horizons": cube["horizons"],
@@ -158,7 +160,6 @@ def sheet_from_shift_cube(cube: dict, row: dict) -> dict:
         "selection_score": np.array(float(row["score"]), dtype=np.float32),
         "meta": {
             **cube.get("meta", {}),
-            "bin_labels": [row.get("bin_label", f"bin {b + 1}")],
             "source_bin": b,
             "source_bin_number": b + 1,
             "selection_rank": int(row["rank"]),
@@ -172,8 +173,8 @@ def sheet_from_shift_cube(cube: dict, row: dict) -> dict:
     return out
 
 
-def save_sheet(cube: dict, path: Path, meta: dict) -> None:
-    """Write one selected sheet as a Stage 3 array artifact."""
+def save_selected_node(cube: dict, path: Path, meta: dict) -> None:
+    """Write one complete selected node as a Stage 3 array artifact."""
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "shift": cube["shift"].astype(np.float32),
@@ -197,11 +198,23 @@ def save_sheet(cube: dict, path: Path, meta: dict) -> None:
     np.savez_compressed(path, **payload)
 
 
-def load_sheet(path: Path) -> dict:
-    """Read one selected sheet artifact."""
+def load_selected_node(path: Path) -> dict:
+    """Read and validate one complete Stage 3 selected-node artifact."""
     z = np.load(path, allow_pickle=False)
     out = {k: z[k] for k in z.files if k != "meta"}
     for k in ("shift", "prob", "base"):
         out[k] = out[k].astype(np.float64)
     out["meta"] = json.loads(str(z["meta"]))
+    expected_bins = len(out["edges"]) + 1
+    expected_shape = (len(out["Δs"]), expected_bins, len(out["horizons"]))
+    source_bin = int(np.asarray(out.get("source_bin", -1)))
+    if (
+        out["shift"].shape != expected_shape
+        or out["prob"].shape != expected_shape
+        or out["hits"].shape != expected_shape
+        or out["bin_n"].shape != expected_shape[1:]
+        or out["base"].shape != (expected_shape[0], expected_shape[2])
+        or not 0 <= source_bin < expected_bins
+    ):
+        raise ValueError("selected-node artifact does not contain the complete bin cube")
     return out

@@ -6,25 +6,34 @@ from datetime import datetime, timezone
 
 import numpy as np
 
-from domain import shift, validation as val
+from domain import selection as selection_artifacts, validation as val
+from infrastructure.artifacts.store import feature_from_artifact, market_data_from_artifact
 from infrastructure.workspaces.workspace import Workspace
-from pipeline.context import artifact_node_feature
 from presentation import workbooks
 
 
 def validation_artifact_is_current(ws: Workspace, row: dict) -> bool:
-    """Return whether a validation array matches its selected node and shift grid."""
+    """Return whether a validation array matches its selected-node artifact."""
     if not ws.has_validation_array(row):
         return False
     try:
-        grid = shift.load(ws.shift_cube_path(row["family"], row["node"]))
+        selected_node = selection_artifacts.load_selected_node(ws.selection_array_path(row))
         existing = val.load(ws.validation_array_path(row))
     except Exception:
         return False
     return (
-        np.array_equal(existing["Δs"], grid["Δs"])
-        and np.array_equal(existing["horizons"], grid["horizons"])
-        and existing["cell_real"].shape == (grid["shift"].shape[0], 1, grid["shift"].shape[2])
+        np.array_equal(existing["Δs"], selected_node["Δs"])
+        and np.array_equal(existing["horizons"], selected_node["horizons"])
+        and existing["cell_real"].shape
+        == (selected_node["shift"].shape[0], 1, selected_node["shift"].shape[2])
+        and int(np.asarray(selected_node.get("source_bin", -1))) == int(row["bin"])
+        and int(np.asarray(selected_node.get("selection_rank", -1))) == int(row["rank"])
+        and np.isclose(
+            float(np.asarray(selected_node.get("selection_score", np.nan))),
+            float(row["score"]),
+            rtol=1e-6,
+            atol=1e-9,
+        )
         and int(np.asarray(existing.get("source_bin", -1))) == int(row["bin"])
         and int(np.asarray(existing.get("selection_rank", -1))) == int(row["rank"])
         and np.isclose(
@@ -67,21 +76,21 @@ def _economic_criteria(ws: Workspace) -> dict:
 
 def _evaluate_economics(ws: Workspace, selected: list[dict]) -> list[dict]:
     rows = []
-    for selection in selected:
-        cube = shift.load(ws.shift_cube_path(selection["family"], selection["node"]))
+    for row in selected:
+        cube = selection_artifacts.load_selected_node(ws.selection_array_path(row))
         result = val.economic_filter_sheet(
             cube,
-            int(selection["bin"]),
+            int(row["bin"]),
             ws.min_dev,
             ws.min_bin_n,
             ws.min_run,
         )
         rows.append({
-            "node": selection["node"],
-            "family": selection["family"],
-            "bin": int(selection["bin"]),
-            "bin_number": int(selection["bin"]) + 1,
-            "bin_label": selection.get("bin_label"),
+            "node": row["node"],
+            "family": row["family"],
+            "bin": int(row["bin"]),
+            "bin_number": int(row["bin"]) + 1,
+            "bin_label": row.get("bin_label"),
             **result,
         })
     return rows
@@ -343,10 +352,7 @@ def cmd_validation(ws: Workspace) -> None:
         print("No 03_selection artifacts - run selection first.")
         return
     nodes = {node["id"]: node for node in ws.catalog.all_nodes()}
-    rows = [
-        row for row in rows
-        if row["node"] in nodes and ws.has_shift_cube(row["family"], row["node"])
-    ]
+    rows = [row for row in rows if row["node"] in nodes]
     deltas, horizons = ws.deltas, ws.horizons
     print(f"\n=== 4. 04_validation [{ws.dir.name}] - {len(rows)} selected nodes ===")
     print(
@@ -359,22 +365,25 @@ def cmd_validation(ws: Workspace) -> None:
 
     array_count = 0
     workbook_count = 0
-    node_cache: dict[str, dict] = {}
-    result_cache: dict[str, dict] = {}
     for row in rows:
         node = nodes[row["node"]]
         try:
-            if node["id"] not in node_cache:
-                node_cache[node["id"]] = shift.load(
-                    ws.shift_cube_path(node["family"], node["id"])
-                )
-            cube = node_cache[node["id"]]
-            if node["id"] not in result_cache:
-                data, feature = artifact_node_feature(cube, ws.min_obs)
-                result_cache[node["id"]] = val.validate_node(
-                    data, feature, cube["horizons"], cube["Δs"], cube["edges"]
-                )
-            result = val.sheet_from_node_result(result_cache[node["id"]], row)
+            selected_node = selection_artifacts.load_selected_node(
+                ws.selection_array_path(row)
+            )
+            data = market_data_from_artifact(selected_node)
+            feature = feature_from_artifact(selected_node, data.index)
+            n_valid = int(feature.notna().sum())
+            if n_valid < ws.min_obs:
+                raise ValueError(f"only {n_valid} valid observations")
+            node_result = val.validate_node(
+                data,
+                feature,
+                selected_node["horizons"],
+                selected_node["Δs"],
+                selected_node["edges"],
+            )
+            result = val.sheet_from_node_result(node_result, row)
             val.save(result, ws.validation_array_path(row), {
                 "node": node["id"],
                 "family": node["family"],

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
-from domain import selection, shift, validation as val
+from domain import selection, validation as val
 from infrastructure.artifacts.store import feature_from_artifact, market_data_from_artifact
 from presentation.reports.style import (
     INK,
@@ -96,14 +96,9 @@ def _null_distribution_for_gate_row(ws, gate_row: dict) -> dict | None:
     sel = ws.read_json(ws.selection_path).get('selected', [])
     row = next((x for x in sel
                 if x.get('node') == gate_row['node'] and int(x.get('bin', -1)) == b), None)
-    artifact = None
-    if row and ws.has_selection_array(row):
-        artifact = selection.load_sheet(ws.selection_array_path(row))
-    elif ws.shift_cube_path(gate_row['family'], gate_row['node']).exists():
-        artifact = shift.load(ws.shift_cube_path(gate_row['family'], gate_row['node']))
-
-    if artifact is None:
+    if not row or not ws.has_selection_array(row):
         return None
+    artifact = selection.load_selected_node(ws.selection_array_path(row))
     try:
         data = market_data_from_artifact(artifact)
         feat = feature_from_artifact(artifact, data.index)
@@ -196,7 +191,7 @@ def fig_null(ws, universe, cleared, out: Path) -> Path | None:
            f'the blue tick is the strongest observed sheet peak.')
     _note(fig, f'A shift keeps the feature\'s autocorrelation and destroys only its '
                f'alignment with the future · histogram recomputed in Stage 7 from saved '
-               f'03_selection / 02_shift histories · {n_shifts:,} pooled '
+               f'03_selection histories · {n_shifts:,} pooled '
                f'usable shifts across {len(dists)} cleared sheets · strongest observed '
                f'p = {float(strongest["p_value"]):.2g}, per-sheet floor '
                f'{float(np.nanmin(floors)):.2g}')

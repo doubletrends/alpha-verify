@@ -43,19 +43,6 @@ class RunContext:
         return data, feat
 
 
-def artifact_node_feature(cube: dict, min_obs: int | None = None) -> tuple[pd.DataFrame, pd.Series]:
-    """Reconstruct ``(data, feature)`` from a Stage 2 shift artifact."""
-    try:
-        data = market_data_from_artifact(cube)
-        feat = feature_from_artifact(cube, data.index)
-    except ValueError as error:
-        raise ValueError(f"{error} - run surface and shift again") from error
-    n_valid = int(feat.notna().sum())
-    if min_obs is not None and n_valid < min_obs:
-        raise ValueError(f"only {n_valid} valid observations")
-    return data, feat
-
-
 def baseline_surface(ws: Workspace) -> np.ndarray | None:
     """The full baseline node's unconditional probability surface, shaped ``Δ x horizon``."""
     path = ws.baseline_cube

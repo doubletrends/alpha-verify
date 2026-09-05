@@ -151,7 +151,7 @@ workspaces/<name>/
   02_shift/<family>/<node>.npz            compute  full baseline-subtracted shift cube
   02_shift/<family>/<node>.xlsx           view     red/blue shift workbook
   03_selection/selection.json             compute  ranking index for selected nodes
-  03_selection/<family>/rank_*.npz        compute  copied selected shift sheet arrays
+  03_selection/<family>/rank_*.npz        compute  complete selected-node shift cubes
   03_selection/<family>/rank_*.xlsx       view     selected shift sheet workbook
   04_validation/<family>/<node>.npz       compute  exact shuffled null
   04_validation/<family>/<node>.xlsx      view     readable validation sheet

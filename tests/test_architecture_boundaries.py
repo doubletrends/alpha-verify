@@ -30,6 +30,11 @@ class ArchitectureBoundaryTests(unittest.TestCase):
         for path in (ROOT / "presentation").rglob("*.py"):
             self.assertFalse(imported_roots(path) & forbidden, path)
 
+    def test_validation_consumes_selected_artifacts_not_shift_artifacts(self) -> None:
+        source = (ROOT / "pipeline" / "step_04_validation.py").read_text(encoding="utf-8")
+        self.assertIn("selection_array_path", source)
+        self.assertNotIn("shift_cube_path", source)
+
 
 if __name__ == "__main__":
     unittest.main()
