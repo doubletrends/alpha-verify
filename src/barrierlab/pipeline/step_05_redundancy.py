@@ -7,16 +7,69 @@ import hashlib
 import json
 
 import numpy as np
+import pandas as pd
 
 from barrierlab.domain import bayes, redundancy
 from barrierlab.infrastructure import artifact_io
-from barrierlab.infrastructure.workspace import BASELINE_NODE, Workspace
-from barrierlab.pipeline.context import artifact_feature_panel
+from barrierlab.infrastructure.workspace import Workspace
 from barrierlab.pipeline.step_04_validation import validation_summary_is_current
 from barrierlab.presentation import workbooks
 
 
 REDUNDANCY_THRESHOLD = 0.30
+
+
+def validated_feature_panel(ws: Workspace, validation: dict) -> tuple[pd.DataFrame, dict, dict, dict]:
+    """Rebuild Stage 5 inputs exclusively from Stage 4's carried-forward bundle."""
+    if not ws.validated_bundle_path.exists():
+        raise ValueError("missing validated bundle - run validation first")
+    bundle = artifact_io.load_validated_bundle(ws.validated_bundle_path)
+    if bundle.get("meta", {}).get("selection_fingerprint") != validation.get("selection_fingerprint"):
+        raise ValueError("validated bundle does not match validation summary - run validation first")
+    required = {"index", "high", "low", "close", "base", "Δs", "horizons", "node_ids", "families"}
+    if required - set(bundle):
+        raise ValueError("validated bundle is incomplete - run validation first")
+    data = pd.DataFrame({
+        "high": bundle["high"].astype(float),
+        "low": bundle["low"].astype(float),
+        "close": bundle["close"].astype(float),
+    }, index=pd.to_datetime(bundle["index"]))
+    ids = [str(value) for value in bundle["node_ids"]]
+    families = {node_id: str(bundle["families"][index]) for index, node_id in enumerate(ids)}
+    features = {
+        node_id: pd.Series(bundle[f"feature_{index}"].astype(float), index=data.index)
+        for index, node_id in enumerate(ids)
+        if f"feature_{index}" in bundle
+    }
+    return data, features, families, bundle
+
+
+def fold_representative_plan(
+    data: pd.DataFrame, features: dict, names: list[str], delta: float,
+    horizon: int, n_bins: int, folds: int,
+) -> list[list[str]]:
+    """Choose one redundancy-cluster representative per Stage 6 training fold."""
+    X = np.vstack([features[name].to_numpy(float) for name in names])
+    y_all = bayes.touch_label(data, delta, horizon)
+    ok = np.isfinite(y_all) & np.isfinite(X).all(axis=0)
+    X, y_all = X[:, ok], y_all[ok].astype(int)
+    bounds = np.linspace(int(len(y_all) * 0.5), len(y_all), folds + 1).astype(int)
+    cuts = np.linspace(0, 1, n_bins + 1)[1:-1]
+    plans: list[list[str]] = []
+    for fold in range(folds):
+        train_end = int(bounds[fold]) - horizon
+        if train_end < 200:
+            raise ValueError("not enough training history for Stage 6 representative plan")
+        X_train, y_train = X[:, :train_end], y_all[:train_end]
+        edges = [np.unique(np.quantile(X_train[index], cuts)) for index in range(len(names))]
+        bins = np.vstack([
+            np.searchsorted(edges[index], X_train[index]) for index in range(len(names))
+        ])
+        model = bayes.fit(y_train, bins, np.array([len(edge) + 1 for edge in edges]))
+        relevance = bayes.information_scores(model, bins, np.array([len(edge) + 1 for edge in edges]))
+        groups = redundancy.clusters(redundancy.conditional_nmi_matrix(bins, y_train), REDUNDANCY_THRESHOLD)
+        plans.append(sorted(names[max(group, key=lambda index: relevance[index])] for group in groups))
+    return plans
 
 
 def validation_fingerprint(validation: dict) -> str:
@@ -106,16 +159,12 @@ def cmd_redundancy(ws: Workspace) -> None:
         print("No cleared nodes - run validation first.")
         return
 
-    baseline_path = ws.shift_cube_path("_base", BASELINE_NODE)
-    if not baseline_path.exists():
-        print("No baseline shift array - run shift first.")
-        return
-    delta, horizon = ws.composition_target(artifact_io.load_shift(baseline_path)["base"])
     try:
-        data, features, families = artifact_feature_panel(ws)
+        data, features, families, bundle = validated_feature_panel(ws, validation)
     except ValueError as error:
-        print(f"Cannot build redundancy map: {error}")
+        print(f"Cannot build Stage 5 handoff: {error}")
         return
+    delta, horizon = ws.composition_target(bundle["base"])
 
     names = [name for name in features if name in node_ids]
     if len(names) < 2:
@@ -135,6 +184,14 @@ def cmd_redundancy(ws: Workspace) -> None:
     groups = redundancy.clusters(similarity, REDUNDANCY_THRESHOLD)
     cluster_rows, cluster_ids, representatives, representative_indices = _cluster_rows(
         groups, names, families, relevance, similarity
+    )
+    representative_names = [names[index] for index in representative_indices]
+    fold_plans = fold_representative_plan(
+        data, features, names, delta, horizon, ws.n_bins, ws.composition_folds
+    )
+    current = bayes.current_weighted_forecast(
+        data, {name: features[name] for name in representative_names}, delta, horizon,
+        n_bins=ws.n_bins, top_k=None, equal_weight=True,
     )
 
     pairs = [
@@ -209,7 +266,35 @@ def cmd_redundancy(ws: Workspace) -> None:
         "threshold": np.array(REDUNDANCY_THRESHOLD, dtype=np.float64),
         "n_observations": np.array(len(y), dtype=np.int64),
         "outcome_rate": np.array(y.mean(), dtype=np.float64),
+        "representative_node_ids": np.asarray(representative_names, dtype=str),
     }, meta)
+    composition_arrays = {
+        "index": np.asarray(data.index.astype(str), dtype=str),
+        "high": data["high"].to_numpy(float),
+        "low": data["low"].to_numpy(float),
+        "close": data["close"].to_numpy(float),
+        "base": np.asarray(bundle["base"], dtype=float),
+        "Δs": np.asarray(bundle["Δs"], dtype=float),
+        "horizons": np.asarray(bundle["horizons"], dtype=int),
+        "node_ids": np.asarray(names, dtype=str),
+        "families": np.asarray([families[name] for name in names], dtype=str),
+        "representative_node_ids": np.asarray(representative_names, dtype=str),
+        "fold_representatives_json": np.asarray(json.dumps(fold_plans, separators=(",", ":"))),
+        "validation_json": np.asarray(json.dumps(validation, separators=(",", ":"))),
+    }
+    selected_ids = [str(value) for value in bundle["node_ids"]]
+    selected_indexes = {name: index for index, name in enumerate(selected_ids)}
+    for index, name in enumerate(names):
+        source_index = selected_indexes[name]
+        composition_arrays[f"feature_{index}"] = features[name].to_numpy(float)
+        composition_arrays[f"shift_{index}"] = np.asarray(bundle[f"shift_{source_index}"], dtype=float)
+        composition_arrays[f"edges_{index}"] = np.asarray(bundle[f"edges_{source_index}"], dtype=float)
+    artifact_io.save_composition_inputs(ws.composition_inputs_path, composition_arrays, {
+        **meta,
+        "artifact": "05_redundancy/composition_inputs",
+        "source_validation_fingerprint": source_fingerprint,
+        "weight_target": {"Δ": delta, "horizon": horizon, "unit": ws.horizon_unit},
+    })
     try:
         workbooks.write_redundancy_xlsx(
             ws.redundancy_workbook_path,
@@ -240,6 +325,14 @@ def cmd_redundancy(ws: Workspace) -> None:
             "n_observations": len(y),
             "outcome_rate": float(y.mean()),
         },
+        "equal_weight_bayes": {
+            "target": {"Δ": delta, "horizon": horizon, "unit": ws.horizon_unit},
+            "as_of": current["as_of"],
+            "representatives": representative_names,
+            "fold_representatives": fold_plans,
+            "node_weight": 1.0,
+            "note": "every retained representative contributes one equal Naive-Bayes log-odds term",
+        },
         "nodes": node_rows,
         "clusters": cluster_rows,
     }
@@ -251,5 +344,6 @@ def cmd_redundancy(ws: Workspace) -> None:
         members = ", ".join(group["members"])
         print(f"  {group['cluster']:>2}. {group['representative']:<26} {members}")
     print(f"\n  wrote {ws.redundancy_array_path.relative_to(ws.root_dir)}")
+    print(f"  wrote {ws.composition_inputs_path.relative_to(ws.root_dir)}")
     print(f"  wrote {ws.redundancy_workbook_path.relative_to(ws.root_dir)}")
     print(f"  wrote {ws.redundancy_path.relative_to(ws.root_dir)}")

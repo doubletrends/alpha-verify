@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 import numpy as np
@@ -30,7 +31,6 @@ class WorkspaceConfig:
     composition_delta: float | None
     composition_horizon: int | None
     composition_folds: int
-    demonstration_date: str | None
     selection_top_k: int
     null_alpha: float
     min_dev: float
@@ -43,7 +43,6 @@ class WorkspaceConfig:
         horizons = meta.get("horizons", {})
         barriers = meta.get("Delta", meta.get("\u0394", {}))
         composition = meta.get("composition", {})
-        report = meta.get("report", {})
         selection = meta.get("selection", {})
         validation = meta.get("validation", {})
         evaluate = meta.get("evaluate", {})
@@ -67,10 +66,6 @@ class WorkspaceConfig:
                 else int(composition["horizon"])
             ),
             composition_folds=int(composition.get("folds", 5)),
-            demonstration_date=(
-                None if report.get("demonstration_date") is None
-                else str(report["demonstration_date"])
-            ),
             selection_top_k=int(selection.get("top_k", 20)),
             null_alpha=float(validation.get("null_alpha", 0.01)),
             min_dev=float(evaluate.get("min_dev", 10.0)),
@@ -178,8 +173,13 @@ class Workspace:
         return self.config.composition_folds
 
     @property
-    def demonstration_date(self) -> str | None:
-        return self.config.demonstration_date
+    def report_as_of(self) -> str:
+        """Today's requested cutoff for the report's probability band.
+
+        The underlying market history resolves a non-trading day to its most recent
+        available bar, and Stage 6 saves that resolved date with the fitted surface.
+        """
+        return date.today().isoformat()
 
     @property
     def selection_top_k(self) -> int:
@@ -210,12 +210,20 @@ class Workspace:
         return self.artifacts.validation_summary_path
 
     @property
+    def validated_bundle_path(self) -> Path:
+        return self.artifacts.validated_bundle_path
+
+    @property
     def redundancy_path(self) -> Path:
         return self.artifacts.redundancy_path
 
     @property
     def redundancy_array_path(self) -> Path:
         return self.artifacts.redundancy_array_path
+
+    @property
+    def composition_inputs_path(self) -> Path:
+        return self.artifacts.composition_inputs_path
 
     @property
     def redundancy_workbook_path(self) -> Path:

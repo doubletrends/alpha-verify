@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 import unittest
 
 import numpy as np
@@ -26,8 +27,8 @@ class WorkspaceContractTests(unittest.TestCase):
         self.assertEqual(self.workspace.composition_delta, -0.07)
         self.assertEqual(self.workspace.composition_horizon, 30)
         self.assertEqual(self.workspace.composition_folds, 5)
-        self.assertEqual(self.workspace.demonstration_date, "2025-03-28")
-        self.assertEqual(Workspace("btc_daily").demonstration_date, "2021-07-07")
+        self.assertEqual(self.workspace.report_as_of, date.today().isoformat())
+        self.assertEqual(Workspace("btc_daily").report_as_of, date.today().isoformat())
 
     def test_composition_targets_cover_the_real_grid(self) -> None:
         targets = composition_targets(self.workspace)

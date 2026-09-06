@@ -72,12 +72,20 @@ class ArtifactPaths:
         return self.stage_dir("validation") / "validation.json"
 
     @property
+    def validated_bundle_path(self) -> Path:
+        return self.stage_dir("validation") / "validated.npz"
+
+    @property
     def redundancy_path(self) -> Path:
         return self.stage_dir("redundancy") / "redundancy.json"
 
     @property
     def redundancy_array_path(self) -> Path:
         return self.stage_dir("redundancy") / "redundancy.npz"
+
+    @property
+    def composition_inputs_path(self) -> Path:
+        return self.stage_dir("redundancy") / "composition_inputs.npz"
 
     @property
     def redundancy_workbook_path(self) -> Path:

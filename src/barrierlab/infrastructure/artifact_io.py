@@ -182,6 +182,17 @@ def load_validation(path: Path) -> dict:
     return _read_npz(path)
 
 
+def save_validated_bundle(path: Path, arrays: dict, meta: dict) -> None:
+    """Write the Stage 4 handoff consumed exclusively by Stage 5."""
+    payload = {key: np.asarray(value) for key, value in arrays.items()}
+    _write_npz(path, payload, meta)
+
+
+def load_validated_bundle(path: Path) -> dict:
+    """Load the self-contained selected-node evidence from Stage 4."""
+    return _read_npz(path)
+
+
 def save_redundancy(path: Path, arrays: dict, meta: dict) -> None:
     """Write the numerical Stage 5 redundancy artifact."""
     payload = {key: np.asarray(value) for key, value in arrays.items()}
@@ -190,6 +201,17 @@ def save_redundancy(path: Path, arrays: dict, meta: dict) -> None:
 
 def load_redundancy(path: Path) -> dict:
     """Load the numerical Stage 5 redundancy artifact."""
+    return _read_npz(path)
+
+
+def save_composition_inputs(path: Path, arrays: dict, meta: dict) -> None:
+    """Write Stage 5's weighted-composition handoff for Stage 6."""
+    payload = {key: np.asarray(value) for key, value in arrays.items()}
+    _write_npz(path, payload, meta)
+
+
+def load_composition_inputs(path: Path) -> dict:
+    """Load the Stage 5 handoff; Stage 6 must not reopen older stages."""
     return _read_npz(path)
 
 

@@ -32,9 +32,6 @@
       "Δ": -0.07,
       "horizon": 30,
       "folds": 5
-    },
-    "report": {
-      "demonstration_date": "2025-03-28"
     }
   },
   "families": {

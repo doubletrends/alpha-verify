@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 from barrierlab.infrastructure.workspace import Workspace
-from barrierlab.pipeline.step_04_validation import validation_summary_is_current
 
 
 def cmd_report(ws: Workspace) -> None:
     """Stage 7: render the audience-facing figures from the artifacts on disk."""
-    validation = ws.read_json(ws.validation_summary_path)
-    if not validation_summary_is_current(ws, validation):
-        print("No current complete 04_validation/validation.json - run validation first.")
+    summary = ws.read_json(ws.composition_summary_path)
+    validation = summary.get("report_validation")
+    if not summary or not isinstance(validation, dict) or not validation.get("complete"):
+        print("No complete Stage 6 report bundle - run composition first.")
         return
 
     from barrierlab.presentation.report import build

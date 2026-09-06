@@ -39,9 +39,9 @@ def fig_band(ws, out: Path) -> Path | None:
     around -- *how far does price get, at what odds* -- and hung off the last close of a
     real price series, it becomes the thing the measurement was always about: a forward
     envelope, drawn on the chart it belongs to. Stage 6 fits this complete face using only
-    outcomes completed by the configured demonstration date; Stage 7 only renders it.
+    outcomes completed by today's requested report date; Stage 7 only renders it.
     """
-    if not ws.composition_array_path.exists() or ws.demonstration_date is None:
+    if not ws.composition_array_path.exists():
         return None
 
     artifact = artifact_io.load_composition(ws.composition_array_path)
@@ -59,23 +59,13 @@ def fig_band(ws, out: Path) -> Path | None:
     th = artifact["current_Δ"].astype(float)
     ts = artifact["current_horizon"].astype(int)
     n_nodes = len(artifact["current_node_ids"])
-    fallback_cells = int(np.asarray(
-        artifact.get("demonstration_ridge_fallback_cells", 0)
-    ).item())
 
     if current_surface.shape != (len(th), len(ts)) or not as_of:
         return None
-    if as_of != ws.demonstration_date:
-        raise ValueError(
-            "Bayes demonstration is "
-            f"{as_of}, expected {ws.demonstration_date}; run composition again"
-        )
-
-    cube = artifact_io.load_shift(ws.shift_cube_path("_base", "baseline"))
-    if "index" not in cube or "close" not in cube:
+    if "report_index" not in artifact or "report_close" not in artifact:
         return None
-    idx = pd.to_datetime(cube["index"])
-    price = pd.Series(cube["close"].astype(float), index=idx).dropna()
+    idx = pd.to_datetime(artifact["report_index"])
+    price = pd.Series(artifact["report_close"].astype(float), index=idx).dropna()
     matches = np.flatnonzero(price.index == pd.Timestamp(as_of))
     if not len(matches):
         return None
@@ -151,15 +141,15 @@ def fig_band(ws, out: Path) -> Path | None:
            f'after the model cutoff.')
     _note(fig, f'{ws.asset["ticker"]} · +1..+{int(ts[j])}{ws.horizon_unit} · model fit '
                f'only with outcomes completed by {as_of} · coherent surface from '
-               f'06_composition/composition.npz · {fallback_cells}/{current_surface.size} '
-               f'sparse cells use their historical prior · demonstration date selected retrospectively')
+               f'06_composition/composition.npz · one Stage 5 redundancy-cluster '
+               f'representative per group, equal Naive-Bayes contribution · as-of date is the latest '
+               f'available bar for today\'s report run')
     fig.subplots_adjust(top=0.78, right=0.78, bottom=0.10)
     return _save(fig, out / 'A_band.png')
 
 
-def _render_shift(ws, head: dict, out_path: Path) -> Path | None:
+def _render_shift(ws, head: dict, cube: dict, out_path: Path) -> Path | None:
     """Render one cleared node's strongest bin as a deviation from the baseline."""
-    cube = artifact_io.load_shift(ws.shift_cube_path(head['family'], head['id']))
     b = int(head['cell']['bin'])
 
     th, ts = cube['Δs'], cube['horizons']
@@ -194,15 +184,15 @@ def _render_shift(ws, head: dict, out_path: Path) -> Path | None:
     for side in ('top', 'right', 'left', 'bottom'):
         ax.spines[side].set_visible(False)
 
-    condition = cube["meta"]["bin_labels"][b].replace("x", feature_label(head["id"]))
+    condition = str(head["gate"].get("bin_label", "x")).replace("x", feature_label(head["id"]))
     _title(fig, f'Chance deviates by {abs(cell["dev"]):.1f} pp, when {condition}',
            f'This is the conditional surface minus the baseline. Red means the barrier '
            f'is reached more often than usual; blue means less. The ring is the '
            f'strongest actionable cell.')
-    _note(fig, f'{cube["meta"]["bin_labels"][b]} · ring at +{cell["horizon"]}'
+    _note(fig, f'{head["gate"].get("bin_label", "selected bin")} · ring at +{cell["horizon"]}'
                f'{ws.horizon_unit}, q = {head["gate"]["q_value"]:.2g} after '
                f'Benjamini-Hochberg · bin holds {cell["bin_n"]} bars · '
-               f'02_shift/{head["family"]}/{head["id"]}.npz')
+               f'06_composition/composition.npz report bundle')
     fig.subplots_adjust(top=0.80)
     return _save(fig, out_path)
 
@@ -210,14 +200,22 @@ def _render_shift(ws, head: dict, out_path: Path) -> Path | None:
 def fig_shift_all(ws, cleared, out: Path) -> list[Path]:
     """Render one conditional-shift figure for every node that cleared all three filters."""
     paths: list[Path] = []
+    artifact = artifact_io.load_composition(ws.composition_array_path)
+    ids = [str(value) for value in artifact.get("report_node_ids", [])]
     for row in cleared.get('cleared', []):
         if not row.get('best_cell'):
             continue
         try:
             node = ws.catalog.find(row['node'])
+            index = ids.index(node["id"])
+            cube = {
+                "Δs": artifact["current_Δ"],
+                "horizons": artifact["current_horizon"],
+                "shift": artifact[f"report_shift_{index}"],
+            }
             head = {**node, 'cell': row['best_cell'], 'gate': row}
             suffix = f'{node["id"]}_bin{int(row.get("bin_number", row["best_cell"]["bin"] + 1))}'
-            path = _render_shift(ws, head, out / f'C_shift_{suffix}.png')
+            path = _render_shift(ws, head, cube, out / f'C_shift_{suffix}.png')
         except Exception:
             continue
         if path is not None:

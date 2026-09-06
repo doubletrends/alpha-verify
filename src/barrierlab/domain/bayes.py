@@ -252,6 +252,7 @@ def current_weighted_forecast(
     n_bins: int = 10,
     top_k: int | None = None,
     as_of: str | pd.Timestamp | None = None,
+    equal_weight: bool = False,
 ) -> dict:
     """Fit on completed outcomes and forecast one joint feature state.
 
@@ -296,17 +297,25 @@ def current_weighted_forecast(
     selected = np.zeros(len(names), dtype=bool)
     selected[order[:n_top]] = True
 
-    contributions, labels = cross_fitted_contributions(
-        y_train, X_train, selected, horizon, n_bins
-    )
-    if len(labels) >= 40 and len(np.unique(labels)) == 2:
-        weighted_model, ridge = choose_weighted_ridge(contributions, labels)
-    else:
+    if equal_weight:
         weighted_model = {
             "intercept": model["logit_prior"],
             "weights": np.ones(int(selected.sum()), dtype=float),
         }
         ridge = None
+        labels = np.empty(0, dtype=int)
+    else:
+        contributions, labels = cross_fitted_contributions(
+            y_train, X_train, selected, horizon, n_bins
+        )
+        if len(labels) >= 40 and len(np.unique(labels)) == 2:
+            weighted_model, ridge = choose_weighted_ridge(contributions, labels)
+        else:
+            weighted_model = {
+                "intercept": model["logit_prior"],
+                "weights": np.ones(int(selected.sum()), dtype=float),
+            }
+            ridge = None
 
     current_bins = np.array([
         np.searchsorted(edges[index], X_all[index, current_index])
@@ -344,6 +353,7 @@ def current_weighted_surface(
     top_k: int | None = None,
     as_of: str | pd.Timestamp | None = None,
     ridge_fallback: str = "model",
+    equal_weight: bool = False,
 ) -> dict:
     """Fit the complete coherent Bayes face for one latest or historical feature state."""
     if ridge_fallback not in {"model", "prior"}:
@@ -365,6 +375,7 @@ def current_weighted_surface(
                 n_bins=n_bins,
                 top_k=top_k,
                 as_of=as_of,
+                equal_weight=equal_weight,
             )
             raw[delta_index, horizon_index] = (
                 forecast["prior"]
@@ -574,6 +585,7 @@ def walk_forward(
     start_frac: float = 0.5,
     top_k:      int | None = None,
     weighted:   bool = False,
+    kept_names_by_fold: list[list[str]] | None = None,
 ) -> dict:
     """
     Expanding-window walk forward over `folds` test blocks covering the last
@@ -632,18 +644,22 @@ def walk_forward(
         # rewards broad, modest gradients as their bin-level evidence accumulates, while
         # weighting a sharp regime by the share of bars on which it can help.
         information = information_scores(model, b_tr, nb)
-        n_top = len(names) if top_k is None else min(int(top_k), len(names))
-        order = np.argsort(-information, kind='stable')
-        selected = np.zeros(len(names), dtype=bool)
-        selected[order[:n_top]] = True
+        if kept_names_by_fold is not None:
+            keep_names = set(kept_names_by_fold[f])
+            selected = np.array([name in keep_names for name in names], dtype=bool)
+            keep = selected.copy()
+        else:
+            n_top = len(names) if top_k is None else min(int(top_k), len(names))
+            order = np.argsort(-information, kind='stable')
+            selected = np.zeros(len(names), dtype=bool)
+            selected[order[:n_top]] = True
+            # Family de-duplication is also fit strictly on this fold's training window.
+            keep = np.zeros(len(names), dtype=bool)
+            for family in sorted(set(fam)):
+                members = [i for i in range(len(names)) if selected[i] and fam[i] == family]
+                if members:
+                    keep[max(members, key=lambda i: information[i])] = True
         selected_per_fold.append(sorted(names[i] for i in np.flatnonzero(selected)))
-
-        # Family de-duplication is also fit strictly on this fold's training window.
-        keep = np.zeros(len(names), dtype=bool)
-        for family in sorted(set(fam)):
-            members = [i for i in range(len(names)) if selected[i] and fam[i] == family]
-            if members:
-                keep[max(members, key=lambda i: information[i])] = True
         kept_per_fold.append(sorted(names[i] for i in np.flatnonzero(keep)))
 
         # the scale correction is fit on the training window too, so it sees no more

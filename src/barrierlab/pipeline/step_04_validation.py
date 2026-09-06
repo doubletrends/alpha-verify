@@ -69,6 +69,42 @@ def selection_fingerprint(selected: list[dict]) -> list[dict]:
     ]
 
 
+def write_validated_bundle(ws: Workspace, selected: list[dict], summary: dict) -> None:
+    """Carry the selected-node evidence forward as Stage 4's single handoff.
+
+    Stage 5 must not reconstruct its inputs from Stages 1--3.  The bundle therefore
+    contains the common market history, unconditional surface, and every selected
+    feature history.  Stage 5 will retain only validation-cleared nodes for weighting.
+    """
+    artifacts = [artifact_io.load_selected_node(ws.selection_array_path(row)) for row in selected]
+    first = artifacts[0]
+    data = market_data_from_artifact(first)
+    arrays: dict[str, np.ndarray] = {
+        "index": np.asarray(data.index.astype(str), dtype=str),
+        "high": data["high"].to_numpy(float),
+        "low": data["low"].to_numpy(float),
+        "close": data["close"].to_numpy(float),
+        "base": np.asarray(first["base"], dtype=float),
+        "Δs": np.asarray(first["Δs"], dtype=float),
+        "horizons": np.asarray(first["horizons"], dtype=int),
+        "node_ids": np.asarray([row["node"] for row in selected], dtype=str),
+        "families": np.asarray([row["family"] for row in selected], dtype=str),
+        "cleared_node_ids": np.asarray([row["node"] for row in summary["cleared"]], dtype=str),
+    }
+    for index, artifact in enumerate(artifacts):
+        feature = feature_from_artifact(artifact, data.index)
+        arrays[f"feature_{index}"] = feature.to_numpy(float)
+        arrays[f"shift_{index}"] = np.asarray(artifact["shift"], dtype=float)
+        arrays[f"edges_{index}"] = np.asarray(artifact["edges"], dtype=float)
+    artifact_io.save_validated_bundle(ws.validated_bundle_path, arrays, {
+        "artifact": "04_validation/validated",
+        "workspace": ws.dir.name,
+        "generated": datetime.now(timezone.utc).isoformat(),
+        "selection_fingerprint": selection_fingerprint(selected),
+        "source": "03_selection selected-node artifacts",
+    })
+
+
 def _economic_criteria(ws: Workspace) -> dict:
     return {
         "min_dev": ws.min_dev,
@@ -310,7 +346,7 @@ def finalize_validation(ws: Workspace, q: float = 0.05) -> bool:
     else:
         print("  Nothing clears all three filters.")
 
-    ws.write_json(ws.validation_summary_path, {
+    summary = {
         "workspace": ws.dir.name,
         "generated": datetime.now(timezone.utc).isoformat(),
         "artifact": "04_validation",
@@ -340,8 +376,11 @@ def finalize_validation(ws: Workspace, q: float = 0.05) -> bool:
         "economics": economics,
         "cleared": cleared,
         "tests": rows,
-    })
+    }
+    ws.write_json(ws.validation_summary_path, summary)
+    write_validated_bundle(ws, selected, summary)
     print(f"\n  wrote {ws.validation_summary_path.relative_to(ws.root_dir)}")
+    print(f"  wrote {ws.validated_bundle_path.relative_to(ws.root_dir)}")
     return True
 
 

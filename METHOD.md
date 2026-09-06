@@ -241,9 +241,8 @@ conditional mutual information between their ten-bin states:
 I(bin_i ; bin_j | touch outcome)
 ```
 
-Pairs above the threshold form connected clusters. This is a research-facing map, not
-a hard deletion rule: it exposes where Naive Bayes' conditional-independence assumption
-is weakest while leaving partial information available to the weighted model.
+Pairs above the threshold form connected clusters. Stage 5 retains the highest-information
+node from each cluster as the equal-weight Naive-Bayes representative.
 
 Stage 5 writes three synchronized artifacts. `05_redundancy/redundancy.npz` is
 the numerical source of truth: ordered node ids, information scores, the square
@@ -264,8 +263,8 @@ barrierlab redundancy --workspace <name>
 barrierlab composition --workspace <name>
 ```
 
-Stages 1-5 evaluate one selected condition sheet at a time. Composition asks whether
-the best whole-node conditional tables can be combined out of sample.
+Stage 5 forwards its cluster representatives. Composition asks whether those independent
+representatives can be combined out of sample with equal Naive-Bayes contributions.
 
 Under conditional independence, log-odds add:
 
@@ -280,23 +279,14 @@ expanding walk-forward design:
 
 1. Fit bin edges, per-bin rates and prior on the training window only.
 2. Embargo the last `horizon` training bars so labels do not reach into test data.
-3. Score every complete bin table by training-window information and retain the top nodes.
-4. Cross-fit their log-odds contributions inside the training window.
-5. Fit non-negative ridge-logistic reliability weights, tuning ridge strength on a later
-   chronological calibration slice.
-6. Predict the test block.
-7. Score every `horizon`th bar so forward windows do not overlap.
-
-After the configured headline target, Stage 6 evaluates every non-zero barrier/horizon
-pair in the workspace grid. A sweep row is always one explicit `(Delta, horizon)` pair;
-the zero barrier is excluded because its touch event is near-degenerate. The resulting
-grid is a diagnostic surface, not a collection of automatically publishable claims:
-rare-event rows must be interpreted with their realized rate and scored-bar count.
+3. Use the fold-local Stage 5 representative plan, which chooses one node from each
+   conditional-dependence cluster using only that fold's training history.
+4. Predict the test block with equal node contributions.
+5. Score every `horizon`th bar so forward windows do not overlap.
 
 Stage 6 separately fits a deployment-side forecast for the latest jointly available
-feature state. For every barrier/horizon cell, it trains on completed outcomes only,
-uses the Stage 4 validation-cleared nodes, cross-fits their contributions, and learns
-target-specific non-negative ridge weights. This is a current forecast, not an average
+feature state. For every barrier/horizon cell, it trains on completed outcomes only and
+uses the Stage 5 cluster representatives with equal contributions. This is a current forecast, not an average
 of the walk-forward predictions. Because separately estimated cells can contain sampling
 reversals, a final isotonic projection enforces the defining nesting rules: farther
 barriers cannot be more likely than nearer barriers, and longer horizons cannot be less
@@ -311,17 +301,13 @@ It writes:
 06_composition/shift.xlsx
 ```
 
-`06_composition/composition.json` records prior-only, raw top-node Naive Bayes,
-one-node-per-family,
-Platt-scaled, and redundancy-aware weighted metrics. Every outer fold records its node
-weights, ridge strength, and fold-local redundancy clusters. The point is not to claim a
+`06_composition/composition.json` records prior-only and equal-weight representative
+metrics. Every outer fold records its Stage 5 representative set. The point is not to claim a
 trading strategy; it is to test whether the measured conditional tables compose without
 leaking future data. The NPZ additionally stores the current `Delta x horizon`
-probability face and its observation counts. When `report.demonstration_date` is set in
-`universe.json`, it also stores a leakage-safe historical face fit from the node states
-and completed outcomes available on that date. Historical cells without enough
-cross-fitted labels to learn reliability weights fall back to that target's historical
-prior, rather than silently presenting unit-weight Naive Bayes. The `probability.xlsx`
+probability face and its observation counts. It also stores a leakage-safe report face
+fit from the node states and completed outcomes available as of the day Stage 6 runs.
+On a non-trading day, that resolves to the latest available market bar. The `probability.xlsx`
 single-sheet workbook renders the current face with exactly the same layout, percentage
 format, fixed color scale, and frozen panes as a Stage 1 probability sheet.
 `shift.xlsx` subtracts the Stage 2 unconditional baseline from that face and
@@ -336,12 +322,12 @@ barrierlab report --workspace <name>
 
 The report renders `workspaces/<name>/07_report/*.png`. Figures read
 from `.npz` and `.json` artifacts; they do not recompute the pipeline. Plot A uses the
-historical full-Bayes face produced by Stage 6 for `report.demonstration_date` and
-overlays the subsequently realized price path.
+full-Bayes face produced by Stage 6 as of today (or the latest available market bar) and
+shows the price path through that date.
 
 The main product figures show:
 
-- the full weighted-Bayes envelope from the configured demonstration date
+- the full weighted-Bayes envelope as of today
 - the exact null distribution behind a headline node
 - one conditional-shift surface for every node that cleared all three
 - the ATR regime ladder

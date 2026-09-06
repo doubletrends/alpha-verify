@@ -15,10 +15,10 @@ The flagship workspace is now `nasdaq_daily`: a reproducible daily NASDAQ
 Composite run from 2015-01-01, with a 30-session horizon ladder and a barrier grid scaled
 for equity-index moves.
 
-The complete weighted-Bayes surface can be inverted into the form people actually use:
-as of the configured historical demonstration date, how wide were the 25% and 50% touch
-envelopes? All validation-cleared nodes contribute in their states on that date, and the
-subsequent realized path is overlaid for an honest case study.
+The complete equal-weight Bayes surface can be inverted into the form people actually use:
+as of today, how wide are the 25% and 50% touch envelopes? All validation-cleared nodes
+contribute in their current states. On non-trading days, the latest available market bar
+is used.
 
 Every node is judged against three explicit gates: a raw node-wide null threshold,
 false-discovery correction across the sweep, and practical effect size. The useful
@@ -89,30 +89,19 @@ logit P(touch | x1..xk)
   = logit P(touch) + sum_i [logit P(touch | xi) - logit P(touch)]
 ```
 
-Stage 6 tests that composition out of sample. Each training fold ranks all complete
-ten-bin node tables, keeps its top 20, and cross-fits their log-odds contributions.
-Non-negative ridge-logistic weights then reduce duplicated evidence without discarding
-the residual information in overlapping nodes. All fitting happens before the test
-window, with a 30-session embargo and non-overlapping scoring.
+Stage 5 clusters validation-cleared nodes by conditional dependence and retains one
+representative from each cluster. Stage 6 tests their equal-weight Naive-Bayes
+composition out of sample. Representatives are chosen from each fold's training window
+only, with an embargo and non-overlapping scoring.
 
 | model | Brier down | AUC | vs. prior |
 |---|--:|--:|--:|
 | constant prior | 0.214 | - | - |
-| naive Bayes, fold-selected nodes | 0.279 | 0.614 | +30.3% worse |
-| one node per family | 0.231 | 0.580 | +8.2% worse |
-| + scale corrected | 0.194 | 0.561 | 9.2% better |
-| weighted redundancy-aware | 0.254 | 0.616 | +18.9% worse |
+| equal-weight cluster representatives | 0.203 | 0.636 | 5.3% better |
 
-The raw model is overconfident because correlated indicators count similar evidence many
-times. For the NASDAQ headline target, `P(touch -7% within 30d)`, scale correction beats
-the constant prior while learned node weights do not. On BTC, the weighted model does
-best (Brier 0.197 versus 0.213 for the prior). The contrast is useful: retaining partial
-information improves one workspace, but weighting is not automatically superior.
-
-Across the complete NASDAQ composition sweep, 456 of 1,200 barrier/horizon targets beat the
-prior after correction. The sweep includes rare-event targets, so its extreme AUC cells
-are diagnostics rather than headline claims; inspect realized rates and scored counts in
-`06_composition/composition.json` before interpreting any individual cell.
+The representative step prevents correlated indicators from repeatedly counting the same
+evidence while keeping the final model transparent: every retained node contributes one
+log-odds term.
 
 ## Run It
 

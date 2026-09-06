@@ -97,12 +97,22 @@ def fig_null_gap_ranking(ws, cleared, out: Path) -> Path | None:
 def _null_distribution_for_gate_row(ws, gate_row: dict) -> dict | None:
     """Recompute one cleared selected sheet's null distribution from saved arrays."""
     b = int(gate_row.get('bin', gate_row.get('best_cell', {}).get('bin', 0)))
-    sel = ws.read_json(ws.selection_path).get('selected', [])
-    row = next((x for x in sel
-                if x.get('node') == gate_row['node'] and int(x.get('bin', -1)) == b), None)
-    if not row or not ws.has_selection_array(row):
+    report = artifact_io.load_composition(ws.composition_array_path)
+    ids = [str(value) for value in report.get("report_node_ids", [])]
+    if gate_row["node"] not in ids:
         return None
-    artifact = artifact_io.load_selected_node(ws.selection_array_path(row))
+    index = ids.index(gate_row["node"])
+    artifact = {
+        "index": report["report_index"],
+        "high": report["report_high"],
+        "low": report["report_low"],
+        "close": report["report_close"],
+        "feature_values": report[f"report_feature_{index}"],
+        "source_bin": np.asarray(b),
+        "Δs": report["current_Δ"],
+        "horizons": report["current_horizon"],
+        "edges": report[f"report_edges_{index}"],
+    }
     try:
         data = market_data_from_artifact(artifact)
         feat = feature_from_artifact(artifact, data.index)
