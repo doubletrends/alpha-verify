@@ -120,8 +120,8 @@ def fig_band(ws, out: Path) -> Path | None:
     end_labels = []
     for q, up, dn, colour in bands:
         end_labels += [
-            (last * (1 + up[j]), f'{q:.0%} touch  +{up[j]:.0%}   {last * (1 + up[j]):,.0f}', colour),
-            (last * (1 - dn[j]), f'{q:.0%} touch  -{dn[j]:.0%}   {last * (1 - dn[j]):,.0f}', colour),
+            (last * (1 + up[j]), f'{q:.0%} chance to hit this level  +{up[j]:.0%}', colour),
+            (last * (1 - dn[j]), f'{q:.0%} chance to hit this level  -{dn[j]:.0%}', colour),
         ]
     _place_labels(ax, fwd[-1], [(y, text, colour) for y, text, colour in end_labels
                                 if np.isfinite(y)])
@@ -148,6 +148,62 @@ def fig_band(ws, out: Path) -> Path | None:
     return _save(fig, out / 'A_band.png')
 
 
+def fig_full_bayes(ws, out: Path) -> Path | None:
+    """Render the current combined Bayes shift from the unconditional surface."""
+    if not ws.composition_array_path.exists():
+        return None
+
+    artifact = artifact_io.load_composition(ws.composition_array_path)
+    needed = ('current_shift', 'current_Δ', 'current_horizon', 'current_node_ids')
+    if any(key not in artifact for key in needed):
+        return None
+
+    shift = np.asarray(artifact['current_shift'], dtype=float)
+    th = np.asarray(artifact['current_Δ'], dtype=float)
+    ts = np.asarray(artifact['current_horizon'], dtype=int)
+    n_nodes = len(artifact['current_node_ids'])
+    as_of = str(np.asarray(artifact.get('current_as_of', '')).item())
+    if shift.shape != (len(th), len(ts)) or not np.isfinite(shift).any():
+        return None
+    keep = np.abs(th) > 1e-12
+    th = th[keep]
+    shift = shift[keep]
+
+    fig, ax = plt.subplots(figsize=(8.4, 5.0))
+    mesh = ax.pcolormesh(
+        ts, th * 100, shift, cmap=CMAP_DIV,
+        norm=TwoSlopeNorm(vcenter=0.0, vmin=-SHIFT_CMAP_LIMIT_PP,
+                          vmax=SHIFT_CMAP_LIMIT_PP),
+        shading='nearest',
+    )
+    ax.axhline(0, color=SURFACE, linewidth=1.4)
+
+    cb = fig.colorbar(mesh, ax=ax, pad=0.02, fraction=0.04)
+    cb.set_label('deviation from unconditional (%)', color=INK_2, fontsize=8)
+    cb.outline.set_visible(False)
+    cb.ax.tick_params(color=GRID, labelsize=7.5)
+
+    ax.set_xlabel('horizon (+t days)')
+    ax.set_ylabel('barrier Δ (%)')
+    for side in ('top', 'right', 'left', 'bottom'):
+        ax.spines[side].set_visible(False)
+
+    _title(
+        fig,
+        'Full Bayes deviation from unconditional',
+        f'Each cell combines all {n_nodes} cluster-representative, validation-cleared '
+        f'conditions in their current states.',
+    )
+    _note(
+        fig,
+        f'{ws.asset["ticker"]} · as of {as_of} · coherent probability surface from '
+        f'06_composition/composition.npz · equal-weight Naive-Bayes contribution per '
+        f'Stage 5 redundancy cluster representative',
+    )
+    fig.subplots_adjust(top=0.80)
+    return _save(fig, out / 'D_full_bayes.png')
+
+
 def _render_shift(ws, head: dict, cube: dict, out_path: Path) -> Path | None:
     """Render one cleared node's strongest bin as a deviation from the baseline."""
     b = int(head['cell']['bin'])
@@ -169,23 +225,23 @@ def _render_shift(ws, head: dict, cube: dict, out_path: Path) -> Path | None:
             markerfacecolor='none', markeredgecolor=INK, markeredgewidth=1.4)
     # a cell near the right edge would push its label under the colorbar
     right = cell['horizon'] > ts.min() + 0.7 * (ts.max() - ts.min())
-    ax.annotate(f"{cell['dev']:+.1f} pp", (cell['horizon'], cell['Δ'] * 100),
+    ax.annotate(f"{cell['dev']:+.1f}%", (cell['horizon'], cell['Δ'] * 100),
                 xytext=(-10 if right else 10, 0), textcoords='offset points',
                 fontsize=8, fontweight='bold', color=INK, va='center',
                 ha='right' if right else 'left')
 
     cb = fig.colorbar(mesh, ax=ax, pad=0.02, fraction=0.04)
-    cb.set_label('deviation from unconditional (pp)', color=INK_2, fontsize=8)
+    cb.set_label('deviation from unconditional (%)', color=INK_2, fontsize=8)
     cb.outline.set_visible(False)
     cb.ax.tick_params(color=GRID, labelsize=7.5)
 
-    ax.set_xlabel(f'horizon (+{ws.horizon_unit})')
+    ax.set_xlabel('horizon (+t days)')
     ax.set_ylabel('barrier Δ (%)')
     for side in ('top', 'right', 'left', 'bottom'):
         ax.spines[side].set_visible(False)
 
     condition = str(head["gate"].get("bin_label", "x")).replace("x", feature_label(head["id"]))
-    _title(fig, f'Chance deviates by {abs(cell["dev"]):.1f} pp, when {condition}',
+    _title(fig, f'Chance deviates by {abs(cell["dev"]):.1f}%, when {condition}',
            f'This is the conditional surface minus the baseline. Red means the barrier '
            f'is reached more often than usual; blue means less. The ring is the '
            f'strongest actionable cell.')
@@ -215,7 +271,7 @@ def fig_shift_all(ws, cleared, out: Path) -> list[Path]:
             }
             head = {**node, 'cell': row['best_cell'], 'gate': row}
             suffix = f'{node["id"]}_bin{int(row.get("bin_number", row["best_cell"]["bin"] + 1))}'
-            path = _render_shift(ws, head, cube, out / f'C_shift_{suffix}.png')
+            path = _render_shift(ws, head, cube, out / f'E_shift_{suffix}.png')
         except Exception:
             continue
         if path is not None:

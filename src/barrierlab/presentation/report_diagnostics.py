@@ -76,7 +76,7 @@ def fig_null_gap_ranking(ws, cleared, out: Path) -> Path | None:
               for r in tests_top]
     ax.set_yticks(y)
     ax.set_yticklabels(labels, fontsize=8.2)
-    ax.set_xlabel('peak |deviation| over the surface (pp)')
+    ax.set_xlabel('peak |deviation| over the surface (%)')
     ax.set_xlim(0, float(np.nanmax(observed)) * 1.25)
     _frame(ax, grid_axis='x')
     ax.legend(loc='lower left', bbox_to_anchor=(1.02, 0), ncol=1,
@@ -91,7 +91,7 @@ def fig_null_gap_ranking(ws, cleared, out: Path) -> Path | None:
     _note(fig, f'{ws.dir.name} · ranked from 04_validation/validation.json tests · one best discovered '
                f'horizon per selected sheet')
     fig.subplots_adjust(top=1 - 1.12 / fig_h, left=0.25, right=0.76, bottom=0.14)
-    return _save(fig, out / 'D_null_gap_ranking.png')
+    return _save(fig, out / 'C_null_gap_ranking.png')
 
 
 def _null_distribution_for_gate_row(ws, gate_row: dict) -> dict | None:
@@ -177,7 +177,7 @@ def fig_null(ws, cleared, out: Path) -> Path | None:
     ax.axvline(observed, color=S1, linewidth=2.3, label='strongest observed')
     ax.annotate(
         f"{feature_label(strong_row['node'])} D{int(strong_row.get('bin_number', 0))} "
-        f"+{int(strong_row['horizon'])}{ws.horizon_unit}  {observed:.1f} pp",
+        f"+{int(strong_row['horizon'])}{ws.horizon_unit}  {observed:.1f}%",
         (observed, ymax * 0.84),
         xytext=(8, 0),
         textcoords='offset points',
@@ -187,11 +187,11 @@ def fig_null(ws, cleared, out: Path) -> Path | None:
         ha='left',
         va='center',
     )
-    ax.annotate(f'p99 {p99:.1f} pp', (p99, ymax * 0.48),
+    ax.annotate(f'p99 {p99:.1f}%', (p99, ymax * 0.48),
                 xytext=(-8, 0), textcoords='offset points', color=INK_2,
                 fontsize=8, ha='right', va='center')
 
-    ax.set_xlabel('peak |deviation| over each selected sheet (pp)')
+    ax.set_xlabel('peak |deviation| over each selected sheet (%)')
     ax.set_ylabel('density')
     ax.set_xlim(0, max(float(observed_all.max()), float(null.max())) * 1.12)
     ax.set_ylim(0, ymax * 1.15)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from barrierlab.presentation.report_diagnostics import fig_null, fig_null_gap_ranking
-from barrierlab.presentation.report_nodes import fig_band, fig_shift_all
+from barrierlab.presentation.report_nodes import fig_band, fig_full_bayes, fig_shift_all
 
 
 def build(ws, validation: dict) -> None:
@@ -15,16 +15,17 @@ def build(ws, validation: dict) -> None:
     jobs = [
         ('A band', 'A_band.png', lambda: fig_band(ws, out)),
         ('B null', 'B_null.png', lambda: fig_null(ws, validation, out)),
-        ('C shifts', None, lambda: fig_shift_all(ws, validation, out)),
-        ('D null gap ranking', 'D_null_gap_ranking.png',
+        ('C null gap ranking', 'C_null_gap_ranking.png',
          lambda: fig_null_gap_ranking(ws, validation, out)),
+        ('D full Bayes', 'D_full_bayes.png', lambda: fig_full_bayes(ws, out)),
+        ('E shifts', None, lambda: fig_shift_all(ws, validation, out)),
     ]
 
     expected = {filename for _, filename, _ in jobs if filename}
     # Remove report views that no longer exist in the product, while preserving retained
     # views if a live-data renderer cannot rebuild one of them on this run.
     for stale in out.glob('*.png'):
-        if stale.name not in expected and not stale.name.startswith('C_shift_'):
+        if stale.name not in expected and not stale.name.startswith('E_shift_'):
             stale.unlink()
 
     written = []
