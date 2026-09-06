@@ -1,23 +1,17 @@
-﻿__pycache__/
+﻿.claude/
+.codex/
+.venv/
 *.pyc
 .pytest_cache/
-.coverage
-coverage.xml
-htmlcov/
-.venv/
+.yfinance-cache/
+__pycache__/
+*.egg-info/
+
 build/
 dist/
-*.egg-info/
-.claude/settings.local.json
-.yfinance-cache/
 
 # Workspace declarations are source; all generated artifacts and reports are local.
 workspaces/*/*
 !workspaces/*/universe.json
 !workspaces/*/plugin.py
-
-# The NASDAQ probability band is the repository's checked-in evidence image. All
-# other generated reports remain local so a routine pipeline run cannot flood Git.
-!workspaces/nasdaq_daily/07_report/
-workspaces/nasdaq_daily/07_report/*
-!workspaces/nasdaq_daily/07_report/A_band.png
+!workspaces/*/07_report/

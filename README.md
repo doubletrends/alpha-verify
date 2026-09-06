@@ -25,7 +25,7 @@ barrierlab composition --workspace nasdaq_daily
 barrierlab report --workspace nasdaq_daily
 ```
 
-The default workspace is `nasdaq_daily`; use `--workspace btc_daily` for the BTC comparison universe. `barrierlab status <node> --workspace <name>` gives a read-only view of one node’s strongest shift and its available null result.
+The default workspace is `nasdaq_daily`; use `--workspace btc_daily` for the daily BTC comparison universe or `--workspace btc_hourly` for the exploratory hourly BTC universe. `barrierlab status <node> --workspace <name>` gives a read-only view of one node’s strongest shift and its available null result.
 
 ## What the pipeline establishes
 

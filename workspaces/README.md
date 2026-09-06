@@ -42,5 +42,6 @@ Do not copy generated `.npz`, `.xlsx`, or report artifacts between workspaces: a
 
 - `nasdaq_daily` is the reproducible daily NASDAQ Composite flagship (`^IXIC`, from 2015-01-01).
 - `btc_daily` is the daily BTC comparison workspace (`BTC-USD`, from 2015-01-01). Its plugin supplies CoinMetrics on-chain data and BTC cycle features.
+- `btc_hourly` is an exploratory BTC workspace with +1h through +48h horizons. It loads raw OHLCV from the public `mouadja02/bitcoin-technical-indicators-dataset` CSV and recomputes every feature locally.
 
-Hourly Yahoo workspaces are intentionally out of scope: Yahoo exposes only a trailing hourly window, so historical reruns are not reproducible.
+Hourly Yahoo workspaces remain out of scope: Yahoo exposes only a trailing hourly window, so historical reruns are not reproducible. `btc_hourly` avoids that limit with its workspace-local source.

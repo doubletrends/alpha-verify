@@ -1,0 +1,80 @@
+{
+  "meta": {
+    "created": "2026-09-06",
+    "description": "BTC hourly exploratory universe (+1h to +48h; public GitHub OHLCV dataset)",
+    "workspace": "btc_hourly",
+    "asset": {
+      "provider": "mouadja02/bitcoin-technical-indicators-dataset",
+      "ticker": "BTC-USD",
+      "interval": "1h"
+    },
+    "start_date": "2018-01-01",
+    "min_obs": 1000,
+    "Δ": {
+      "min": -0.1,
+      "max": 0.1,
+      "step": 0.01
+    },
+    "n_bins": 10,
+    "evaluate": {
+      "min_dev": 5.0,
+      "min_bin_n": 200,
+      "min_run": 2
+    },
+    "validation": {
+      "null_alpha": 0.01
+    },
+    "horizons": {
+      "min": 1,
+      "max": 48
+    },
+    "composition": {
+      "Δ": -0.05,
+      "horizon": 24,
+      "folds": 5
+    },
+    "selection": {
+      "top_k": 20
+    }
+  },
+  "families": {
+    "_base": [
+      {"id": "baseline", "family": "_base", "category": "reference", "feature": "constant", "params": {}, "data": ["ohlcv"], "derived_from": null}
+    ],
+    "rsi": [
+      {"id": "rsi_7", "family": "rsi", "category": "momentum", "feature": "rsi", "params": {"period": 7}, "data": ["ohlcv"], "derived_from": null},
+      {"id": "rsi_14", "family": "rsi", "category": "momentum", "feature": "rsi", "params": {"period": 14}, "data": ["ohlcv"], "derived_from": null},
+      {"id": "rsi_21", "family": "rsi", "category": "momentum", "feature": "rsi", "params": {"period": 21}, "data": ["ohlcv"], "derived_from": null},
+      {"id": "rsi_spread_7_14", "family": "rsi", "category": "momentum", "feature": "rsi_spread", "params": {"fast": 7, "slow": 14}, "data": ["ohlcv"], "derived_from": "rsi_14"}
+    ],
+    "roc": [
+      {"id": "roc_1", "family": "roc", "category": "momentum", "feature": "roc", "params": {"period": 1}, "data": ["ohlcv"], "derived_from": null},
+      {"id": "roc_6", "family": "roc", "category": "momentum", "feature": "roc", "params": {"period": 6}, "data": ["ohlcv"], "derived_from": null},
+      {"id": "roc_24", "family": "roc", "category": "momentum", "feature": "roc", "params": {"period": 24}, "data": ["ohlcv"], "derived_from": null},
+      {"id": "roc_spread_6_24", "family": "roc", "category": "momentum", "feature": "roc_spread", "params": {"fast": 6, "slow": 24}, "data": ["ohlcv"], "derived_from": "roc_24"}
+    ],
+    "ma": [
+      {"id": "ma_ratio_24", "family": "ma", "category": "trend", "feature": "ma_ratio", "params": {"period": 24}, "data": ["ohlcv"], "derived_from": null},
+      {"id": "ma_ratio_72", "family": "ma", "category": "trend", "feature": "ma_ratio", "params": {"period": 72}, "data": ["ohlcv"], "derived_from": null},
+      {"id": "ma_ratio_168", "family": "ma", "category": "trend", "feature": "ma_ratio", "params": {"period": 168}, "data": ["ohlcv"], "derived_from": null},
+      {"id": "ma_cross_24_168", "family": "ma", "category": "trend", "feature": "ma_cross", "params": {"fast": 24, "slow": 168}, "data": ["ohlcv"], "derived_from": "ma_ratio_168"}
+    ],
+    "volatility": [
+      {"id": "realized_vol_24", "family": "volatility", "category": "volatility", "feature": "realized_vol", "params": {"period": 24}, "data": ["ohlcv"], "derived_from": null},
+      {"id": "realized_vol_72", "family": "volatility", "category": "volatility", "feature": "realized_vol", "params": {"period": 72}, "data": ["ohlcv"], "derived_from": null},
+      {"id": "atr_24", "family": "volatility", "category": "volatility", "feature": "atr", "params": {"period": 24}, "data": ["ohlcv"], "derived_from": null},
+      {"id": "bb_pct_24", "family": "volatility", "category": "volatility", "feature": "bb_pct", "params": {"period": 24}, "data": ["ohlcv"], "derived_from": null},
+      {"id": "bb_width_24", "family": "volatility", "category": "volatility", "feature": "bb_width", "params": {"period": 24}, "data": ["ohlcv"], "derived_from": null},
+      {"id": "vol_ratio_24_168", "family": "volatility", "category": "volatility", "feature": "vol_ratio", "params": {"fast": 24, "slow": 168}, "data": ["ohlcv"], "derived_from": "realized_vol_72"}
+    ],
+    "volume": [
+      {"id": "volume_ratio_24", "family": "volume", "category": "volume", "feature": "volume_ratio", "params": {"period": 24}, "data": ["ohlcv"], "derived_from": null},
+      {"id": "volume_ratio_168", "family": "volume", "category": "volume", "feature": "volume_ratio", "params": {"period": 168}, "data": ["ohlcv"], "derived_from": null}
+    ],
+    "drawdown": [
+      {"id": "drawdown_24", "family": "drawdown", "category": "drawdown", "feature": "drawdown", "params": {"period": 24}, "data": ["ohlcv"], "derived_from": null},
+      {"id": "drawdown_168", "family": "drawdown", "category": "drawdown", "feature": "drawdown", "params": {"period": 168}, "data": ["ohlcv"], "derived_from": null},
+      {"id": "drawdown_recovery_24_168", "family": "drawdown", "category": "drawdown", "feature": "drawdown_recovery", "params": {"short": 24, "long": 168}, "data": ["ohlcv"], "derived_from": "drawdown_168"}
+    ]
+  }
+}

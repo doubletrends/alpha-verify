@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -135,6 +136,29 @@ class WorkspaceContractTests(unittest.TestCase):
         data = pd.DataFrame({"mvrv": [1.1]}, index=pd.to_datetime(["2024-01-01"]))
         result = context.features.compute(data, "mvrv", {})
         self.assertEqual(float(result.iloc[0]), 1.1)
+
+    def test_btc_hourly_workspace_uses_its_local_raw_ohlcv_source(self) -> None:
+        workspace = Workspace("btc_hourly")
+        context = RunContext(workspace)
+        source_frame = pd.DataFrame(
+            {
+                "DATETIME": ["2017-12-31T23:00:00Z", "2018-01-01T00:00:00Z"],
+                "OPEN": [100.0, 101.0],
+                "HIGH": [102.0, 103.0],
+                "LOW": [99.0, 100.0],
+                "CLOSE": [101.0, 102.0],
+                "VOLUME_BTC": [10.0, 11.0],
+            }
+        )
+
+        with patch("pandas.read_csv", return_value=source_frame) as read_csv:
+            data = context.sources.fetch(["ohlcv"], workspace.start_date, workspace.asset)
+
+        read_csv.assert_called_once()
+        self.assertEqual(data.index.tolist(), [pd.Timestamp("2018-01-01 00:00:00")])
+        self.assertEqual(data.columns.tolist(), ["open", "high", "low", "close", "volume"])
+        self.assertEqual(workspace.horizon_unit, "h")
+        self.assertEqual((workspace.horizons[0], workspace.horizons[-1]), (1, 48))
 
 
 if __name__ == "__main__":
