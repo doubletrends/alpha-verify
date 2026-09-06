@@ -14,4 +14,3 @@ dist/
 workspaces/*/*
 !workspaces/*/universe.json
 !workspaces/*/plugin.py
-!workspaces/*/07_report/
