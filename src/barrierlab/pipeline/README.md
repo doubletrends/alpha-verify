@@ -1,4 +1,13 @@
-# Method
+# Pipeline protocol
+
+`pipeline/` owns the seven-stage artifact workflow: what each command reads, writes,
+and proves. It does not own reusable feature implementations, data-provider adapters,
+workspace declarations, or figure styling; those boundaries are documented in the
+[package README](../README.md) and [workspace README](../../../workspaces/README.md).
+
+Run stages through the `barrierlab` CLI from the repository root. The command registry
+in [`../cli.py`](../cli.py) is the public execution entrypoint; the artifact names in
+`infrastructure/artifacts.py` are the source of truth for paths.
 
 This repository measures conditional barrier-touch probabilities:
 
@@ -333,42 +342,13 @@ The main product figures show:
 - the ATR regime ladder
 - the null-gap ranking across top discoveries
 
-## Adding a Feature
+## Extension routing
 
-Register reusable feature functions in `src/barrierlab/domain/features.py`:
-
-```python
-def _my_feature(close: pd.Series, period: int) -> pd.Series:
-    ...
-
-def register_builtin_features(registry: FeatureRegistry) -> None:
-    registry.register("my_feature", lambda d, p: _my_feature(d["close"], p["period"]))
-```
-
-Workspace-specific sources and features live in `workspaces/<name>/plugin.py`, which
-defines `register(sources, features)`. Then add a node to
-`workspaces/<name>/universe.json`.
-
-There is no progress field. Progress is inferred from artifacts on disk.
-
-## Adding a Workspace
-
-`universe.json` `meta` carries the asset-specific configuration:
-
-| field | meaning |
-|---|---|
-| `asset` | `{provider, ticker, interval}` |
-| `start_date` | history start |
-| `horizons` | full horizon ladder |
-| `Δ` | full barrier ladder |
-| `n_bins` | condition bins per feature |
-| `evaluate` | economic filter thresholds |
-| `validation` | raw node-null threshold, default `null_alpha: 0.01` |
-| `composition` | composition target and fold count |
-
-Scale `Δ` to the asset and horizon. BTC daily can support wider barriers than a
-daily equity index; a good workspace spends barrier rows where touches occur often
-enough to estimate.
+Add reusable features at the package’s domain boundary; add asset-specific sources,
+features, nodes, grids, and thresholds at the workspace boundary. The [package README](../README.md#safe-modification-guide)
+and [workspace README](../../../workspaces/README.md) name the correct entrypoints and
+contracts. There is no mutable progress field: `barrierlab status` infers progress from
+the artifacts on disk.
 
 ## Files
 
@@ -394,5 +374,6 @@ enough to estimate.
 | `06_composition/shift.xlsx` | `composition` | one-sheet current weighted shift from baseline |
 | `07_report/*.png` | `report` | product figures |
 
-All generated workspace artifacts and report images are git-ignored. Only
-`universe.json` and an optional `plugin.py` are source-controlled per workspace.
+All generated workspace artifacts and report images are git-ignored except the
+reviewed NASDAQ evidence image used by the root README. `universe.json` and an optional
+`plugin.py` are source-controlled per workspace.
