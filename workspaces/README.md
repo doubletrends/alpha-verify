@@ -33,7 +33,7 @@ The standard stages produce a one-way artifact chain. Generated files are ignore
 1. Copy an existing declaration, choose a new workspace name, and set an asset-appropriate daily barrier grid and horizon range.
 2. Declare only source names registered by the built-in source registry or by this workspace’s `plugin.py`.
 3. Add a plugin only for workspace-specific sources or features. It must define `register(sources, features)`; registration is per run, not process-global.
-4. Run `barrierlab surface --workspace <name>` and then the remaining stages in order. Use `barrierlab status --workspace <name>` to inspect the artifact funnel before relying on later-stage output.
+4. Run `barrierlab measure --workspace <name>`, then `compare`, `select`, and `validate` in order. Use `barrierlab status --workspace <name>` to inspect the artifact funnel before relying on later-stage output.
 5. Add or update tests if the new workspace establishes a contract beyond its own declaration.
 
 Do not copy generated array, workbook, or plot artifacts between workspaces: artifact history, validation fingerprints, and asset configuration must agree. See [the package boundary](../src/barrierlab/README.md) for stage ownership and [the pipeline protocol](../src/barrierlab/pipeline/README.md) for the full artifact contract.

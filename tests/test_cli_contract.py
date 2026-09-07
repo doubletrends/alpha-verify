@@ -15,10 +15,10 @@ class CliContractTests(unittest.TestCase):
         help_text = parser.format_help()
 
         for command in (
-            "surface",
-            "shift",
-            "selection",
-            "validation",
+            "measure",
+            "compare",
+            "select",
+            "validate",
             "status",
         ):
             self.assertIn(command, help_text)
@@ -27,27 +27,28 @@ class CliContractTests(unittest.TestCase):
         with redirect_stderr(StringIO()), self.assertRaises(SystemExit):
             parser.parse_args(["bayes"])
 
-        args = parser.parse_args(["surface", "--workspace", "btc_daily"])
-        self.assertEqual(args.command, "surface")
+        args = parser.parse_args(["measure", "--workspace", "btc_daily"])
+        self.assertEqual(args.command, "measure")
         self.assertEqual(args.workspace, "btc_daily")
+        self.assertFalse(args.verbose)
 
-    def test_numbered_commands_match_their_stage_directories(self) -> None:
-        numbered = [command for command in COMMANDS if command.stage_directory]
+        verbose_args = parser.parse_args(["compare", "--verbose"])
+        self.assertTrue(verbose_args.verbose)
 
-        self.assertEqual(len(numbered), 4)
-        for number, command in enumerate(numbered, start=1):
-            prefix, name = command.stage_directory.split("_", 1)
-            self.assertEqual(int(prefix), number)
-            self.assertEqual(name, command.name)
+    def test_commands_preserve_pipeline_order(self) -> None:
+        self.assertEqual(
+            [command.name for command in COMMANDS],
+            ["measure", "compare", "select", "validate", "status"],
+        )
 
     def test_validation_has_no_stage_specific_options(self) -> None:
         parser = build_parser()
-        args = parser.parse_args(["validation", "--workspace", "btc_daily"])
+        args = parser.parse_args(["validate", "--workspace", "btc_daily"])
 
-        self.assertEqual(args.command, "validation")
+        self.assertEqual(args.command, "validate")
         self.assertEqual(args.workspace, "btc_daily")
         with redirect_stderr(StringIO()), self.assertRaises(SystemExit):
-            parser.parse_args(["validation", "--fdr", "0.1"])
+            parser.parse_args(["validate", "--fdr", "0.1"])
 
     def test_status_accepts_an_optional_node(self) -> None:
         parser = build_parser()

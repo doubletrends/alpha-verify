@@ -5,7 +5,7 @@ This package turns one workspace declaration into staged, inspectable barrier-to
 ## Public entrypoints
 
 - `barrierlab.cli:main` is the console entrypoint installed as `barrierlab`.
-- `barrierlab <surface|shift|selection|validation>` runs one named stage.
+- `barrierlab <measure|compare|select|validate>` runs one named stage.
 - `barrierlab status [NODE] --workspace NAME` is read-only and reports artifact/validation state.
 - `infrastructure.workspace.Workspace` is the runtime view of a workspace declaration and its artifact namespace.
 

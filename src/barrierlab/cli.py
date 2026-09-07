@@ -6,7 +6,6 @@ import argparse
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from barrierlab.infrastructure.artifacts import STAGE_DIRECTORIES
 from barrierlab.domain import barrier
 from barrierlab.infrastructure.workspace import Workspace
 from barrierlab.pipeline.step_01_surface import cmd_surface
@@ -21,34 +20,29 @@ class Command:
     name: str
     help: str
     handler: Callable[..., None]
-    stage_directory: str | None = None
     accepts_node: bool = False
 
 
 COMMANDS = (
     Command(
-        "surface",
-        "1. write surface arrays and workbooks",
+        "measure",
+        "1. calculate conditional probability surfaces",
         cmd_surface,
-        STAGE_DIRECTORIES["surface"],
     ),
     Command(
-        "shift",
-        "2. write baseline-subtracted arrays and workbooks",
+        "compare",
+        "2. calculate baseline-relative probability shifts",
         cmd_shift,
-        STAGE_DIRECTORIES["shift"],
     ),
     Command(
-        "selection",
-        "3. rank and retain the strongest nodes",
+        "select",
+        "3. rank and retain the strongest condition effects",
         cmd_selection,
-        STAGE_DIRECTORIES["selection"],
     ),
     Command(
-        "validation",
-        "4. validate selected nodes and write final verdicts",
+        "validate",
+        "4. test selected effects and write final verdicts",
         cmd_validation,
-        STAGE_DIRECTORIES["validation"],
     ),
     Command(
         "status",
@@ -66,6 +60,11 @@ def _add_workspace(parser: argparse.ArgumentParser) -> None:
         "--cuda",
         action="store_true",
         help="run numerical barrier kernels on CUDA (requires an available CUDA PyTorch device)",
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="show per-node progress and diagnostic details",
     )
 
 
@@ -104,7 +103,7 @@ def main(argv: list[str] | None = None) -> None:
     if command.accepts_node:
         command.handler(ws, args.node)
     else:
-        command.handler(ws)
+        command.handler(ws, verbose=args.verbose)
 
 
 if __name__ == "__main__":

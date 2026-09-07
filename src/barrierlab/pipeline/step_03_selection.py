@@ -43,9 +43,9 @@ def cmd_selection(ws: Workspace, *, verbose: bool = False) -> None:
         n for n in ws.catalog.all_nodes()
         if n["id"] != BASELINE_NODE and ws.has_shift_cube(n["id"])
     ]
-    report = StageReport(3, "selection", ws.dir.name)
+    report = StageReport(3, "select", ws.dir.name)
     if not nodes:
-        report.line("no shift arrays available; run shift first")
+        report.line("no shift arrays available; run compare first")
         report.completed()
         return
 
@@ -54,7 +54,7 @@ def cmd_selection(ws: Workspace, *, verbose: bool = False) -> None:
 
     baseline_path = ws.shift_cube_path(BASELINE_NODE)
     if not baseline_path.exists():
-        report.line("no baseline shift array available; run shift first")
+        report.line("no baseline shift array available; run compare first")
         report.completed()
         return
     delta, horizon = ws.target(artifact_io.load_shift(baseline_path)["base"])
@@ -117,7 +117,7 @@ def cmd_selection(ws: Workspace, *, verbose: bool = False) -> None:
         except FileNotFoundError:
             warnings.append(
                 f"selection workbook unavailable for rank {row['rank']} {row['node']}; "
-                "run shift to render it"
+                "run compare to render it"
             )
 
     ws.write_json(ws.selection_path, result)

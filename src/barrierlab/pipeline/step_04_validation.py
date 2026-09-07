@@ -41,9 +41,9 @@ def validation_summary_is_current(ws: Workspace, summary: dict) -> bool:
 def cmd_validation(ws: Workspace, *, verbose: bool = False) -> None:
     """Validate selected-bin skew against 1,000 shared synthetic OHLC histories."""
     rows = [row for row in _selected_rows(ws) if ws.has_selection_array(row)]
-    report = StageReport(4, "validation", ws.dir.name)
+    report = StageReport(4, "validate", ws.dir.name)
     if not rows:
-        report.line("no 03_selection artifacts available; run selection first")
+        report.line("no 03_selection artifacts available; run select first")
         report.completed()
         return
 

@@ -15,9 +15,9 @@ from barrierlab.pipeline.step_04_validation import validation_summary_is_current
 def _print_node_status(ws: Workspace, node_id: str) -> None:
     """Print one node's strongest shift and its available null result."""
     node = ws.catalog.find(node_id)
-    path = ws.shift_cube_path(node["family"], node_id)
+    path = ws.shift_cube_path(node_id)
     if not path.exists():
-        print(f"No shift array for {node_id} - run the shift command first.")
+        print(f"No shift array for {node_id} - run the compare command first.")
         return
 
     cube = artifact_io.load_shift(path)
@@ -111,10 +111,10 @@ def cmd_status(ws: Workspace, node_id: str | None = None) -> None:
     for node in ws.catalog.all_nodes():
         counts = by_family[node["family"]]
         counts[0] += 1
-        counts[1] += bool(ws.has_cube(node["family"], node["id"]))
-        counts[2] += bool(ws.has_surface(node["family"], node["id"]))
-        counts[3] += bool(ws.has_shift_cube(node["family"], node["id"]))
-        counts[4] += bool(ws.has_shift_surface(node["family"], node["id"]))
+        counts[1] += bool(ws.has_cube(node["id"]))
+        counts[2] += bool(ws.has_surface(node["id"]))
+        counts[3] += bool(ws.has_shift_cube(node["id"]))
+        counts[4] += bool(ws.has_shift_surface(node["id"]))
         selected_rows = [row for row in selected if row["node"] == node["id"]]
         counts[5] += sum(1 for row in selected_rows if ws.has_selection_array(row))
         counts[6] += sum(1 for row in selected_rows if ws.has_selection_surface(row))
@@ -138,7 +138,7 @@ def cmd_status(ws: Workspace, node_id: str | None = None) -> None:
     elif validation:
         missing = validation.get("missing_nodes", [])
         detail = f" ({len(missing)} missing nodes)" if missing else ""
-        print(f"  validation: incomplete or stale{detail} - run validation")
+        print(f"  validation: incomplete or stale{detail} - run validate")
 
     print()
     header = f"  {'family':<15}" + "".join(

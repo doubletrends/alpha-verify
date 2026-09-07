@@ -70,7 +70,7 @@ def _render_surface(
         if workspace.has_cube(node["id"])
     ]
     if not nodes:
-        return 0, ["no full surface arrays available; run surface first"]
+        return 0, ["no full surface arrays available; run measure first"]
     written = 0
     warnings = []
     for node in nodes:
@@ -95,7 +95,7 @@ def _render_surface(
 
 def cmd_surface(workspace: Workspace, *, verbose: bool = False) -> None:
     """Write full surface arrays and their workbook views."""
-    report = StageReport(1, "surface", workspace.dir.name)
+    report = StageReport(1, "measure", workspace.dir.name)
     nodes = workspace.catalog.all_nodes()
     report.line(
         f"measuring {len(nodes)} nodes · {len(workspace.deltas)} Δ × "

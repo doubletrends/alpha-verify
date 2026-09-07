@@ -16,11 +16,11 @@ def _write_shift_array(ws: Workspace, verbose: bool, progress: MilestoneProgress
         if ws.has_cube(node["id"])
     ]
     if not nodes:
-        return ["no full surface arrays available; run surface first"]
+        return ["no full surface arrays available; run measure first"]
 
     baseline = baseline_surface(ws)
     if baseline is None:
-        return ["no baseline surface array available; run surface first"]
+        return ["no baseline surface array available; run measure first"]
 
     nodes = [node for node in nodes if node["id"] == BASELINE_NODE] + [
         node for node in nodes if node["id"] != BASELINE_NODE
@@ -52,7 +52,7 @@ def _render_shift(ws: Workspace, progress: MilestoneProgress) -> tuple[int, list
         if ws.has_shift_cube(node["id"])
     ]
     if not nodes:
-        return 0, ["no shift arrays available; run shift first"]
+        return 0, ["no shift arrays available; run compare first"]
     written = 0
     warnings = []
     for node in nodes:
@@ -77,7 +77,7 @@ def _render_shift(ws: Workspace, progress: MilestoneProgress) -> tuple[int, list
 
 def cmd_shift(ws: Workspace, *, verbose: bool = False) -> None:
     """Write full baseline-subtracted shift arrays and workbooks."""
-    report = StageReport(2, "shift", ws.dir.name)
+    report = StageReport(2, "compare", ws.dir.name)
     nodes = [node for node in ws.catalog.all_nodes() if ws.has_cube(node["id"])]
     report.line(
         f"shifting {len(nodes)} nodes against baseline · "

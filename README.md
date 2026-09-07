@@ -14,10 +14,10 @@ barrierlab status --workspace nasdaq_daily
 To reproduce the NASDAQ artifact chain from market data, run the stages in order:
 
 ```bash
-barrierlab surface --workspace nasdaq_daily
-barrierlab shift --workspace nasdaq_daily
-barrierlab selection --workspace nasdaq_daily
-barrierlab validation --workspace nasdaq_daily
+barrierlab measure --workspace nasdaq_daily
+barrierlab compare --workspace nasdaq_daily
+barrierlab select --workspace nasdaq_daily
+barrierlab validate --workspace nasdaq_daily
 ```
 
 The default workspace is `nasdaq_daily`; use `--workspace btc_daily` for the daily BTC comparison universe or `--workspace btc_hourly` for the exploratory hourly BTC universe. `barrierlab status <node> --workspace <name>` gives a read-only view of one node’s strongest shift and its available null result.

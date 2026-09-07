@@ -5,10 +5,10 @@
 `infrastructure/artifacts.py` owns path construction.
 
 ```text
-surface   → 01_surface/     full conditional probability cubes and workbooks
-shift     → 02_shift/       baseline-subtracted cubes and workbooks
-selection → 03_selection/   ranked selected-node cubes, views, and manifest
-validation→ 04_validation/  simulated-null summary and histograms
+measure   → 01_surface/     full conditional probability cubes and workbooks
+compare   → 02_shift/       baseline-subtracted cubes and workbooks
+select    → 03_selection/   ranked selected-node cubes, views, and manifest
+validate  → 04_validation/  simulated-null summary and histograms
 ```
 
 The measured quantity is:
@@ -30,7 +30,7 @@ for the first three stages, then the current Stage 4 summary and cleared selecte
 ## 1. Surface
 
 ```bash
-barrierlab surface --workspace <name>
+barrierlab measure --workspace <name>
 ```
 
 This produces one raw probability cube per node. The baseline node is a constant feature
@@ -44,7 +44,7 @@ with one bin and supplies the unconditional reference rate. Artifacts:
 ## 2. Shift
 
 ```bash
-barrierlab shift --workspace <name>
+barrierlab compare --workspace <name>
 ```
 
 For every condition bin, Stage 2 writes percentage-point deviation from the baseline:
@@ -63,7 +63,7 @@ Artifacts:
 ## 3. Selection
 
 ```bash
-barrierlab selection --workspace <name>
+barrierlab select --workspace <name>
 ```
 
 Selection ranks candidate condition bins at the workspace target by two-sided skew:
@@ -86,7 +86,7 @@ view; the Safetensor retains every bin.
 ## 4. Validation
 
 ```bash
-barrierlab validation --workspace <name>
+barrierlab validate --workspace <name>
 ```
 
 Stage 4 tests each selected condition-bin score against 1,000 shared synthetic OHLC
