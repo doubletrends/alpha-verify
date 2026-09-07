@@ -7,9 +7,11 @@ from datetime import datetime, timezone
 import numpy as np
 
 from barrierlab.domain import barrier, validation as val
+from barrierlab.domain.features import is_ohlcv_feature
 from barrierlab.infrastructure import artifact_io
 from barrierlab.infrastructure.artifacts import feature_from_artifact, market_data_from_artifact
 from barrierlab.infrastructure.workspace import Workspace
+from barrierlab.pipeline.reporting import StageReport
 
 
 def _selected_rows(ws: Workspace) -> list[dict]:
@@ -36,20 +38,22 @@ def validation_summary_is_current(ws: Workspace, summary: dict) -> bool:
     )
 
 
-def cmd_validation(ws: Workspace) -> None:
+def cmd_validation(ws: Workspace, *, verbose: bool = False) -> None:
     """Validate selected-bin skew against 1,000 shared synthetic OHLC histories."""
     rows = [row for row in _selected_rows(ws) if ws.has_selection_array(row)]
+    report = StageReport(4, "validation", ws.dir.name)
     if not rows:
-        print("No 03_selection artifacts - run selection first.")
+        report.line("no 03_selection artifacts available; run selection first")
+        report.completed()
         return
 
     nodes = {node["id"]: node for node in ws.catalog.all_nodes()}
     rows = [row for row in rows if row["node"] in nodes]
     if not rows:
-        print("No selected nodes declared in this workspace.")
+        report.line("no selected nodes are declared in this workspace")
+        report.completed()
         return
-
-    print(f"\n=== 4. Validation [{ws.dir.name}] — selected-bin skew ===")
+    report.line(f"testing {len(rows)} selected-bin scores against a simulated-OHLC null")
     grouped, simulated_paths = {}, None
     for row in rows:
         selected_node = artifact_io.load_selected_node(ws.selection_array_path(row))
@@ -74,7 +78,11 @@ def cmd_validation(ws: Workspace) -> None:
             baseline=val.baseline_prob(data, delta, horizon), edges=fixed_edges,
         )
         synthetic_features = None
-        if node["data"] != ["ohlcv"]:
+        # Only core OHLCV transforms can be evaluated from the unlabeled
+        # synthetic paths.  Calendar and workspace-plugin features have no
+        # synthetic equivalent, so retain their observed condition history for
+        # every null path (as we do for external data features).
+        if not is_ohlcv_feature(node["feature"]):
             synthetic_features = np.broadcast_to(
                 feature.to_numpy(float), (simulated_paths.shape[0], len(feature))
             )
@@ -116,5 +124,14 @@ def cmd_validation(ws: Workspace) -> None:
     }
     ws.write_json(ws.validation_summary_path, summary)
     from barrierlab.presentation.validation_plots import write_bin_score_null_histograms
-    write_bin_score_null_histograms(ws, summary)
-    print(f"  tested {len(records)} selected-bin scores; {len(cleared)} cleared after BH")
+    plots = write_bin_score_null_histograms(ws, summary)
+    n_shifts = records[0]["n_shifts"] if records else 0
+    report.summary(
+        f"cleared {len(cleared)} of {len(records)} after Benjamini–Hochberg "
+        f"(q={summary['method']['q']}, {n_shifts:,} null histories)"
+    )
+    report.line(
+        f"wrote 1 summary + {len(plots)} plots → "
+        f"{ws.dir.relative_to(ws.root_dir)}/04_validation"
+    )
+    report.completed()

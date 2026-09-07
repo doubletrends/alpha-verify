@@ -8,10 +8,11 @@ from barrierlab.domain import barrier
 from barrierlab.infrastructure import artifact_io
 from barrierlab.infrastructure.workspace import Workspace
 from barrierlab.pipeline.context import RunContext
+from barrierlab.pipeline.reporting import MilestoneProgress, StageReport
 from barrierlab.presentation import workbooks
 
 
-def _build_cube(context: RunContext, node: dict) -> None:
+def _build_cube(context: RunContext, node: dict) -> tuple[tuple[int, ...], int]:
     workspace = context.workspace
     data, feature = context.node_feature(node)
     edges = barrier.bin_edges(feature, workspace.n_bins)
@@ -29,7 +30,7 @@ def _build_cube(context: RunContext, node: dict) -> None:
         if column in data:
             cube[column] = data[column].to_numpy(float)
 
-    artifact_io.save_surface(cube, workspace.cube_path(node["family"], node["id"]), {
+    artifact_io.save_surface(cube, workspace.cube_path(node["id"]), {
         "node": node["id"],
         "family": node["family"],
         "feature": node["feature"],
@@ -39,62 +40,78 @@ def _build_cube(context: RunContext, node: dict) -> None:
         "grid": "full",
         "generated": datetime.now(timezone.utc).isoformat(),
     })
-    print(f"  {node['id']:<26} {cube['prob'].shape}  n={int(cube['n_obs'][0])}")
+    return cube["prob"].shape, int(cube["n_obs"][0])
 
 
-def _write_surface_arrays(workspace: Workspace) -> None:
+def _write_surface_arrays(
+    workspace: Workspace, verbose: bool, progress: MilestoneProgress
+) -> list[str]:
     nodes = workspace.catalog.all_nodes()
     context = RunContext(workspace)
     horizons = workspace.horizons
-    print(f"\n=== 1. 01_surface arrays [{workspace.dir.name}] - {len(nodes)} nodes ===")
-    print(
-        f"  {len(workspace.deltas)} Delta x {workspace.n_bins} bins x {len(horizons)} horizons "
-        f"(+{horizons[0]}{workspace.horizon_unit}..+{horizons[-1]}{workspace.horizon_unit})"
-    )
-    print("  value = P(touch Delta in t | bin); intraday high/low\n")
-
     skipped = {}
     for node in nodes:
         try:
-            _build_cube(context, node)
+            shape, n_obs = _build_cube(context, node)
+            if verbose:
+                print(f"  {node['id']:<26} {shape}  n={n_obs}")
         except Exception as error:
             skipped[node["id"]] = str(error)
-            print(f"  {node['id']:<26} [skip] {error}")
-    suffix = f"   ({len(skipped)} skipped)" if skipped else ""
-    print(f"\n  wrote to {workspace.dir.relative_to(workspace.root_dir)}/01_surface/{suffix}")
+        finally:
+            progress.advance()
+    return [f"surface skipped {node}: {error}" for node, error in skipped.items()]
 
 
-def _render_surface(workspace: Workspace) -> None:
+def _render_surface(
+    workspace: Workspace, progress: MilestoneProgress
+) -> tuple[int, list[str]]:
     nodes = [
         node for node in workspace.catalog.all_nodes()
-        if workspace.has_cube(node["family"], node["id"])
+        if workspace.has_cube(node["id"])
     ]
     if not nodes:
-        print("No full arrays to render - run surface first.")
-        return
-
-    print(f"\n=== 1. 01_surface workbooks [{workspace.dir.name}] - {len(nodes)} nodes ===")
-    print(f"  {workspace.n_bins} tabs per node, one per condition bin\n")
+        return 0, ["no full surface arrays available; run surface first"]
     written = 0
+    warnings = []
     for node in nodes:
-        cube = artifact_io.load_surface(workspace.cube_path(node["family"], node["id"]))
+        cube = artifact_io.load_surface(workspace.cube_path(node["id"]))
         try:
             workbooks.write_barrier_xlsx(
                 cube,
-                workspace.surface_path(node["family"], node["id"]),
+                workspace.surface_path(node["id"]),
                 node["id"],
                 node["feature"],
                 node["params"],
                 workspace.horizon_unit,
             )
         except PermissionError:
-            print(f"  {node['id']:<26} [locked] close it in Excel and re-run")
-            continue
-        written += 1
-    print(f"  wrote {written} workbooks under {workspace.dir.relative_to(workspace.root_dir)}/01_surface/")
+            warnings.append(f"workbook locked for {node['id']}; close it in Excel and re-run")
+        else:
+            written += 1
+        finally:
+            progress.advance()
+    return written, warnings
 
 
-def cmd_surface(workspace: Workspace) -> None:
+def cmd_surface(workspace: Workspace, *, verbose: bool = False) -> None:
     """Write full surface arrays and their workbook views."""
-    _write_surface_arrays(workspace)
-    _render_surface(workspace)
+    report = StageReport(1, "surface", workspace.dir.name)
+    nodes = workspace.catalog.all_nodes()
+    report.line(
+        f"measuring {len(nodes)} nodes · {len(workspace.deltas)} Δ × "
+        f"{workspace.n_bins} bins × {len(workspace.horizons)} horizons"
+    )
+    warnings = _write_surface_arrays(
+        workspace, verbose, MilestoneProgress(report, "calculating arrays", len(nodes))
+    )
+    render_nodes = [node for node in nodes if workspace.has_cube(node["id"])]
+    written, render_warnings = _render_surface(
+        workspace, MilestoneProgress(report, "writing spreadsheets", len(render_nodes))
+    )
+    warnings.extend(render_warnings)
+    report.summary(
+        f"wrote {len(nodes) - sum('surface skipped' in warning for warning in warnings)} arrays "
+        f"+ {written} workbooks → {workspace.dir.relative_to(workspace.root_dir)}/01_surface"
+    )
+    report.completed()
+    StageReport.warnings(warnings)

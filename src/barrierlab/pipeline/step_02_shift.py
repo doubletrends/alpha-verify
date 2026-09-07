@@ -6,88 +6,94 @@ from barrierlab.domain import shift
 from barrierlab.infrastructure import artifact_io
 from barrierlab.infrastructure.workspace import BASELINE_NODE, Workspace
 from barrierlab.pipeline.context import baseline_surface
+from barrierlab.pipeline.reporting import MilestoneProgress, StageReport
 from barrierlab.presentation import workbooks
 
 
-def _write_shift_array(ws: Workspace) -> None:
+def _write_shift_array(ws: Workspace, verbose: bool, progress: MilestoneProgress) -> list[str]:
     nodes = [
         node for node in ws.catalog.all_nodes()
-        if ws.has_cube(node["family"], node["id"])
+        if ws.has_cube(node["id"])
     ]
     if not nodes:
-        print("No full surface arrays to shift - run surface first.")
-        return
+        return ["no full surface arrays available; run surface first"]
 
     baseline = baseline_surface(ws)
     if baseline is None:
-        print("No baseline surface array - run surface first.")
-        return
+        return ["no baseline surface array available; run surface first"]
 
     nodes = [node for node in nodes if node["id"] == BASELINE_NODE] + [
         node for node in nodes if node["id"] != BASELINE_NODE
     ]
     deltas, horizons = ws.deltas, ws.horizons
-    print(f"\n=== 2. 02_shift arrays [{ws.dir.name}] - {len(nodes)} nodes ===")
-    print(
-        f"  {len(deltas)} Delta x {ws.n_bins} bins x {len(horizons)} horizons = "
-        f"{len(deltas) * ws.n_bins * len(horizons)} cells"
-    )
-    print("  value = P(touch Delta in t | bin) - P(touch Delta in t baseline), percentage points")
-    print("  red = more frequent than baseline; blue = less frequent\n")
-
     skipped = {}
     for node in nodes:
         try:
-            full = artifact_io.load_surface(ws.cube_path(node["family"], node["id"]))
+            full = artifact_io.load_surface(ws.cube_path(node["id"]))
             shifted = shift.from_cube(full, baseline)
             artifact_io.save_shift(
                 shifted,
-                ws.shift_cube_path(node["family"], node["id"]),
+                ws.shift_cube_path(node["id"]),
                 {**full["meta"], "grid": "shift", "value": "conditional_minus_baseline_pp"},
             )
         except Exception as error:
             skipped[node["id"]] = str(error)
-            print(f"  {node['id']:<26} [skip] {error}")
-            continue
-        print(f"  {node['id']:<26} {shifted['shift'].shape}")
-    if skipped:
-        print(f"\n  skipped {len(skipped)} nodes")
+        else:
+            if verbose:
+                print(f"  {node['id']:<26} {shifted['shift'].shape}")
+        finally:
+            progress.advance()
+    return [f"shift skipped {node}: {error}" for node, error in skipped.items()]
 
 
-def _render_shift(ws: Workspace) -> None:
+def _render_shift(ws: Workspace, progress: MilestoneProgress) -> tuple[int, list[str]]:
     nodes = [
         node for node in ws.catalog.all_nodes()
-        if ws.has_shift_cube(node["family"], node["id"])
+        if ws.has_shift_cube(node["id"])
     ]
     if not nodes:
-        print("No shift arrays to render - run shift first.")
-        return
-
-    print(f"\n=== 2. 02_shift workbooks [{ws.dir.name}] - {len(nodes)} nodes ===")
-    print(
-        f"  {ws.n_bins} tabs per node, one per condition bin; "
-        "red/blue cells show baseline-subtracted touch probability\n"
-    )
+        return 0, ["no shift arrays available; run shift first"]
     written = 0
+    warnings = []
     for node in nodes:
-        cube = artifact_io.load_shift(ws.shift_cube_path(node["family"], node["id"]))
+        cube = artifact_io.load_shift(ws.shift_cube_path(node["id"]))
         try:
             workbooks.write_shift_xlsx(
                 cube,
-                ws.shift_surface_path(node["family"], node["id"]),
+                ws.shift_surface_path(node["id"]),
                 node["id"],
                 node["feature"],
                 node["params"],
                 ws.horizon_unit,
             )
         except PermissionError:
-            print(f"  {node['id']:<26} [locked] close it in Excel and re-run")
-            continue
-        written += 1
-    print(f"  wrote {written} workbooks under {ws.dir.relative_to(ws.root_dir)}/02_shift/")
+            warnings.append(f"workbook locked for {node['id']}; close it in Excel and re-run")
+        else:
+            written += 1
+        finally:
+            progress.advance()
+    return written, warnings
 
 
-def cmd_shift(ws: Workspace) -> None:
+def cmd_shift(ws: Workspace, *, verbose: bool = False) -> None:
     """Write full baseline-subtracted shift arrays and workbooks."""
-    _write_shift_array(ws)
-    _render_shift(ws)
+    report = StageReport(2, "shift", ws.dir.name)
+    nodes = [node for node in ws.catalog.all_nodes() if ws.has_cube(node["id"])]
+    report.line(
+        f"shifting {len(nodes)} nodes against baseline · "
+        f"{len(ws.deltas) * ws.n_bins * len(ws.horizons):,} cells per full-bin node"
+    )
+    warnings = _write_shift_array(
+        ws, verbose, MilestoneProgress(report, "calculating arrays", len(nodes))
+    )
+    render_nodes = [node for node in nodes if ws.has_shift_cube(node["id"])]
+    written, render_warnings = _render_shift(
+        ws, MilestoneProgress(report, "writing spreadsheets", len(render_nodes))
+    )
+    warnings.extend(render_warnings)
+    report.summary(
+        f"wrote {len(nodes) - sum('shift skipped' in warning for warning in warnings)} arrays "
+        f"+ {written} workbooks → {ws.dir.relative_to(ws.root_dir)}/02_shift"
+    )
+    report.completed()
+    StageReport.warnings(warnings)
