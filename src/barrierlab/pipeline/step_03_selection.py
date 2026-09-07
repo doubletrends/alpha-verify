@@ -1,4 +1,4 @@
-"""Stage 3 command: select the strongest whole-node Bayes predictors."""
+"""Stage 3 command: select nodes by their strongest-bin probability skew."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
-from barrierlab.domain import bayes, selection
+from barrierlab.domain import selection
 from barrierlab.infrastructure import artifact_io
 from barrierlab.infrastructure.workspace import BASELINE_NODE, Workspace
 
@@ -25,8 +25,19 @@ def _copy_selected_workbook_sheet(source: Path, target: Path, bin_index: int) ->
     wb.close()
 
 
+def _clear_selection_artifacts(ws: Workspace) -> None:
+    """Discard generated Stage 3 views before replacing the selection manifest."""
+    for file_type in ("array", "spreadsheet", "plot"):
+        directory = ws.selection_path.parent / file_type
+        if not directory.exists():
+            continue
+        for path in directory.iterdir():
+            if path.is_file():
+                path.unlink()
+
+
 def cmd_selection(ws: Workspace) -> None:
-    """Stage 3: score every node's full bin table and retain top distinct nodes."""
+    """Stage 3: retain nodes with the largest single-bin probability skew."""
     nodes = [
         n for n in ws.catalog.all_nodes()
         if n["id"] != BASELINE_NODE and ws.has_shift_cube(n["family"], n["id"])
@@ -53,13 +64,13 @@ def cmd_selection(ws: Workspace) -> None:
             ws.selection_top_k,
             delta,
             horizon,
-            bayes.SHRINK_K,
         ),
     }
     result["workspace"] = ws.dir.name
     result["families"] = sorted({n["family"] for n in nodes})
 
     selected = result["selected"]
+    _clear_selection_artifacts(ws)
     copied_npz = 0
     copied_xlsx = 0
     by_id = {n["id"]: n for n in nodes}
@@ -95,25 +106,27 @@ def cmd_selection(ws: Workspace) -> None:
             print(f"  rank {row['rank']:>3} {row['node']:<26} [no shift workbook] run shift to render it")
 
     ws.write_json(ws.selection_path, result)
+    from barrierlab.presentation.report_nodes import write_selected_shift_graphs
+    write_selected_shift_graphs(ws, selected)
 
     print(f"\n=== 3. Selection [{ws.dir.name}] ===")
     print(
-        f"  scored {len(result['candidates'])} whole nodes from 02_shift; "
-        f"selected top {len(selected)} distinct nodes by conditional information"
+        f"  scored {len(result['candidates'])} bins from 02_shift; "
+        f"selected top {len(selected)} bins by absolute skew"
     )
     print(
-        f"  target = P(touch {delta:+.0%} within {horizon}{ws.horizon_unit})  |  "
-        "score = weighted information across all bins\n"
+        f"  target = P(touch ±{abs(delta):.0%} within {horizon}{ws.horizon_unit})  |  "
+        "score = |02_shift(+Δ, bin) - 02_shift(-Δ, bin)|\n"
     )
     if selected:
-        print(f"  {'rank':>4}  {'node':<26}{'family':<13}{'bin':>5}  {'bits':>7}  {'cover':>5}  representative bin")
-        print(f"  {'-'*4}  {'-'*26}{'-'*13}{'-'*5}  {'-'*7}  {'-'*5}  {'-'*37}")
+        print(f"  {'rank':>4}  {'node':<26}{'family':<13}{'bin':>5}  {'skew':>7}  representative bin")
+        print(f"  {'-'*4}  {'-'*26}{'-'*13}{'-'*5}  {'-'*7}  {'-'*37}")
         for row in selected:
             c = row["best_cell"]
             print(
                 f"  {row['rank']:>4}  {row['node']:<26}{row['family']:<13}"
-                f"{row['bin_number']:>5}  {row['score_bits']:>7.4f}  {row['effective_bins']:>5.1f}  "
-                f"dev={c['dev']:+.1f}pp n={c['bin_n']}"
+                f"{row['bin_number']:>5}  {row['score_pp']:>6.1f}pp  "
+                f"+={c['positive_shift']:+.1f}pp -={c['negative_shift']:+.1f}pp n={c['bin_n']}"
             )
 
     print(f"\n  wrote {copied_npz} .npz artifacts under {ws.dir.relative_to(ws.root_dir)}/03_selection/")

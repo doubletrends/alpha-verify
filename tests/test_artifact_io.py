@@ -6,6 +6,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 import numpy as np
+from safetensors import safe_open
 
 from barrierlab.infrastructure import artifact_io
 
@@ -39,32 +40,30 @@ class ArtifactIoTests(unittest.TestCase):
     def test_surface_schema_and_runtime_dtype_are_stable(self) -> None:
         cube = _surface_cube()
         with TemporaryDirectory() as directory:
-            path = Path(directory) / "surface.npz"
+            path = Path(directory) / "surface.safetensors"
             artifact_io.save_surface(cube, path, {"node": "example"})
 
-            with np.load(path, allow_pickle=False) as stored:
+            with safe_open(path, framework="np") as stored:
                 self.assertEqual(
-                    set(stored.files),
+                    set(stored.keys()),
                     {
                         "prob",
                         "hits",
                         "bin_n",
-                        "n_obs",
                         "Δs",
                         "horizons",
                         "edges",
-                        "index",
                         "close",
-                        "meta",
                     },
                 )
-                self.assertEqual(stored["prob"].dtype, np.dtype(np.float32))
-                self.assertEqual(json.loads(str(stored["meta"])), {"node": "example"})
+                self.assertEqual(stored.get_tensor("prob").dtype, np.dtype(np.float32))
+                self.assertEqual(json.loads(stored.metadata()["meta"]), {"node": "example"})
 
             loaded = artifact_io.load_surface(path)
 
         self.assertEqual(loaded["prob"].dtype, np.dtype(np.float64))
         np.testing.assert_allclose(loaded["prob"], cube["prob"], rtol=1e-6)
+        np.testing.assert_array_equal(loaded["index"], cube["index"])
 
     def test_shift_schema_and_runtime_dtypes_are_stable(self) -> None:
         cube = {
@@ -73,7 +72,7 @@ class ArtifactIoTests(unittest.TestCase):
             "base": np.full((2, 2), 0.4),
         }
         with TemporaryDirectory() as directory:
-            path = Path(directory) / "shift.npz"
+            path = Path(directory) / "shift.safetensors"
             artifact_io.save_shift(cube, path, {"stage": 2})
             loaded = artifact_io.load_shift(path)
 
@@ -102,7 +101,7 @@ class ArtifactIoTests(unittest.TestCase):
             "source_bin": np.array(0, dtype=np.int32),
         }
         with TemporaryDirectory() as directory:
-            path = Path(directory) / "validation.npz"
+            path = Path(directory) / "validation.safetensors"
             artifact_io.save_validation(result, path, {"stage": 4})
             loaded = artifact_io.load_validation(path)
 

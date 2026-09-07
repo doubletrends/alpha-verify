@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import numpy as np
+import torch
+from barrierlab.domain import tensor_runtime
 
 
 def from_cube(cube: dict, baseline: np.ndarray) -> dict:
@@ -16,8 +18,8 @@ def from_cube(cube: dict, baseline: np.ndarray) -> dict:
     The conditional probabilities and baseline are carried too, so inspection and
     later derived artifacts can show the rate behind a shift without reloading stage 1.
     """
-    prob = np.asarray(cube["prob"], dtype=float)
-    base = np.asarray(baseline, dtype=float)
+    prob = tensor_runtime.tensor(cube["prob"])
+    base = tensor_runtime.tensor(baseline)
     if prob.shape[0] != base.shape[0] or prob.shape[2] != base.shape[1]:
         raise ValueError(
             "baseline shape does not match cube Δ/horizon axes: "
@@ -25,9 +27,9 @@ def from_cube(cube: dict, baseline: np.ndarray) -> dict:
         )
 
     out = {
-        "shift": (prob - base[:, None, :]) * 100.0,
-        "prob": prob,
-        "base": base,
+        "shift": ((prob - base[:, None, :]) * 100.0).cpu().numpy(),
+        "prob": prob.cpu().numpy(),
+        "base": base.cpu().numpy(),
         "hits": cube["hits"],
         "bin_n": cube["bin_n"],
         "n_obs": cube["n_obs"],

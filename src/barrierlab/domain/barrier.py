@@ -25,9 +25,20 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import torch
+from barrierlab.domain import tensor_runtime
 
 # Below this many observations a bin's rate is not worth reporting.
 MIN_BIN_N = 30
+
+
+def configure_cuda(enabled: bool) -> None:
+    """Select the unified Torch numerical device for one CLI invocation."""
+    tensor_runtime.configure(enabled)
+
+
+def cuda_enabled() -> bool:
+    return tensor_runtime.device().type == "cuda"
 
 
 def bin_edges(feature: pd.Series, n_bins: int = 10) -> np.ndarray:
@@ -48,9 +59,10 @@ def bin_edges(feature: pd.Series, n_bins: int = 10) -> np.ndarray:
     if v.empty:
         return np.array([])
     qs = np.linspace(0, 1, n_bins + 1)[1:-1]
-    edges = np.unique(np.quantile(v, qs))
-    lo, hi = float(v.min()), float(v.max())
-    return edges[(edges > lo) & (edges <= hi)]
+    values = tensor_runtime.tensor(v.to_numpy(float))
+    edges = torch.unique(torch.quantile(values, tensor_runtime.tensor(qs))).sort().values
+    lo, hi = values.min(), values.max()
+    return edges[(edges > lo) & (edges <= hi)].cpu().numpy()
 
 
 def bin_labels(edges: np.ndarray, feature: pd.Series) -> list[str]:
@@ -84,6 +96,8 @@ def forward_extremes_upto(data: pd.DataFrame, t_max: int) -> tuple[np.ndarray, n
     Row i holds horizon i+1. Entries whose forward window runs off the end of the
     series are NaN.
     """
+    return _forward_extremes_cuda(data, t_max)
+
     close = data['close'].to_numpy(float)
     low   = (data['low'] if 'low' in data else data['close']).to_numpy(float)
     high  = (data['high'] if 'high' in data else data['close']).to_numpy(float)
@@ -104,6 +118,40 @@ def forward_extremes_upto(data: pd.DataFrame, t_max: int) -> tuple[np.ndarray, n
     return mins, maxs
 
 
+def _forward_extremes_cuda(data: pd.DataFrame, t_max: int) -> tuple[np.ndarray, np.ndarray]:
+    """CUDA implementation of the shared forward high/low excursion ladder."""
+    import torch
+
+    device = tensor_runtime.device()
+    close = torch.as_tensor(
+        np.array(data["close"], dtype=float, copy=True), dtype=torch.float64, device=device
+    )
+    low = torch.as_tensor(
+        np.array(data["low"] if "low" in data else data["close"], dtype=float, copy=True),
+        dtype=torch.float64,
+        device=device,
+    )
+    high = torch.as_tensor(
+        np.array(data["high"] if "high" in data else data["close"], dtype=float, copy=True),
+        dtype=torch.float64,
+        device=device,
+    )
+    n = len(close)
+    run_lo = torch.full((n,), float("inf"), dtype=torch.float64, device=device)
+    run_hi = torch.full((n,), float("-inf"), dtype=torch.float64, device=device)
+    mins = torch.full((t_max, n), float("nan"), dtype=torch.float64, device=device)
+    maxs = torch.full((t_max, n), float("nan"), dtype=torch.float64, device=device)
+
+    for t in range(1, t_max + 1):
+        if n - t <= 0:
+            break
+        run_lo[:n - t] = torch.minimum(run_lo[:n - t], low[t:])
+        run_hi[:n - t] = torch.maximum(run_hi[:n - t], high[t:])
+        mins[t - 1, :n - t] = run_lo[:n - t] / close[:n - t] - 1.0
+        maxs[t - 1, :n - t] = run_hi[:n - t] / close[:n - t] - 1.0
+    return mins.cpu().numpy(), maxs.cpu().numpy()
+
+
 def touch_tensor(
     data:     pd.DataFrame,
     feature:  pd.Series,
@@ -111,6 +159,7 @@ def touch_tensor(
     Δs:   np.ndarray,
     edges:    np.ndarray,
     min_n:    int = MIN_BIN_N,
+    excursions: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> dict:
     """
     The probability cube: P(touch Δ within t | X in bin).
@@ -128,8 +177,16 @@ def touch_tensor(
     Cells whose bin holds fewer than min_n observations are NaN in `prob`; `hits` keeps
     the raw counts so a thin bin stays visible rather than absent.
     """
+    return _touch_tensor_cuda(data, feature, horizons, Δs, edges, min_n, excursions)
+
     t_max  = int(np.max(horizons))
-    mins, maxs = forward_extremes_upto(data, t_max)
+    if excursions is None:
+        mins, maxs = forward_extremes_upto(data, t_max)
+    else:
+        mins, maxs = excursions
+        expected = (t_max, len(data))
+        if mins.shape != expected or maxs.shape != expected:
+            raise ValueError("cached excursions do not match the requested data and horizon grid")
 
     x_all  = feature.to_numpy(float)
     n_bins = len(edges) + 1
@@ -166,6 +223,73 @@ def touch_tensor(
             'Δs': np.asarray(Δs, dtype=float),
             'horizons': np.asarray(horizons, dtype=int),
             'edges': np.asarray(edges, dtype=float)}
+
+
+def _touch_tensor_cuda(
+    data: pd.DataFrame,
+    feature: pd.Series,
+    horizons: np.ndarray,
+    Δs: np.ndarray,
+    edges: np.ndarray,
+    min_n: int,
+    excursions: tuple[np.ndarray, np.ndarray] | None,
+) -> dict:
+    """CUDA touch-tensor kernel with the same output contract as ``touch_tensor``."""
+    import torch
+
+    t_max = int(np.max(horizons))
+    if excursions is None:
+        mins, maxs = _forward_extremes_cuda(data, t_max)
+    else:
+        mins, maxs = excursions
+        expected = (t_max, len(data))
+        if mins.shape != expected or maxs.shape != expected:
+            raise ValueError("cached excursions do not match the requested data and horizon grid")
+
+    device = tensor_runtime.device()
+    mins_t = torch.as_tensor(np.array(mins, copy=True), dtype=torch.float64, device=device)
+    maxs_t = torch.as_tensor(np.array(maxs, copy=True), dtype=torch.float64, device=device)
+    x_all = torch.as_tensor(
+        np.array(feature, dtype=float, copy=True), dtype=torch.float64, device=device
+    )
+    edges_t = torch.as_tensor(edges, dtype=torch.float64, device=device)
+    deltas_t = torch.as_tensor(Δs, dtype=torch.float64, device=device)
+    n_bins, n_th, n_t = len(edges) + 1, len(Δs), len(horizons)
+
+    prob = torch.full((n_th, n_bins, n_t), float("nan"), dtype=torch.float64, device=device)
+    hits = torch.zeros((n_th, n_bins, n_t), dtype=torch.int32, device=device)
+    bin_n = torch.zeros((n_bins, n_t), dtype=torch.int32, device=device)
+    n_obs = torch.zeros(n_t, dtype=torch.int32, device=device)
+
+    for j, t in enumerate(horizons):
+        lo_t, hi_t = mins_t[t - 1], maxs_t[t - 1]
+        ok = torch.isfinite(lo_t) & torch.isfinite(hi_t) & torch.isfinite(x_all)
+        if not bool(ok.any()):
+            continue
+        xs, ls, hs = x_all[ok], lo_t[ok], hi_t[ok]
+        idx = torch.bucketize(xs, edges_t, right=False) if len(edges) else torch.zeros(
+            len(xs), dtype=torch.int64, device=device
+        )
+        counts = torch.bincount(idx, minlength=n_bins)
+        enough = counts >= min_n
+        bin_n[:, j] = counts.to(torch.int32)
+        n_obs[j] = len(xs)
+        for i, delta in enumerate(deltas_t):
+            touched = torch.where(delta < 0, ls <= delta, hs >= delta).to(torch.float64)
+            count = torch.bincount(idx, weights=touched, minlength=n_bins)
+            hits[i, :, j] = count.to(torch.int32)
+            rates = count / torch.clamp(counts, min=1)
+            prob[i, :, j] = torch.where(enough, rates, torch.full_like(rates, float("nan")))
+
+    return {
+        "prob": prob.cpu().numpy(),
+        "hits": hits.cpu().numpy(),
+        "bin_n": bin_n.cpu().numpy(),
+        "n_obs": n_obs.cpu().numpy(),
+        "Δs": np.asarray(Δs, dtype=float),
+        "horizons": np.asarray(horizons, dtype=int),
+        "edges": np.asarray(edges, dtype=float),
+    }
 
 
 def touch_band(surface: np.ndarray, Δs: np.ndarray, q: float) -> tuple[np.ndarray, np.ndarray]:

@@ -45,35 +45,35 @@ class WorkspaceContractTests(unittest.TestCase):
         row = {"rank": 7, "family": "vix", "node": "vix_level", "bin_number": 3}
         self.assertEqual(
             self.workspace.cube_path("vix", "vix_level").as_posix().split("/")[-3:],
-            ["01_surface", "vix", "vix_level.npz"],
+            ["01_surface", "array", "vix_level.safetensors"],
         )
         self.assertEqual(
             self.workspace.surface_path("vix", "vix_level").as_posix().split("/")[-3:],
-            ["01_surface", "vix", "vix_level.xlsx"],
+            ["01_surface", "spreadsheet", "vix_level.xlsx"],
         )
         self.assertEqual(
             self.workspace.shift_cube_path("vix", "vix_level").as_posix().split("/")[-3:],
-            ["02_shift", "vix", "vix_level.npz"],
+            ["02_shift", "array", "vix_level.safetensors"],
         )
         self.assertEqual(
             self.workspace.shift_surface_path("vix", "vix_level").as_posix().split("/")[-3:],
-            ["02_shift", "vix", "vix_level.xlsx"],
+            ["02_shift", "spreadsheet", "vix_level.xlsx"],
         )
         self.assertEqual(
             self.workspace.selection_array_path(row).as_posix().split("/")[-3:],
-            ["03_selection", "vix", "rank_007__vix_level__bin_03.npz"],
+            ["03_selection", "array", "rank_007__vix_level__bin_03.safetensors"],
         )
         self.assertEqual(
             self.workspace.selection_surface_path(row).as_posix().split("/")[-3:],
-            ["03_selection", "vix", "rank_007__vix_level__bin_03.xlsx"],
+            ["03_selection", "spreadsheet", "rank_007__vix_level__bin_03.xlsx"],
         )
         self.assertEqual(
             self.workspace.validation_array_path(row).as_posix().split("/")[-3:],
-            ["04_validation", "vix", "rank_007__vix_level__bin_03.npz"],
+            ["04_validation", "array", "rank_007__vix_level__bin_03.safetensors"],
         )
         self.assertEqual(
             self.workspace.validation_surface_path(row).as_posix().split("/")[-3:],
-            ["04_validation", "vix", "rank_007__vix_level__bin_03.xlsx"],
+            ["04_validation", "spreadsheet", "rank_007__vix_level__bin_03.xlsx"],
         )
         self.assertEqual(
             self.workspace.redundancy_path.as_posix().split("/")[-2:],

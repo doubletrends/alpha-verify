@@ -15,7 +15,14 @@ def _build_cube(context: RunContext, node: dict, quiet: bool = False) -> None:
     workspace = context.workspace
     data, feature = context.node_feature(node)
     edges = barrier.bin_edges(feature, workspace.n_bins)
-    cube = barrier.touch_tensor(data, feature, workspace.horizons, workspace.deltas, edges)
+    cube = barrier.touch_tensor(
+        data,
+        feature,
+        workspace.horizons,
+        workspace.deltas,
+        edges,
+        excursions=context.forward_excursions(node["data"], data, int(workspace.horizons.max())),
+    )
     cube["index"] = data.index.astype(str).to_numpy()
     cube["feature_values"] = feature.reindex(data.index).to_numpy(float)
     for column in ("open", "high", "low", "close", "volume"):

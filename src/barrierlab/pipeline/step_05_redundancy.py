@@ -189,11 +189,6 @@ def cmd_redundancy(ws: Workspace) -> None:
     fold_plans = fold_representative_plan(
         data, features, names, delta, horizon, ws.n_bins, ws.composition_folds
     )
-    current = bayes.current_weighted_forecast(
-        data, {name: features[name] for name in representative_names}, delta, horizon,
-        n_bins=ws.n_bins, top_k=None, equal_weight=True,
-    )
-
     pairs = [
         {
             "left": names[left],
@@ -327,7 +322,6 @@ def cmd_redundancy(ws: Workspace) -> None:
         },
         "equal_weight_bayes": {
             "target": {"Δ": delta, "horizon": horizon, "unit": ws.horizon_unit},
-            "as_of": current["as_of"],
             "representatives": representative_names,
             "fold_representatives": fold_plans,
             "node_weight": 1.0,

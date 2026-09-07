@@ -1,5 +1,8 @@
 from pathlib import Path
 from typing import Callable
+import json
+import urllib.parse
+import urllib.request
 
 import pandas as pd
 import yfinance as yf
@@ -49,10 +52,54 @@ def _clamp_intraday_start(start: str, interval: str) -> str:
     return max(pd.Timestamp(start), earliest).strftime('%Y-%m-%d')
 
 
+def _yahoo_chart(ticker: str, interval: str, start: str) -> pd.DataFrame:
+    """Fetch OHLCV from Yahoo's public chart endpoint.
+
+    ``yfinance.download`` can be temporarily rate-limited while this lower-level
+    endpoint remains available.  Both paths expose the same Yahoo instrument and
+    unadjusted OHLCV bars, so this is a transport fallback rather than a data-model
+    change.
+    """
+    start = _clamp_intraday_start(start, interval)
+    period1 = int(pd.Timestamp(start, tz="UTC").timestamp())
+    query = urllib.parse.urlencode({
+        "period1": period1,
+        "period2": 2147483647,
+        "interval": interval,
+    })
+    url = "https://query1.finance.yahoo.com/v8/finance/chart/" + urllib.parse.quote(
+        ticker, safe=""
+    ) + "?" + query
+    request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(request, timeout=30) as response:
+        payload = json.load(response)
+    result = payload.get("chart", {}).get("result") or []
+    if not result:
+        return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+    result = result[0]
+    quote = (result.get("indicators", {}).get("quote") or [{}])[0]
+    timestamps = result.get("timestamp") or []
+    data = pd.DataFrame({
+        "open": quote.get("open", []),
+        "high": quote.get("high", []),
+        "low": quote.get("low", []),
+        "close": quote.get("close", []),
+        "volume": quote.get("volume", []),
+    }, index=pd.to_datetime(timestamps, unit="s", utc=True).tz_localize(None))
+    if data.empty:
+        return data
+    if not any(c in interval for c in ("h", "m")):
+        data.index = data.index.normalize()
+    data.index.name = "Date"
+    return data.loc[data.index >= pd.Timestamp(start)]
+
+
 def _yfinance_ohlcv(ticker: str, interval: str, start: str) -> pd.DataFrame:
     _configure_yfinance_cache()
     start = _clamp_intraday_start(start, interval)
     df = yf.download(ticker, start=start, interval=interval, auto_adjust=False, progress=False)
+    if df.empty:
+        return _yahoo_chart(ticker, interval, start)
     if hasattr(df.columns, 'nlevels') and df.columns.nlevels > 1:
         df.columns = df.columns.get_level_values(0)
     idx = pd.to_datetime(df.index)
@@ -80,7 +127,12 @@ def _yfinance_cross(ticker: str, col_name: str, interval: str, start: str) -> pd
             df.columns = df.columns.get_level_values(0)
         interval_used = '1d'
     if df.empty:
-        return pd.DataFrame(columns=[col_name])
+        fallback = _yahoo_chart(ticker, interval_used, start)
+        if fallback.empty and interval_used != '1d':
+            fallback = _yahoo_chart(ticker, '1d', start)
+        if fallback.empty:
+            return pd.DataFrame(columns=[col_name])
+        return fallback[['close']].rename(columns={'close': col_name}).ffill()
     idx = pd.to_datetime(df.index)
     if idx.tz is not None:
         idx = idx.tz_localize(None)
@@ -105,6 +157,9 @@ def _treasury(start: str, asset: dict) -> pd.DataFrame:
 
 def _dxy(start: str, asset: dict) -> pd.DataFrame:
     df = yf.download('DX-Y.NYB', start=start, interval='1d', auto_adjust=False, progress=False)
+    if df.empty:
+        fallback = _yahoo_chart('DX-Y.NYB', '1d', start)
+        return fallback[['close']].rename(columns={'close': 'dxy'}).ffill()
     if hasattr(df.columns, 'nlevels') and df.columns.nlevels > 1:
         df.columns = df.columns.get_level_values(0)
     df.index = pd.to_datetime(df.index).normalize().tz_localize(None)

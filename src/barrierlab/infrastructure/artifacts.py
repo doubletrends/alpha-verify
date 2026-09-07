@@ -33,29 +33,29 @@ class ArtifactPaths:
         return self.workspace_dir / STAGE_DIRECTORIES[stage]
 
     def cube_path(self, family: str, node_id: str) -> Path:
-        return self.stage_dir("surface") / family / f"{node_id}.npz"
+        return self.stage_dir("surface") / "array" / f"{node_id}.safetensors"
 
     def surface_path(self, family: str, node_id: str) -> Path:
-        return self.stage_dir("surface") / family / f"{node_id}.xlsx"
+        return self.stage_dir("surface") / "spreadsheet" / f"{node_id}.xlsx"
 
     def shift_cube_path(self, family: str, node_id: str) -> Path:
-        return self.stage_dir("shift") / family / f"{node_id}.npz"
+        return self.stage_dir("shift") / "array" / f"{node_id}.safetensors"
 
     def shift_surface_path(self, family: str, node_id: str) -> Path:
-        return self.stage_dir("shift") / family / f"{node_id}.xlsx"
+        return self.stage_dir("shift") / "spreadsheet" / f"{node_id}.xlsx"
 
     @property
     def selection_path(self) -> Path:
         return self.stage_dir("selection") / "selection.json"
 
     def selection_array_path(self, row: dict) -> Path:
-        return self._ranked_path("selection", row, ".npz")
+        return self._ranked_path("selection", row, ".safetensors")
 
     def selection_surface_path(self, row: dict) -> Path:
         return self._ranked_path("selection", row, ".xlsx")
 
     def validation_array_path(self, row: dict) -> Path:
-        return self._ranked_path("validation", row, ".npz")
+        return self._ranked_path("validation", row, ".safetensors")
 
     def validation_surface_path(self, row: dict) -> Path:
         return self._ranked_path("validation", row, ".xlsx")
@@ -63,7 +63,7 @@ class ArtifactPaths:
     def _ranked_path(self, stage: str, row: dict, suffix: str) -> Path:
         rank = int(row["rank"])
         return (
-            self.stage_dir(stage) / row["family"]
+            self.stage_dir(stage) / {".safetensors": "array", ".xlsx": "spreadsheet"}[suffix]
             / f"rank_{rank:03d}__{row['node']}__bin_{int(row['bin_number']):02d}{suffix}"
         )
 
@@ -73,7 +73,7 @@ class ArtifactPaths:
 
     @property
     def validated_bundle_path(self) -> Path:
-        return self.stage_dir("validation") / "validated.npz"
+        return self.stage_dir("validation") / "array" / "validated.safetensors"
 
     @property
     def redundancy_path(self) -> Path:

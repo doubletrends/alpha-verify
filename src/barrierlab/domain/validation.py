@@ -90,6 +90,7 @@ def null_surface(
     n_bins:          int,
     min_n:           int = MIN_BIN_N,
     guard:           int = EDGE_GUARD,
+    selected_bin:    int | None = None,
 ) -> dict:
     """
     Null-test one horizon's surface, per cell and as a whole.
@@ -160,7 +161,7 @@ def null_surface(
         sheet_p[b] = (1.0 + (sheet_null[b] >= sheet_real[b]).sum()) / (1.0 + n_use)
         sheet_p95[b] = np.percentile(sheet_null[b], 95)
 
-    return {
+    out = {
         'cell_real': real_signed,
         'cell_p':    cell_p,
         'cell_p95':  cell_p95,
@@ -172,6 +173,136 @@ def null_surface(
         'peak_p95':  float(np.percentile(peak_null, 95)),
         'n_shifts':  n_use,
     }
+    if selected_bin is not None and 0 <= int(selected_bin) < n_bins:
+        out["selected_peak_null"] = sheet_null[int(selected_bin)]
+    return out
+
+
+def simulated_ohlc_tensor(data: pd.DataFrame, n_paths: int = 1000, seed: int = 20260907):
+    """Fit and draw the entire shared OHLC ensemble on the configured Torch device."""
+    import torch
+    from barrierlab.domain import tensor_runtime
+    close = data["close"].to_numpy(float)
+    open_ = data["open"].to_numpy(float) if "open" in data else close
+    high = data["high"].to_numpy(float) if "high" in data else np.maximum(open_, close)
+    low = data["low"].to_numpy(float) if "low" in data else np.minimum(open_, close)
+    previous = np.r_[close[0], close[:-1]]
+    vectors = np.column_stack((
+        np.log(open_ / previous),
+        np.log(close / open_),
+        np.log(high / np.maximum(open_, close)),
+        np.log(low / np.minimum(open_, close)),
+    ))
+    vectors = vectors[np.isfinite(vectors).all(axis=1)]
+    device = tensor_runtime.device()
+    samples = torch.as_tensor(vectors, dtype=torch.float64, device=device)
+    mean = samples.mean(0)
+    covariance = torch.cov(samples.T)
+    # Cholesky plus an explicitly seeded normal draw is equivalent to a
+    # multivariate-normal draw and accepts a per-run generator on CPU and CUDA.
+    scale = torch.diagonal(covariance).abs().max().clamp_min(1.0)
+    factor = torch.linalg.cholesky(covariance + torch.eye(4, dtype=torch.float64, device=device) * scale * 1e-12)
+    generator = torch.Generator(device=device).manual_seed(seed)
+    # One sampling call produces every path and bar; this is deliberately not a
+    # Python loop over histories.
+    draws = torch.randn((n_paths, len(data), 4), dtype=torch.float64, device=device, generator=generator) @ factor.T + mean
+    initial_close = torch.as_tensor(close[0], dtype=torch.float64, device=device)
+    log_open = draws[:, :, 0]
+    log_close = draws[:, :, 1]
+    log_path = torch.cumsum(log_open + log_close, dim=1)
+    synthetic_close = initial_close * torch.exp(log_path)
+    previous = torch.cat((initial_close.expand(n_paths, 1), synthetic_close[:, :-1]), dim=1)
+    synthetic_open = previous * torch.exp(log_open)
+    synthetic_high = torch.maximum(synthetic_open, synthetic_close) * torch.exp(draws[:, :, 2])
+    synthetic_low = torch.minimum(synthetic_open, synthetic_close) * torch.exp(draws[:, :, 3])
+    volume = torch.as_tensor(np.array(data["volume"] if "volume" in data else np.ones(len(data)), dtype=float, copy=True), dtype=torch.float64, device=device).expand(n_paths, -1)
+    return torch.stack((synthetic_open, synthetic_high, synthetic_low, synthetic_close, volume), dim=-1)
+
+
+def simulated_ohlc_paths(data: pd.DataFrame, n_paths: int = 1000, seed: int = 20260907) -> list[pd.DataFrame]:
+    """Compatibility adapter. Pipeline validation uses ``simulated_ohlc_tensor``."""
+    paths = simulated_ohlc_tensor(data, n_paths, seed).cpu().numpy()
+    return [pd.DataFrame(dict(zip(("open", "high", "low", "close", "volume"), path.T)), index=data.index) for path in paths]
+
+
+def bin_score(
+    data: pd.DataFrame, feature: pd.Series, delta: float, horizon: int, n_bins: int,
+    bin_index: int, excursions: tuple[np.ndarray, np.ndarray] | None = None,
+) -> float:
+    """Production two-sided score for one selected condition bin."""
+    return float(bin_scores(
+        data, feature, delta, horizon, n_bins, excursions=excursions
+    )[int(bin_index)])
+
+
+def baseline_prob(
+    data: pd.DataFrame, delta: float, horizon: int,
+    excursions: tuple[np.ndarray, np.ndarray] | None = None,
+) -> np.ndarray:
+    """Two-sided unconditional touch probability for one history."""
+    from barrierlab.domain import barrier
+
+    horizons = np.asarray([horizon])
+    deltas = np.asarray([-abs(delta), abs(delta)])
+    return barrier.touch_tensor(
+        data, pd.Series(1.0, index=data.index), horizons, deltas, np.empty(0),
+        excursions=excursions,
+    )["prob"][:, 0, 0]
+
+
+def bin_scores(
+    data: pd.DataFrame, feature: pd.Series, delta: float, horizon: int, n_bins: int,
+    excursions: tuple[np.ndarray, np.ndarray] | None = None,
+    baseline: np.ndarray | None = None,
+    edges: np.ndarray | None = None,
+) -> np.ndarray:
+    """Two-sided scores for every condition bin from one history."""
+    from barrierlab.domain import barrier
+
+    horizons = np.asarray([horizon])
+    deltas = np.asarray([-abs(delta), abs(delta)])
+    if baseline is None:
+        baseline = baseline_prob(data, delta, horizon, excursions)
+    if edges is None:
+        edges = barrier.bin_edges(feature, n_bins)
+    conditional = barrier.touch_tensor(
+        data, feature, horizons, deltas, edges, excursions=excursions,
+    )
+    shifts = (conditional["prob"][:, :, 0] - baseline[:, None]) * 100.0
+    return np.abs(shifts[1] - shifts[0])
+
+
+def batched_bin_scores(paths, features: np.ndarray | None, delta: float,
+                            horizon: int, n_bins: int, feature_name: str | None = None,
+                            params: dict | None = None) -> np.ndarray:
+    """Score every bin for every synthetic path in one Torch device batch."""
+    import torch
+    from barrierlab.domain import tensor_runtime, torch_features
+    device = tensor_runtime.device()
+    ohlcv = paths if isinstance(paths, torch.Tensor) else tensor_runtime.tensor(paths)
+    close, high, low = ohlcv[:, :, 3], ohlcv[:, :, 1], ohlcv[:, :, 2]
+    if features is None:
+        x = torch_features.compute(ohlcv, feature_name, params or {})
+    else:
+        x = torch.as_tensor(np.array(features, dtype=float, copy=True), dtype=torch.float64, device=device)
+    p, n = close.shape
+    valid_n = n - horizon
+    lo = torch.full_like(close, float("nan")); hi = torch.full_like(close, float("nan"))
+    lo[:, :valid_n] = low[:, 1:].unfold(1, horizon, 1).amin(-1) / close[:, :valid_n] - 1
+    hi[:, :valid_n] = high[:, 1:].unfold(1, horizon, 1).amax(-1) / close[:, :valid_n] - 1
+    ok = torch.isfinite(x) & torch.isfinite(lo) & torch.isfinite(hi)
+    edges = torch.quantile(x.nan_to_num(nan=0.0), torch.linspace(
+        0.1, 0.9, n_bins - 1, dtype=torch.float64, device=device
+    ), dim=1).T
+    idx = (x[:, :, None] >= edges[:, None, :]).sum(-1).long()
+    counts = torch.zeros((p, n_bins), dtype=torch.float64, device=device)
+    counts.scatter_add_(1, idx, ok.to(torch.float64))
+    scores = []
+    for touched in (lo <= -abs(delta), hi >= abs(delta)):
+        hits = torch.zeros_like(counts)
+        hits.scatter_add_(1, idx, (touched & ok).to(torch.float64))
+        scores.append(hits / counts.clamp_min(1))
+    return (scores[1] - scores[0]).abs().mul(100).cpu().numpy()
 
 
 def validate_node(
@@ -182,6 +313,8 @@ def validate_node(
     edges:         np.ndarray,
     min_n:         int = MIN_BIN_N,
     guard:         int = EDGE_GUARD,
+    excursions: tuple[np.ndarray, np.ndarray] | None = None,
+    selected_bin: int | None = None,
 ) -> dict:
     """
     Null-test every horizon of a node, returning arrays shaped like its cube.
@@ -193,7 +326,13 @@ def validate_node(
     from barrierlab.domain import barrier
 
     t_max = int(np.max(horizons))
-    mins, maxs = barrier.forward_extremes_upto(data, t_max)
+    if excursions is None:
+        mins, maxs = barrier.forward_extremes_upto(data, t_max)
+    else:
+        mins, maxs = excursions
+        expected = (t_max, len(data))
+        if mins.shape != expected or maxs.shape != expected:
+            raise ValueError("cached excursions do not match the selected node history")
     x_all = feature.to_numpy(float)
     n_bins = len(edges) + 1
     n_th, n_t = len(Δs), len(horizons)
@@ -205,6 +344,8 @@ def validate_node(
     for k in ('sheet_peak_real', 'sheet_peak_p', 'sheet_peak_p95'):
         out[k] = np.full((n_bins, n_t), np.nan)
     out['n_shifts'] = np.zeros(n_t, dtype=np.int32)
+    if selected_bin is not None:
+        out["selected_peak_null"] = np.full((n_t, len(data)), np.nan)
 
     for j, t in enumerate(horizons):
         lo_t, hi_t = mins[t - 1], maxs[t - 1]
@@ -218,7 +359,7 @@ def validate_node(
         for i, th in enumerate(Δs):
             touched[i] = (ls <= th) if th < 0 else (hs >= th)
 
-        r = null_surface(touched, idx, n_bins, min_n, guard)
+        r = null_surface(touched, idx, n_bins, min_n, guard, selected_bin)
         for k in ('cell_real', 'cell_p', 'cell_p95'):
             out[k][:, :, j] = r[k]
         for k in ('sheet_peak_real', 'sheet_peak_p', 'sheet_peak_p95'):
@@ -226,6 +367,9 @@ def validate_node(
         for k in ('peak_real', 'peak_p', 'peak_p95'):
             out[k][j] = r[k]
         out['n_shifts'][j] = r['n_shifts']
+        if selected_bin is not None and "selected_peak_null" in r:
+            values = r["selected_peak_null"]
+            out["selected_peak_null"][j, :len(values)] = values
 
     out['Δs']   = np.asarray(Δs, dtype=float)
     out['horizons'] = np.asarray(horizons, dtype=int)
@@ -467,4 +611,6 @@ def sheet_from_node_result(result: dict, row: dict) -> dict:
             "selection_best_cell": row.get("best_cell"),
         },
     }
+    if "selected_peak_null" in result:
+        out["selected_peak_null"] = result["selected_peak_null"]
     return out

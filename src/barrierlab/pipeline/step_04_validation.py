@@ -5,14 +5,16 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import numpy as np
+import pandas as pd
 
-from barrierlab.domain import validation as val
+from barrierlab.domain import barrier, validation as val
 from barrierlab.infrastructure import artifact_io
 from barrierlab.infrastructure.artifacts import (
     feature_from_artifact,
     market_data_from_artifact,
 )
 from barrierlab.infrastructure.workspace import Workspace
+from barrierlab.pipeline.context import RunContext
 from barrierlab.presentation import workbooks
 
 
@@ -48,6 +50,7 @@ def validation_artifact_is_current(ws: Workspace, row: dict) -> bool:
         )
         and "sheet_peak_p" in existing
         and "node_peak_p" in existing
+        and "selected_peak_null" in existing
     )
 
 
@@ -143,6 +146,8 @@ def validation_summary_is_current(ws: Workspace, summary: dict) -> bool:
     selected = _selected_rows(ws)
     if not selected or summary.get("selection_fingerprint") != selection_fingerprint(selected):
         return False
+    if summary.get("method", {}).get("unit") == "one two-sided condition-bin score":
+        return ws.validated_bundle_path.exists()
     if summary.get("method", {}).get("economic_filter") != _economic_criteria(ws):
         return False
     if summary.get("method", {}).get("null_alpha") != ws.null_alpha:
@@ -396,79 +401,66 @@ def cmd_validation(ws: Workspace) -> None:
         return
     nodes = {node["id"]: node for node in ws.catalog.all_nodes()}
     rows = [row for row in rows if row["node"] in nodes]
-    deltas, horizons = ws.deltas, ws.horizons
-    print(f"\n=== 4. 04_validation [{ws.dir.name}] - {len(rows)} selected nodes ===")
-    print(
-        f"  selected nodes are tested as {len(deltas)} delta x {len(horizons)} horizon surfaces; "
-        "validation artifacts retain their representative-bin view"
-    )
-    print("  workbooks show the representative bin; verdict p-values use the peak over the whole node cube")
-    print(f"  guard {val.EDGE_GUARD} bars either side, so the p-value floor is 1/(usable+1)")
-    print("  nulls the strongest touch-probability deviation per horizon\n")
-
-    array_count = 0
-    workbook_count = 0
+    print(f"\n=== 4. Validation [{ws.dir.name}] — selected-bin skew ===")
+    context = RunContext(ws)
+    grouped, simulated_paths = {}, None
     for row in rows:
+        selected_node = artifact_io.load_selected_node(ws.selection_array_path(row))
+        data = market_data_from_artifact(selected_node)
+        feature = feature_from_artifact(selected_node, data.index)
+        delta, horizon = ws.composition_target(selected_node["base"])
+        if simulated_paths is None:
+            simulated_paths = val.simulated_ohlc_tensor(data)
         node = nodes[row["node"]]
-        try:
-            selected_node = artifact_io.load_selected_node(
-                ws.selection_array_path(row)
-            )
-            data = market_data_from_artifact(selected_node)
-            feature = feature_from_artifact(selected_node, data.index)
-            n_valid = int(feature.notna().sum())
-            if n_valid < ws.min_obs:
-                raise ValueError(f"only {n_valid} valid observations")
-            node_result = val.validate_node(
-                data,
-                feature,
-                selected_node["horizons"],
-                selected_node["Δs"],
-                selected_node["edges"],
-            )
-            result = val.sheet_from_node_result(node_result, row)
-            artifact_io.save_validation(result, ws.validation_array_path(row), {
-                "node": node["id"],
-                "family": node["family"],
-                "feature": node["feature"],
-                "params": node["params"],
-                "workspace": ws.dir.name,
-                "bin_labels": result["meta"]["bin_labels"],
-                "source_bin": int(row["bin"]),
-                "source_bin_number": int(row["bin_number"]),
-                "selection_rank": int(row["rank"]),
-                "selection_score": float(row["score"]),
-                "generated": datetime.now(timezone.utc).isoformat(),
-            })
-            array_count += 1
-            workbooks.write_validation_xlsx(
-                result, ws.validation_surface_path(row), node["id"], node["feature"],
-                node["params"], ws.horizon_unit,
-            )
-            workbook_count += 1
-        except Exception as error:
-            print(f"  {node['id']:<26} [skip] {error}")
-            continue
+        grouped.setdefault(row["node"], {"node": node, "data": data, "feature": feature,
+                                           "delta": delta, "horizon": horizon, "rows": []})["rows"].append(row)
 
-        source_bin = int(row["bin"])
-        node_p = result["node_peak_p"]
-        finite = np.isfinite(node_p)
-        if finite.any():
-            horizon_index = int(np.nanargmin(np.where(finite, node_p, np.nan)))
-            floor = 1.0 / (1.0 + result["n_shifts"][horizon_index])
-            at_floor = result["node_peak_p"][horizon_index] <= floor + 1e-12
-            tag = "  [at the floor]" if at_floor else ""
-            print(
-                f"  {node['id']:<26} bin {source_bin + 1:>2} "
-                f"node p={result['node_peak_p'][horizon_index]:.5f} "
-                f"at +{result['horizons'][horizon_index]}{ws.horizon_unit}  peak "
-                f"{result['node_peak_real'][horizon_index]:5.1f} vs p95 "
-                f"{result['node_peak_p95'][horizon_index]:5.1f}{tag}"
-            )
-        else:
-            print(f"  {node['id']:<26} insufficient data in selected bins")
-
-    relative_dir = ws.dir.relative_to(ws.root_dir)
-    print(f"\n  wrote {array_count} .npz artifacts under {relative_dir}/04_validation/")
-    print(f"  wrote {workbook_count} workbooks under {relative_dir}/04_validation/")
-    finalize_validation(ws)
+    records = []
+    for group in grouped.values():
+        node, data, feature = group["node"], group["data"], group["feature"]
+        fixed_edges = None if node["data"] == ["ohlcv"] else barrier.bin_edges(feature, ws.n_bins)
+        observed_scores = val.bin_scores(
+            data, feature, delta, horizon, ws.n_bins,
+            baseline=val.baseline_prob(data, delta, horizon), edges=fixed_edges,
+        )
+        synthetic_features = None
+        if node["data"] != ["ohlcv"]:
+            synthetic_features = np.broadcast_to(feature.to_numpy(float), (simulated_paths.shape[0], len(feature)))
+        null_matrix = val.batched_bin_scores(
+            simulated_paths, synthetic_features, delta, horizon, ws.n_bins,
+            node["feature"], node["params"],
+        )
+        for row in group["rows"]:
+            observed = float(observed_scores[int(row["bin"])])
+            null_scores = null_matrix[:, int(row["bin"])]
+            records.append({**row, "horizon": horizon, "bin_score": observed,
+                            "peak_p": float((1 + (null_scores >= observed).sum()) / (1 + len(null_scores))),
+                            "peak_p95": float(np.percentile(null_scores, 95)),
+                            "n_shifts": len(null_scores),
+                            "null_scores": [float(value) for value in null_scores]})
+    rejected, qvalues = val.bh(np.asarray([r["peak_p"] for r in records]))
+    cleared = []
+    for row, rejected_here, qvalue in zip(records, rejected, qvalues):
+        row["q_value"] = float(qvalue)
+        row["cleared"] = bool(rejected_here and row["peak_p"] <= ws.null_alpha)
+        if row["cleared"]:
+            cleared.append({key: row[key] for key in (
+                "node", "family", "rank", "score", "horizon", "bin_score",
+                "peak_p", "peak_p95", "n_shifts", "q_value", "cleared",
+            )})
+    summary = {
+        "workspace": ws.dir.name, "generated": datetime.now(timezone.utc).isoformat(),
+        "artifact": "04_validation", "complete": True,
+        "selection_fingerprint": selection_fingerprint(rows),
+        "method": {"correction": "benjamini-hochberg", "q": 0.05,
+                   "null_alpha": ws.null_alpha,
+                   "unit": "one two-sided condition-bin score",
+                   "null": "1000 shared synthetic OHLC histories; external condition histories fixed"},
+        "summary": {"tested": len(records), "cleared": len(cleared)},
+        "tests": records, "cleared": cleared, "economics": [],
+    }
+    ws.write_json(ws.validation_summary_path, summary)
+    write_validated_bundle(ws, rows, summary)
+    from barrierlab.presentation.report_diagnostics import write_bin_score_null_histograms
+    write_bin_score_null_histograms(ws, summary)
+    print(f"  tested {len(records)} selected-bin scores; {len(cleared)} cleared after BH")

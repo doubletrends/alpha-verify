@@ -6,12 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
-from barrierlab.domain import validation as val
 from barrierlab.infrastructure import artifact_io
-from barrierlab.infrastructure.artifacts import (
-    feature_from_artifact,
-    market_data_from_artifact,
-)
 from barrierlab.presentation.report_style import (
     INK,
     INK_2,
@@ -26,6 +21,41 @@ from barrierlab.presentation.report_style import (
 )
 from barrierlab.infrastructure.workspace import BASELINE_NODE
 from barrierlab.presentation.workbooks import feature_label
+
+
+def write_bin_score_null_histograms(ws, summary: dict) -> list[Path]:
+    """Render each selected-bin comparison against its simulated-bin null."""
+    out = ws.validation_summary_path.parent / "plot"
+    out.mkdir(parents=True, exist_ok=True)
+    paths = []
+    for row in summary.get("tests", []):
+        null = np.asarray(row.get("null_scores", []), dtype=float)
+        null = null[np.isfinite(null)]
+        if not len(null):
+            continue
+        observed = float(row["bin_score"])
+        p95 = float(row["peak_p95"])
+        fig, ax = plt.subplots(figsize=(7.2, 4.1))
+        ax.hist(null, bins=min(20, max(8, len(null) // 5)), color="#d8d7d2",
+                edgecolor=SURFACE, linewidth=0.6)
+        ax.axvline(p95, color=INK_2, linewidth=1.2, linestyle="--", label="null p95")
+        ax.axvline(observed, color=S1, linewidth=2.1, label="observed bin score")
+        ax.set_xlabel("two-sided bin score (pp)")
+        ax.set_ylabel("synthetic OHLC paths")
+        _frame(ax, grid_axis="y")
+        ax.legend(fontsize=8, frameon=False)
+        _title(
+            fig,
+            f'{feature_label(row["node"])} bin {int(row["bin_number"])} — score vs synthetic null',
+            f'observed {observed:.2f}pp · null p95 {p95:.2f}pp · '
+            f'p={row["peak_p"]:.4f}, q={row.get("q_value", float("nan")):.4f}',
+        )
+        _note(fig, f'{ws.dir.name} · {len(null)} shared synthetic OHLC paths · '
+                   f'external condition histories held fixed')
+        fig.subplots_adjust(top=0.78, bottom=0.18)
+        path = out / f'null_histogram__{row["rank"]:03d}__{row["node"]}__bin_{int(row["bin_number"]):02d}.png'
+        paths.append(_save(fig, path))
+    return paths
 
 
 def fig_null_gap_ranking(ws, cleared, out: Path) -> Path | None:
@@ -95,39 +125,31 @@ def fig_null_gap_ranking(ws, cleared, out: Path) -> Path | None:
 
 
 def _null_distribution_for_gate_row(ws, gate_row: dict) -> dict | None:
-    """Recompute one cleared selected sheet's null distribution from saved arrays."""
-    b = int(gate_row.get('bin', gate_row.get('best_cell', {}).get('bin', 0)))
-    report = artifact_io.load_composition(ws.composition_array_path)
-    ids = [str(value) for value in report.get("report_node_ids", [])]
-    if gate_row["node"] not in ids:
-        return None
-    index = ids.index(gate_row["node"])
-    artifact = {
-        "index": report["report_index"],
-        "high": report["report_high"],
-        "low": report["report_low"],
-        "close": report["report_close"],
-        "feature_values": report[f"report_feature_{index}"],
-        "source_bin": np.asarray(b),
-        "Δs": report["current_Δ"],
-        "horizons": report["current_horizon"],
-        "edges": report[f"report_edges_{index}"],
-    }
+    """Load one cleared selected sheet's saved Stage 4 null distribution."""
     try:
-        data = market_data_from_artifact(artifact)
-        feat = feature_from_artifact(artifact, data.index)
-    except ValueError:
+        artifact = artifact_io.load_validation(ws.validation_array_path(gate_row))
+    except (FileNotFoundError, ValueError):
         return None
-    source_bin = int(artifact['source_bin']) if 'source_bin' in artifact else b
-    return val.peak_shift_distribution(
-        data,
-        feat,
-        int(gate_row['horizon']),
-        artifact['Δs'],
-        artifact['edges'],
-        bin_index=source_bin,
-        min_n=ws.min_bin_n,
-    )
+    if "selected_peak_null" not in artifact:
+        return None
+    matches = np.flatnonzero(artifact["horizons"].astype(int) == int(gate_row["horizon"]))
+    if len(matches) != 1:
+        return None
+    horizon_index = int(matches[0])
+    null = np.asarray(artifact["selected_peak_null"][horizon_index], dtype=float)
+    null = null[np.isfinite(null)]
+    n_shifts = int(np.asarray(artifact["n_shifts"])[horizon_index])
+    if not len(null) or n_shifts != len(null):
+        return None
+    observed = float(np.asarray(artifact["sheet_peak_real"])[0, horizon_index])
+    return {
+        "null": null,
+        "observed": observed,
+        "p95": float(np.percentile(null, 95)),
+        "p_value": float((1.0 + (null >= observed).sum()) / (1.0 + n_shifts)),
+        "n_shifts": n_shifts,
+        "floor": 1.0 / (1.0 + n_shifts),
+    }
 
 
 def fig_null(ws, cleared, out: Path) -> Path | None:
@@ -204,8 +226,7 @@ def fig_null(ws, cleared, out: Path) -> Path | None:
            f'and filtered sheets. The dashed line is the pooled p99 null threshold; '
            f'the blue tick is the strongest observed sheet peak.')
     _note(fig, f'A shift keeps the feature\'s autocorrelation and destroys only its '
-               f'alignment with the future · histogram recomputed in Stage 7 from saved '
-               f'03_selection histories · {n_shifts:,} pooled '
+               f'alignment with the future · histogram loaded from saved Stage 4 nulls · {n_shifts:,} pooled '
                f'usable shifts across {len(dists)} cleared sheets · strongest observed '
                f'p = {float(strongest["p_value"]):.2g}, per-sheet floor '
                f'{float(np.nanmin(floors)):.2g}')

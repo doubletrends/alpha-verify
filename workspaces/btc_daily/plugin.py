@@ -6,6 +6,9 @@ import urllib.request
 
 import numpy as np
 import pandas as pd
+import torch
+
+from barrierlab.domain import tensor_runtime, torch_features
 
 # ── coinmetrics source ────────────────────────────────────────────────────────
 
@@ -45,6 +48,16 @@ def _hash_rate_ma_ratio(data: pd.DataFrame, period: int) -> pd.Series:
 def _adr_act_ma_ratio(data: pd.DataFrame, period: int) -> pd.Series:
     aa = np.log(data['adr_act_cnt'].replace(0, np.nan))
     return aa / aa.rolling(period).mean() - 1.0
+
+
+def _torch_column(data: pd.DataFrame, column: str) -> torch.Tensor:
+    return tensor_runtime.tensor(data[column].to_numpy(float))
+
+
+def _torch_ratio(data: pd.DataFrame, column: str, period: int) -> torch.Tensor:
+    values = _torch_column(data, column)
+    logged = torch.where(values > 0, torch.log(values), torch.full_like(values, float('nan')))
+    return logged / torch_features.rolling_mean(logged.unsqueeze(0), period).squeeze(0) - 1.0
 
 
 # ── halving cycle helpers ─────────────────────────────────────────────────────
@@ -101,3 +114,11 @@ def register(sources, features) -> None:
     features.register('cycle_phase',        lambda d, p: _cycle_phase(d))
     features.register('days_to_halving',    lambda d, p: _days_to_halving(d))
     features.register('days_since_halving', lambda d, p: _days_since_halving(d))
+    # The data-frame index remains the date-label boundary; all numeric feature
+    # arithmetic below is on the pipeline's selected Torch device.
+    features.register_torch('mvrv', lambda d, p: _torch_column(d, 'mvrv'))
+    features.register_torch('hash_rate_ma_ratio', lambda d, p: _torch_ratio(d, 'hash_rate', p['period']))
+    features.register_torch('adr_act_ma_ratio', lambda d, p: _torch_ratio(d, 'adr_act_cnt', p['period']))
+    features.register_torch('cycle_phase', lambda d, p: tensor_runtime.tensor(_cycle_phase(d).to_numpy(float)))
+    features.register_torch('days_to_halving', lambda d, p: tensor_runtime.tensor(_days_to_halving(d).to_numpy(float)))
+    features.register_torch('days_since_halving', lambda d, p: tensor_runtime.tensor(_days_since_halving(d).to_numpy(float)))

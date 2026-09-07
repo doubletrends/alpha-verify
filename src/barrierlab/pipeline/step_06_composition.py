@@ -142,22 +142,26 @@ def cmd_composition(ws: Workspace) -> None:
     print("done")
 
     report_as_of = ws.report_as_of
-    print(
-        f"  fitting report Bayes surface as of {report_as_of}",
-        end=" ... ",
-        flush=True,
-    )
-    demonstration_surface = bayes.current_weighted_surface(
-        data,
-        forecast_feats,
-        surface_deltas,
-        surface_horizons,
-        n_bins=ws.n_bins,
-        top_k=None,
-        as_of=report_as_of,
-        equal_weight=True,
-    )
-    print("done")
+    if pd.Timestamp(report_as_of) >= pd.Timestamp(current_as_of):
+        demonstration_surface = current_surface
+        print(f"  report Bayes surface as of {report_as_of} reuses current forecast")
+    else:
+        print(
+            f"  fitting report Bayes surface as of {report_as_of}",
+            end=" ... ",
+            flush=True,
+        )
+        demonstration_surface = bayes.current_weighted_surface(
+            data,
+            forecast_feats,
+            surface_deltas,
+            surface_horizons,
+            n_bins=ws.n_bins,
+            top_k=None,
+            as_of=report_as_of,
+            equal_weight=True,
+        )
+        print("done")
 
     grid = []
 

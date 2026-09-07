@@ -6,6 +6,9 @@ import json
 from pathlib import Path
 
 import numpy as np
+from safetensors import safe_open
+from safetensors.numpy import load_file as load_safetensors
+from safetensors.numpy import save_file as save_safetensors
 
 
 _HISTORY_KEYS = (
@@ -44,18 +47,50 @@ def _history_payload(artifact: dict) -> dict:
 
 
 def _write_npz(path: Path, payload: dict, meta: dict) -> None:
+    """Persist an array artifact, using SafeTensors when requested by its suffix."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    if path.suffix == ".safetensors":
+        tensors, encoded = {}, {}
+        for key, value in payload.items():
+            array = np.asarray(value)
+            if array.ndim == 0 or array.dtype.kind in "OUS":
+                encoded[key] = {
+                    "dtype": array.dtype.str,
+                    "shape": array.shape,
+                    "data": array.tolist(),
+                }
+            else:
+                tensors[key] = np.ascontiguousarray(array)
+        save_safetensors(
+            tensors,
+            str(path),
+            metadata={
+                "meta": json.dumps(meta),
+                "encoded_arrays": json.dumps(encoded),
+            },
+        )
+        return
     np.savez_compressed(path, **payload, meta=np.array(json.dumps(meta)))
 
 
 def _read_npz(path: Path, float64_keys: tuple[str, ...] = ()) -> dict:
-    with np.load(path, allow_pickle=False) as stored:
-        artifact = {
-            key: stored[key]
-            for key in stored.files
-            if key != "meta"
-        }
-        artifact["meta"] = json.loads(str(stored["meta"]))
+    if path.suffix == ".safetensors":
+        artifact = dict(load_safetensors(str(path)))
+        with safe_open(str(path), framework="np") as stored:
+            header = stored.metadata() or {}
+        for key, encoded in json.loads(header.get("encoded_arrays", "{}")).items():
+            artifact[key] = np.asarray(
+                encoded["data"], dtype=np.dtype(encoded["dtype"])
+            ).reshape(encoded["shape"])
+        artifact["meta"] = json.loads(header.get("meta", "{}"))
+    else:
+        with np.load(path, allow_pickle=False) as stored:
+            artifact = {
+                key: stored[key]
+                for key in stored.files
+                if key != "meta"
+            }
+            artifact["meta"] = json.loads(str(stored["meta"]))
     for key in float64_keys:
         artifact[key] = artifact[key].astype(np.float64)
     return artifact
@@ -166,6 +201,8 @@ def save_validation(result: dict, path: Path, meta: dict) -> None:
         if key in result:
             dtype = np.float64 if key.endswith("_p") else np.float32
             payload[key] = np.asarray(result[key], dtype=dtype)
+    if "selected_peak_null" in result:
+        payload["selected_peak_null"] = np.asarray(result["selected_peak_null"], dtype=np.float32)
     for key in (
         "source_bin",
         "source_bin_number",

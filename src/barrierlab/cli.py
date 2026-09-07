@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from barrierlab.infrastructure.artifacts import STAGE_DIRECTORIES
+from barrierlab.domain import barrier
 from barrierlab.infrastructure.workspace import Workspace
 from barrierlab.pipeline.step_01_surface import cmd_surface
 from barrierlab.pipeline.step_02_shift import cmd_shift
@@ -82,6 +83,11 @@ COMMAND_BY_NAME = {command.name: command for command in COMMANDS}
 
 def _add_workspace(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--workspace", metavar="NAME", default="nasdaq_daily")
+    parser.add_argument(
+        "--cuda",
+        action="store_true",
+        help="run numerical barrier kernels on CUDA (requires an available CUDA PyTorch device)",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -113,6 +119,7 @@ def main(argv: list[str] | None = None) -> None:
         parser.print_help()
         return
     ws = Workspace(args.workspace)
+    barrier.configure_cuda(args.cuda)
 
     command = COMMAND_BY_NAME[args.command]
     if command.accepts_node:

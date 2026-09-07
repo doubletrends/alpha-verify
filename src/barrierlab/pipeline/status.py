@@ -203,11 +203,17 @@ def cmd_status(ws: Workspace, node_id: str | None = None) -> None:
     )
     if validation and validation_current:
         method = validation.get("method", {})
-        print(
-            f"  validation: raw p<={method.get('null_alpha')} {len(null_nodes)} nodes | "
-            f"BH q={method.get('q')} {len(fdr_nodes)} | economic {len(economic_nodes)} | "
-            f"all three {len(cleared_rows)}"
-        )
+        if method.get("unit") == "one two-sided condition-bin score":
+            print(
+                f"  validation: {len(tests)} selected bins vs {method.get('null')} | "
+                f"BH q={method.get('q')} cleared {len(cleared_rows)}"
+            )
+        else:
+            print(
+                f"  validation: raw p<={method.get('null_alpha')} {len(null_nodes)} nodes | "
+                f"BH q={method.get('q')} {len(fdr_nodes)} | economic {len(economic_nodes)} | "
+                f"all three {len(cleared_rows)}"
+            )
     elif validation:
         missing = validation.get("missing_nodes", [])
         detail = f" ({len(missing)} missing nodes)" if missing else ""

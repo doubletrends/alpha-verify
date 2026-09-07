@@ -110,11 +110,11 @@ the pipeline uniform and makes it the reference every conditional node is judged
 Surface artifacts are written to:
 
 ```text
-01_surface/<family>/<node>.npz
-01_surface/<family>/<node>.xlsx
+01_surface/array/<node>.safetensors
+01_surface/spreadsheet/<node>.xlsx
 ```
 
-The `.npz` file is the measurement record. The workbook is a readable projection: one
+The `.safetensors` file is the measurement record. The workbook is a readable projection: one
 tab per condition bin, with barrier rows and horizon columns.
 
 ## 2. Shift
@@ -144,20 +144,23 @@ barrierlab selection --workspace <name>
 
 Selection ranks one *node* per predictor, rather than allowing several decile sheets
 from one predictor to consume the shortlist. It uses the workspace's composition target
-`P(touch Δ within t)`, and scores the full conditional table:
+`P(touch Δ within t)`, calculates the two-sided skew of each bin, and scores the
+node by its strongest bin. Here Δ is the positive barrier magnitude:
 
 ```text
-score = Σ_bin P(bin) × KL(Bernoulli(P(touch | bin)) || Bernoulli(P(touch)))
+positive shift = Stage 2 shift at +Δ
+negative shift = Stage 2 shift at -Δ
+score          = max_bin |positive shift - negative shift|
 ```
 
-This is expected log-loss improvement per observation, also called mutual information
-in nats. A strong effect confined to one decile receives credit only for the bars in
-that decile; a weak but useful gradient receives credit from every bin. Conditional
-rates use the same 25-pseudo-observation shrinkage as Bayes.
+The score is the largest absolute asymmetry between the two stored Stage 2 shifts.
+Thus a node with one large two-sided skew outranks a node whose effect is spread weakly
+across several bins. Statistical significance and minimum-observation requirements
+remain the responsibility of Stage 4.
 
 The stage ranks all nodes globally and writes the top `selection.top_k` rows, defaulting
-to 20, to `03_selection/selection.json`. Each selected row records its highest-
-contributing **representative bin** and its effective number of contributing bins. The
+to 20, to `03_selection/selection.json`. Each selected row records its highest-scoring
+**representative bin**. The
 complete selected-node cube is promoted to `03_selection/<family>/` as the computational
 artifact; its workbook retains only the representative bin as a concise view. Stage 3
 contains no economic verdict: a broad, modest
@@ -355,15 +358,15 @@ the artifacts on disk.
 | path | written by | contents |
 |---|---|---|
 | `universe.json` | you | nodes and asset config |
-| `01_surface/<family>/<node>.npz` | `surface` | full measured cube |
-| `01_surface/<family>/<node>.xlsx` | `surface` | readable full workbook |
-| `02_shift/<family>/<node>.npz` | `shift` | full baseline-subtracted shift cube |
-| `02_shift/<family>/<node>.xlsx` | `shift` | red/blue shift workbook |
+| `01_surface/array/<node>.safetensors` | `surface` | full measured cube |
+| `01_surface/spreadsheet/<node>.xlsx` | `surface` | readable full workbook |
+| `02_shift/array/<node>.safetensors` | `shift` | full baseline-subtracted shift cube |
+| `02_shift/spreadsheet/<node>.xlsx` | `shift` | red/blue shift workbook |
 | `03_selection/selection.json` | `selection` | ranking index for selected nodes |
-| `03_selection/<family>/rank_*.npz` | `selection` | complete selected-node shift cubes |
-| `03_selection/<family>/rank_*.xlsx` | `selection` | representative-bin workbooks |
-| `04_validation/<family>/<node>.npz` | `validation` | exact null artifacts |
-| `04_validation/<family>/<node>.xlsx` | `validation` | readable validation workbook |
+| `03_selection/array/rank_*.safetensors` | `selection` | complete selected-node shift cubes |
+| `03_selection/spreadsheet/rank_*.xlsx` | `selection` | representative-bin workbooks |
+| `04_validation/array/rank_*.safetensors` | `validation` | exact null artifacts |
+| `04_validation/spreadsheet/rank_*.xlsx` | `validation` | readable validation workbook |
 | `04_validation/validation.json` | `validation` | three-gate verdicts and cleared rows |
 | `05_redundancy/redundancy.npz` | `redundancy` | numerical conditional-NMI matrix and clusters |
 | `05_redundancy/redundancy.xlsx` | `redundancy` | six-sheet readable redundancy map |

@@ -1,87 +1,85 @@
-"""Stage 3 selection: rank whole predictors by their conditional information."""
+"""Stage 3 selection: rank predictors by their strongest conditional bin."""
 
 from __future__ import annotations
 
 import numpy as np
+import torch
+from barrierlab.domain import tensor_runtime
 
 
-_EPS = 1e-9
-
-
-def _bernoulli_kl(p: np.ndarray, q: float) -> np.ndarray:
-    """KL(Bernoulli(p) || Bernoulli(q)), in nats."""
-    p = np.clip(np.asarray(p, dtype=float), _EPS, 1.0 - _EPS)
-    q = float(np.clip(q, _EPS, 1.0 - _EPS))
-    return p * np.log(p / q) + (1.0 - p) * np.log((1.0 - p) / (1.0 - q))
-
-
-def score_node_information(
+def bin_information(
     cube: dict,
     delta: float,
     horizon: int,
-    shrink_k: float,
 ) -> dict | None:
     """
-    Score one node's complete conditional table for a Bayes target.
+    Score one condition bin by its conditional-probability skew.
 
-    The score is the sample-weighted KL divergence between the ten conditional
-    Bernoulli rates and the unconditional rate.  It is also the expected log-loss
-    improvement (in nats per observation) from knowing the node's bin.  Consequently
-    a dramatic decile receives credit only for the observations it covers, while a
-    small but persistent gradient accumulates credit across its bins.
+    Stage 2 already stores the baseline-relative shifts for every signed barrier,
+    bin, and horizon. For an equal-magnitude positive and negative barrier, each
+    bin's score is abs(shift(+Δ) - shift(-Δ)). Every bin competes globally;
+    a node is only the identifier of the bin's condition, never a scored aggregate.
     """
     deltas = np.asarray(cube["Δs"], dtype=float)
     horizons = np.asarray(cube["horizons"], dtype=int)
-    delta_hits = np.flatnonzero(np.isclose(deltas, delta, atol=1e-12))
+    magnitude = abs(float(delta))
+    positive_hits = np.flatnonzero(np.isclose(deltas, magnitude, atol=1e-12))
+    negative_hits = np.flatnonzero(np.isclose(deltas, -magnitude, atol=1e-12))
     horizon_hits = np.flatnonzero(horizons == horizon)
-    if len(delta_hits) != 1 or len(horizon_hits) != 1:
+    if len(positive_hits) != 1 or len(negative_hits) != 1 or len(horizon_hits) != 1:
         return None
 
-    i, j = int(delta_hits[0]), int(horizon_hits[0])
-    n = np.asarray(cube["bin_n"], dtype=float)[:, j]
-    hits = np.asarray(cube["hits"], dtype=float)[i, :, j]
-    prior = float(np.asarray(cube["base"], dtype=float)[i, j])
-    usable = np.isfinite(n) & np.isfinite(hits) & (n > 0)
-    if usable.sum() < 2 or not np.isfinite(prior):
+    positive_i, negative_i = int(positive_hits[0]), int(negative_hits[0])
+    j = int(horizon_hits[0])
+    n = tensor_runtime.tensor(cube["bin_n"])[:, j]
+    positive_shift = tensor_runtime.tensor(cube["shift"])[positive_i, :, j]
+    negative_shift = tensor_runtime.tensor(cube["shift"])[negative_i, :, j]
+    usable = torch.isfinite(n) & torch.isfinite(positive_shift) & torch.isfinite(negative_shift) & (n > 0)
+    if int(usable.sum()) < 2:
         return None
 
-    weights = np.zeros_like(n, dtype=float)
-    weights[usable] = n[usable] / n[usable].sum()
-    rates = np.full_like(n, np.nan, dtype=float)
-    rates[usable] = (hits[usable] + shrink_k * prior) / (n[usable] + shrink_k)
-    contribution = np.zeros_like(n, dtype=float)
-    contribution[usable] = weights[usable] * _bernoulli_kl(rates[usable], prior)
-    best_bin = int(np.nanargmax(contribution))
-
-    positive = contribution[contribution > 0]
-    if len(positive):
-        share = positive / positive.sum()
-        effective_bins = float(np.exp(-np.sum(share * np.log(share))))
-    else:
-        effective_bins = 0.0
+    signed_skew = positive_shift - negative_shift
+    bin_score = signed_skew.abs()
+    best_bin = int(torch.argmax(torch.nan_to_num(bin_score, nan=float("-inf"))))
+    positive_prob = np.asarray(cube["prob"], dtype=float)[positive_i, best_bin, j]
+    negative_prob = np.asarray(cube["prob"], dtype=float)[negative_i, best_bin, j]
+    positive_base = float(np.asarray(cube["base"], dtype=float)[positive_i, j])
+    negative_base = float(np.asarray(cube["base"], dtype=float)[negative_i, j])
 
     labels = cube.get("meta", {}).get("bin_labels", [])
     return {
-        "score": float(contribution.sum()),
-        "score_bits": float(contribution.sum() / np.log(2.0)),
-        "effective_bins": effective_bins,
+        "score": float(bin_score[best_bin] / 100.0),
+        "score_pp": float(bin_score[best_bin]),
         "bin": best_bin,
         "bin_number": best_bin + 1,
         "bin_label": labels[best_bin] if best_bin < len(labels) else f"bin {best_bin + 1}",
-        "bin_information": [float(value) for value in contribution],
+        "bin_score": [float(value / 100.0) for value in bin_score.cpu()],
+        "bin_cells": [
+            {"bin": int(index), "Δ": magnitude, "Δ_abs": magnitude,
+             "horizon": int(horizon), "dev": float(signed_skew[index]),
+             "positive_shift": float(positive_shift[index]),
+             "negative_shift": float(negative_shift[index]),
+             "bin_n": int(n[index]), "score": float(bin_score[index] / 100.0),
+             "score_pp": float(bin_score[index])}
+            for index in torch.nonzero(usable, as_tuple=False).flatten().cpu().tolist()
+        ],
         "best_cell": {
             "bin": best_bin,
-            "Δ": float(delta),
-            "Δ_abs": abs(float(delta)),
+            "Δ": magnitude,
+            "Δ_abs": magnitude,
             "horizon": int(horizon),
-            "dev": float((rates[best_bin] - prior) * 100.0),
-            "prob": float(rates[best_bin]),
-            "base": prior,
+            "dev": float(signed_skew[best_bin]),
+            "positive_shift": float(positive_shift[best_bin]),
+            "negative_shift": float(negative_shift[best_bin]),
+            "positive_prob": float(positive_prob),
+            "positive_base": positive_base,
+            "negative_prob": float(negative_prob),
+            "negative_base": negative_base,
             "bin_n": int(n[best_bin]),
-            "hits": int(hits[best_bin]),
-            "information": float(contribution[best_bin]),
-            "information_share": float(contribution[best_bin] / contribution.sum())
-            if contribution.sum() else 0.0,
+            "positive_hits": int(cube["hits"][positive_i, best_bin, j]),
+            "negative_hits": int(cube["hits"][negative_i, best_bin, j]),
+            "score": float(bin_score[best_bin] / 100.0),
+            "score_pp": float(bin_score[best_bin]),
         },
     }
 
@@ -92,26 +90,28 @@ def rank_nodes(
     top_k: int,
     delta: float,
     horizon: int,
-    shrink_k: float,
 ) -> dict:
-    """Return one full-table information score and representative bin per node."""
+    """Return globally ranked individual condition-bin scores."""
     candidates = []
     for node in nodes:
         cube = load_cube(node)
         n_bins = int(cube["shift"].shape[1])
         if n_bins < 2:
             continue
-        row = score_node_information(cube, delta, horizon, shrink_k)
+        row = bin_information(cube, delta, horizon)
         if row is None:
             continue
-        b = int(row["bin"])
-        candidates.append({
-            "node": node["id"],
-            "family": node["family"],
-            "feature": node["feature"],
-            "params": node["params"],
-            **row,
-        })
+        labels = cube.get("meta", {}).get("bin_labels", [])
+        for cell in row["bin_cells"]:
+            b = int(cell["bin"])
+            candidates.append({
+                "node": node["id"], "family": node["family"],
+                "feature": node["feature"], "params": node["params"],
+                "score": cell["score"], "score_pp": cell["score_pp"],
+                "bin": b, "bin_number": b + 1,
+                "bin_label": labels[b] if b < len(labels) else f"bin {b + 1}",
+                "best_cell": cell,
+            })
 
     candidates.sort(key=lambda r: (-r["score"], r["family"], r["node"], r["bin"]))
     for rank, row in enumerate(candidates, 1):
@@ -120,11 +120,11 @@ def rank_nodes(
 
     return {
         "method": {
-            "score": "sample-weighted KL(Bernoulli(P(touch | bin)) || Bernoulli(P(touch))) across all bins",
-            "unit": "nats per observation",
-            "target": {"Δ": delta, "horizon": horizon},
-            "shrinkage_k": shrink_k,
-            "representative_bin": "largest per-bin contribution to the node information score",
+            "score": "abs(02_shift(+Δ, bin) - 02_shift(-Δ, bin))",
+            "unit": "percentage points",
+            "target": {"Δ_abs": abs(float(delta)), "horizon": horizon},
+            "source": "02_shift.shift",
+            "selection_unit": "individual condition bin",
             "top_k": top_k,
         },
         "selected": candidates[:top_k],
