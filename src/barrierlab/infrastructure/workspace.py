@@ -233,18 +233,6 @@ class Workspace:
     def has_selection_surface(self, row: dict) -> bool:
         return self.selection_surface_path(row).exists()
 
-    def validation_array_path(self, row: dict) -> Path:
-        return self.artifacts.validation_array_path(row)
-
-    def has_validation_array(self, row: dict) -> bool:
-        return self.validation_array_path(row).exists()
-
-    def validation_surface_path(self, row: dict) -> Path:
-        return self.artifacts.validation_surface_path(row)
-
-    def has_validation_surface(self, row: dict) -> bool:
-        return self.validation_surface_path(row).exists()
-
     def target(self, baseline: np.ndarray) -> tuple[float, int]:
         """Return the shared Stage 3 selection and Stage 4 validation target."""
         horizons = self.horizons

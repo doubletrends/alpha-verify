@@ -19,9 +19,6 @@ class CliContractTests(unittest.TestCase):
             "shift",
             "selection",
             "validation",
-            "redundancy",
-            "composition",
-            "report",
             "status",
         ):
             self.assertIn(command, help_text)
@@ -37,7 +34,7 @@ class CliContractTests(unittest.TestCase):
     def test_numbered_commands_match_their_stage_directories(self) -> None:
         numbered = [command for command in COMMANDS if command.stage_directory]
 
-        self.assertEqual(len(numbered), 7)
+        self.assertEqual(len(numbered), 4)
         for number, command in enumerate(numbered, start=1):
             prefix, name = command.stage_directory.split("_", 1)
             self.assertEqual(int(prefix), number)

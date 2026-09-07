@@ -37,10 +37,6 @@ def configure_cuda(enabled: bool) -> None:
     tensor_runtime.configure(enabled)
 
 
-def cuda_enabled() -> bool:
-    return tensor_runtime.device().type == "cuda"
-
-
 def bin_edges(feature: pd.Series, n_bins: int = 10) -> np.ndarray:
     """
     Interior quantile edges of the feature, so each bin holds ~1/n_bins of the sample.
@@ -97,25 +93,6 @@ def forward_extremes_upto(data: pd.DataFrame, t_max: int) -> tuple[np.ndarray, n
     series are NaN.
     """
     return _forward_extremes_cuda(data, t_max)
-
-    close = data['close'].to_numpy(float)
-    low   = (data['low'] if 'low' in data else data['close']).to_numpy(float)
-    high  = (data['high'] if 'high' in data else data['close']).to_numpy(float)
-    n = len(close)
-
-    run_lo = np.full(n, np.inf)
-    run_hi = np.full(n, -np.inf)
-    mins = np.full((t_max, n), np.nan)
-    maxs = np.full((t_max, n), np.nan)
-
-    for t in range(1, t_max + 1):
-        if n - t <= 0:
-            break
-        run_lo[:n - t] = np.minimum(run_lo[:n - t], low[t:])
-        run_hi[:n - t] = np.maximum(run_hi[:n - t], high[t:])
-        mins[t - 1, :n - t] = run_lo[:n - t] / close[:n - t] - 1.0
-        maxs[t - 1, :n - t] = run_hi[:n - t] / close[:n - t] - 1.0
-    return mins, maxs
 
 
 def _forward_extremes_cuda(data: pd.DataFrame, t_max: int) -> tuple[np.ndarray, np.ndarray]:
@@ -178,51 +155,6 @@ def touch_tensor(
     the raw counts so a thin bin stays visible rather than absent.
     """
     return _touch_tensor_cuda(data, feature, horizons, Δs, edges, min_n, excursions)
-
-    t_max  = int(np.max(horizons))
-    if excursions is None:
-        mins, maxs = forward_extremes_upto(data, t_max)
-    else:
-        mins, maxs = excursions
-        expected = (t_max, len(data))
-        if mins.shape != expected or maxs.shape != expected:
-            raise ValueError("cached excursions do not match the requested data and horizon grid")
-
-    x_all  = feature.to_numpy(float)
-    n_bins = len(edges) + 1
-    n_th   = len(Δs)
-    n_t    = len(horizons)
-
-    prob = np.full((n_th, n_bins, n_t), np.nan)
-    hits = np.zeros((n_th, n_bins, n_t), dtype=np.int32)
-    bin_n = np.zeros((n_bins, n_t), dtype=np.int32)
-    n_obs = np.zeros(n_t, dtype=np.int32)
-
-    for j, t in enumerate(horizons):
-        lo_t, hi_t = mins[t - 1], maxs[t - 1]
-        ok = ~np.isnan(lo_t) & ~np.isnan(hi_t) & ~np.isnan(x_all)
-        if not ok.any():
-            continue
-        xs, ls, hs = x_all[ok], lo_t[ok], hi_t[ok]
-        idx = np.searchsorted(edges, xs) if len(edges) else np.zeros(len(xs), dtype=int)
-        counts = np.bincount(idx, minlength=n_bins)
-        enough = counts >= min_n
-        bin_n[:, j] = counts
-        n_obs[j] = len(xs)
-
-        for i, th in enumerate(Δs):
-            touched = ((ls <= th) if th < 0 else (hs >= th)).astype(float)
-            c = np.bincount(idx, weights=touched, minlength=n_bins)
-            hits[i, :, j] = c.astype(np.int32)
-            with np.errstate(invalid='ignore', divide='ignore'):
-                rates = np.where(enough, c / np.where(counts == 0, 1, counts), np.nan)
-            prob[i, :, j] = rates
-
-    return {'prob': prob, 'hits': hits,
-            'bin_n': bin_n, 'n_obs': n_obs,
-            'Δs': np.asarray(Δs, dtype=float),
-            'horizons': np.asarray(horizons, dtype=int),
-            'edges': np.asarray(edges, dtype=float)}
 
 
 def _touch_tensor_cuda(

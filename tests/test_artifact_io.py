@@ -80,50 +80,6 @@ class ArtifactIoTests(unittest.TestCase):
             self.assertEqual(loaded[key].dtype, np.dtype(np.float64))
         self.assertEqual(loaded["meta"], {"stage": 2})
 
-    def test_validation_optional_node_peaks_round_trip_without_pickle(self) -> None:
-        shape = (2, 1, 2)
-        result = {
-            "cell_real": np.full(shape, 1.0),
-            "cell_p": np.full(shape, 0.05),
-            "cell_p95": np.full(shape, 2.0),
-            "sheet_peak_real": np.full((1, 2), 1.0),
-            "sheet_peak_p": np.full((1, 2), 0.05),
-            "sheet_peak_p95": np.full((1, 2), 2.0),
-            "peak_real": np.full(2, 1.0),
-            "peak_p": np.full(2, 0.05),
-            "peak_p95": np.full(2, 2.0),
-            "node_peak_real": np.full(2, 1.5),
-            "node_peak_p": np.full(2, 0.01),
-            "node_peak_p95": np.full(2, 2.5),
-            "n_shifts": np.array(100),
-            "Δs": np.array([-0.10, 0.10]),
-            "horizons": np.array([7, 14]),
-            "source_bin": np.array(0, dtype=np.int32),
-        }
-        with TemporaryDirectory() as directory:
-            path = Path(directory) / "validation.safetensors"
-            artifact_io.save_validation(result, path, {"stage": 4})
-            loaded = artifact_io.load_validation(path)
-
-        self.assertEqual(loaded["meta"], {"stage": 4})
-        self.assertEqual(loaded["node_peak_p"].dtype, np.dtype(np.float64))
-        self.assertEqual(int(loaded["source_bin"]), 0)
-
-    def test_composition_arrays_and_metadata_round_trip(self) -> None:
-        with TemporaryDirectory() as directory:
-            path = Path(directory) / "composition.npz"
-            artifact_io.save_composition(
-                path,
-                meta={"stage": 6},
-                probability=np.array([0.25, 0.75]),
-                node_ids=np.array(["atr", "vix"], dtype=str),
-            )
-            loaded = artifact_io.load_composition(path)
-
-        np.testing.assert_allclose(loaded["probability"], [0.25, 0.75])
-        np.testing.assert_array_equal(loaded["node_ids"], ["atr", "vix"])
-        self.assertEqual(loaded["meta"], {"stage": 6})
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -9,10 +9,7 @@ import numpy as np
 from barrierlab.domain import shift, validation as val
 from barrierlab.infrastructure import artifact_io
 from barrierlab.infrastructure.workspace import Workspace
-from barrierlab.pipeline.step_04_validation import (
-    validation_artifact_is_current,
-    validation_summary_is_current,
-)
+from barrierlab.pipeline.step_04_validation import validation_summary_is_current
 
 
 def _print_node_status(ws: Workspace, node_id: str) -> None:
@@ -46,52 +43,6 @@ def _print_node_status(ws: Workspace, node_id: str) -> None:
         f"at Δ={best['Δ']:+.0%}, +{best['horizon']}{ws.horizon_unit} "
         f"(run={best['run']}, n={best['bin_n']})"
     )
-
-    selection = ws.read_json(ws.selection_path)
-    selected = [
-        row for row in selection.get("selected", []) if ws.has_selection_array(row)
-    ]
-    selected_row = next(
-        (
-            row
-            for row in selected
-            if row["node"] == node_id and int(row["bin"]) == int(bin_index)
-        ),
-        None,
-    )
-    if selected_row and validation_artifact_is_current(ws, selected_row):
-        validation = artifact_io.load_validation(ws.validation_array_path(selected_row))
-        horizon_index = int(
-            np.flatnonzero(validation["horizons"] == best["horizon"])[0]
-        )
-        floor = 1.0 / (1.0 + validation["n_shifts"][horizon_index])
-        cell_p = validation["cell_p"][:, 0, horizon_index]
-        peak_real = (
-            validation["sheet_peak_real"][0, horizon_index]
-            if "sheet_peak_real" in validation
-            else validation["peak_real"][horizon_index]
-        )
-        peak_p95 = (
-            validation["sheet_peak_p95"][0, horizon_index]
-            if "sheet_peak_p95" in validation
-            else validation["peak_p95"][horizon_index]
-        )
-        peak_p = (
-            validation["sheet_peak_p"][0, horizon_index]
-            if "sheet_peak_p" in validation
-            else validation["peak_p"][horizon_index]
-        )
-        tag = " (at the floor)" if peak_p <= floor + 1e-12 else ""
-        print(
-            f"  null          : sheet peak {peak_real:.1f} vs p95 {peak_p95:.1f}, "
-            f"p={peak_p:.5f}{tag}   floor {floor:.2e}"
-        )
-        print(
-            f"                  {int(np.nansum(cell_p <= 0.05))} of "
-            f"{int(np.isfinite(cell_p).sum())} cells in this bin are pointwise p<=0.05"
-        )
-    else:
-        print("  null          : not validated yet")
 
     available = {int(value) for value in horizons}
     shown_horizons = [
@@ -165,8 +116,6 @@ def cmd_status(ws: Workspace, node_id: str | None = None) -> None:
         "sheet",
         "select",
         "s-sheet",
-        "valid",
-        "v-sheet",
         "econ",
         "cleared",
     ]
@@ -181,15 +130,10 @@ def cmd_status(ws: Workspace, node_id: str | None = None) -> None:
         selected_rows = [row for row in selected if row["node"] == node["id"]]
         counts[5] += sum(1 for row in selected_rows if ws.has_selection_array(row))
         counts[6] += sum(1 for row in selected_rows if ws.has_selection_surface(row))
-        valid_rows = [
-            row for row in selected_rows if validation_artifact_is_current(ws, row)
-        ]
-        counts[7] += len(valid_rows)
-        counts[8] += sum(1 for row in valid_rows if ws.has_validation_surface(row))
-        counts[9] += sum(
+        counts[7] += sum(
             1 for row in selected_rows if row["node"] in economic_nodes
         )
-        counts[10] += sum(
+        counts[8] += sum(
             1 for row in cleared_rows if row.get("node") == node["id"]
         )
 

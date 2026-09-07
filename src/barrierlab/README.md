@@ -47,7 +47,7 @@ This is a one-way artifact chain, not a request to rerun every earlier stage ind
 | Built-in feature | `domain/features.py` | domain’s no-I/O/no-outward-dependency rule |
 | Data provider | `infrastructure/market_data.py` or workspace plugin | source names named in `universe.json` |
 | Artifact schema/path | `infrastructure/artifact_io.py`, `artifacts.py` | consumers and contract tests |
-| Statistical decision | `domain/validation.py`, `pipeline/step_04_validation.py` | node-wide null and three-gate semantics |
+| Statistical decision | `domain/validation.py`, `pipeline/step_04_validation.py` | simulated-OHLC selected-bin null and BH correction |
 | Workbook or figure | `presentation/` | artifacts remain the numerical source of truth |
 | New stage or command | `pipeline/`, then `cli.py` | command/order and stage-directory contracts |
 

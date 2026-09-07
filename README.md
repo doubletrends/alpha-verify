@@ -2,7 +2,7 @@
 
 **A reproducible answer to a practical market question: given today’s conditions, how far is price likely to travel before a chosen horizon?**
 
-BarrierLab measures the probability that price *touches* each level—not where it closes—using daily high/low data, conditional feature regimes, and an exact circular-shift null.
+BarrierLab measures the probability that price *touches* each level—not where it closes—using daily high/low data, conditional feature regimes, and a simulated-OHLC null.
 
 ## Verify it
 
@@ -32,9 +32,8 @@ P(price touches Δ within t bars | condition bin)
 
 The default NASDAQ run measures 58 nodes over a 41-level barrier grid and horizons from +1d through +30d. It only calls a node a cleared finding after all three gates agree:
 
-- its node-wide circular-shift null p-value is at most 0.01;
-- it survives Benjamini–Hochberg correction at q = 0.05 across the selected sweep; and
-- its representative regime has a stable, material baseline-relative shift.
+- its selected-bin simulated-null p-value is at most 0.01; and
+- it survives Benjamini–Hochberg correction at q = 0.05 across the selected sweep.
 
 ## Read by intent
 

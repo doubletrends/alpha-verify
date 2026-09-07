@@ -1,238 +1,50 @@
-"""
-Stage four: is a selected node statistically real and economically useful?
-
-A cube is 41 barrier levels x 10 bins x 30 horizons. Reading the largest cell off that
-and calling it an edge measures how many cells were searched, not whether the feature
-carries anything -- the maximum of ~400 noisy rates per horizon lands well into the
-tens of percentage points on a feature that knows nothing.
-
-The null shifts the feature circularly against price. Each shift preserves the feature's
-own autocorrelation and destroys only its alignment with the future, which is precisely
-the thing under test.
-
-Two things about this implementation are worth knowing.
-
-**It is exact, not sampled.** Writing counts[Δ, bin] as a function of shift makes it
-a circular cross-correlation between the touch indicator and the bin-membership mask, so
-one FFT produces every shift at once -- about 70x faster than resampling, and it returns
-the whole permutation distribution rather than a draw from it.
-
-**The floor is real.** There are only n distinct circular shifts, so the finest p-value
-obtainable is 1/(n+1) -- roughly 2.4e-4 on eleven years of daily bars. Drawing 20,000
-random shifts from a group of 4,214 and reporting p = 1/20001 claims a resolution the
-data cannot produce; it inflates significance by about 5x. Because that floor sits above
-the Bonferroni threshold for this sweep size, family-wise correction is too harsh here,
-and `bh` below controls false discovery rate instead.
-
-The reference the null measures against is the node's *own* sample rate, not the baseline
-node's. Shifting leaves the marginal untouched, so the node's own rate is the quantity
-that stays fixed under the null and the only one the test can be built on. The economic
-filter below asks a different question -- is this unusual against the workspace
-reference -- and correctly uses the baseline node for it.
-"""
+"""Synthetic-OHLC null generation and multiple-testing helpers for Stage 4."""
 
 from __future__ import annotations
-
-import warnings
 
 import numpy as np
 import pandas as pd
 
-# One threshold, defined by the module that does the binning, so measurement and
-# validation partition the sample identically.
-from barrierlab.domain.barrier import MIN_BIN_N
-
-# Shifts smaller than this leave the series almost aligned with itself and are not
-# honest null draws; the same applies to shifts near a full wrap.
-EDGE_GUARD = 200
-
-
-def _dev_all_shifts(touched: np.ndarray, idx: np.ndarray, bin_n: np.ndarray,
-                    n_bins: int) -> np.ndarray:
-    """
-    Deviation from the sample rate for every (Δ, bin, shift), in percentage points.
-
-    counts[i, b, s] = sum_t touched[i, t] * 1[bin of (t - s) == b]
-
-    which is a circular cross-correlation in s, so the whole shift axis comes out of one
-    inverse FFT. Shift 0 is the identity and therefore holds the real, unshifted surface.
-    """
-    n = touched.shape[1]
-    mask = np.zeros((n_bins, n))
-    mask[idx, np.arange(n)] = 1.0
-
-    ft = np.fft.rfft(touched, axis=1)
-    fm = np.conj(np.fft.rfft(mask, axis=1))
-    counts = np.fft.irfft(ft[:, None, :] * fm[None, :, :], n=n, axis=2)
-
-    # These are counts of 0/1 indicators and so are exact integers; the FFT returns them
-    # with ~1e-13 of roundoff. Rounding restores exactness, which matters most in the
-    # degenerate case: a single-bin cube has a deviation of identically zero, and
-    # without this the null would be comparing one speck of numerical noise against
-    # another and returning a meaningless p-value instead of 1.
-    counts = np.rint(counts)
-
-    base = touched.mean(axis=1)
-    with np.errstate(invalid='ignore', divide='ignore'):
-        rates = counts / np.where(bin_n == 0, np.nan, bin_n)[None, :, None]
-    return (rates - base[:, None, None]) * 100.0
-
-
-def _usable_shifts(n: int, guard: int) -> np.ndarray:
-    """Boolean mask over the shift axis, excluding the identity and near-wraps."""
-    s = np.arange(n)
-    return (s >= guard) & (s <= n - guard)
-
-
-def null_surface(
-    touched:         np.ndarray,
-    idx:             np.ndarray,
-    n_bins:          int,
-    min_n:           int = MIN_BIN_N,
-    guard:           int = EDGE_GUARD,
-    selected_bin:    int | None = None,
-) -> dict:
-    """
-    Null-test one horizon's surface, per cell and as a whole.
-
-    Returns
-        cell_real   (n_Δ, n_bins)  signed deviation from the sample rate, pp
-        cell_p      (n_Δ, n_bins)  pointwise p-value of |deviation|
-        cell_p95    (n_Δ, n_bins)  95th percentile of the cell's own null
-        peak_real   scalar             max |deviation| over the surface
-        peak_p      scalar             p-value of that maximum
-        peak_p95    scalar             95th percentile of the maximum's null
-        n_shifts    int                usable shifts, so the p-value floor is 1/(n+1)
-    `cell_p` is pointwise and nothing else. With 12,300 cells, ~615 sit below 0.05 by
-    chance, so it is evidence for *reading* a surface and never a discovery criterion.
-    `peak_p` is the statistic that accounts for the search, and it is the one validation
-    corrects across.
-    """
-    n = touched.shape[1]
-    bin_n = np.bincount(idx, minlength=n_bins).astype(float)
-    enough = bin_n >= min_n
-
-    signed = _dev_all_shifts(touched, idx, bin_n, n_bins)
-    signed[:, ~enough, :] = np.nan
-
-    usable = _usable_shifts(n, guard)
-    n_use = int(usable.sum())
-    if n_use < 50:
-        nan2 = np.full(signed.shape[:2], np.nan)
-        nan1 = np.full(n_bins, np.nan)
-        return {'cell_real': nan2, 'cell_p': nan2.copy(), 'cell_p95': nan2.copy(),
-                'sheet_peak_real': nan1, 'sheet_peak_p': nan1.copy(),
-                'sheet_peak_p95': nan1.copy(),
-                'peak_real': np.nan, 'peak_p': np.nan, 'peak_p95': np.nan, 'n_shifts': 0}
-
-    # the reported deviation keeps its sign -- which way the condition moves the barrier
-    # is the whole point -- while the test itself is two-sided and compares magnitudes
-    real_signed = signed[:, :, 0]
-    dev = np.abs(signed)
-    real = dev[:, :, 0]
-    null = dev[:, :, usable]
-
-    # add-one (Davison & Hinkley): the observed value is itself one draw from the null,
-    # so a permutation p-value is never exactly zero
-    ge = (null >= real[:, :, None]).sum(axis=2)
-    cell_p = (1.0 + ge) / (1.0 + n_use)
-    cell_p[~np.isfinite(real)] = np.nan
-    with warnings.catch_warnings():
-        # bins below min_n are all-NaN by design; nanpercentile says so loudly
-        warnings.simplefilter('ignore', category=RuntimeWarning)
-        cell_p95 = np.nanpercentile(null, 95, axis=2)
-
-    with np.errstate(invalid='ignore'):
-        peak_by_shift = np.nanmax(dev.reshape(-1, n), axis=0)
-    peak_real = float(peak_by_shift[0])
-    peak_null = peak_by_shift[usable]
-    peak_p = float((1.0 + (peak_null >= peak_real).sum()) / (1.0 + n_use))
-
-    with np.errstate(invalid='ignore'), warnings.catch_warnings():
-        warnings.simplefilter('ignore', category=RuntimeWarning)
-        sheet_peak_by_shift = np.nanmax(dev, axis=0)
-    sheet_real = sheet_peak_by_shift[:, 0]
-    sheet_null = sheet_peak_by_shift[:, usable]
-    sheet_p = np.full(n_bins, np.nan)
-    sheet_p95 = np.full(n_bins, np.nan)
-    for b in range(n_bins):
-        if not np.isfinite(sheet_real[b]):
-            continue
-        sheet_p[b] = (1.0 + (sheet_null[b] >= sheet_real[b]).sum()) / (1.0 + n_use)
-        sheet_p95[b] = np.percentile(sheet_null[b], 95)
-
-    out = {
-        'cell_real': real_signed,
-        'cell_p':    cell_p,
-        'cell_p95':  cell_p95,
-        'sheet_peak_real': sheet_real,
-        'sheet_peak_p': sheet_p,
-        'sheet_peak_p95': sheet_p95,
-        'peak_real': peak_real,
-        'peak_p':    peak_p,
-        'peak_p95':  float(np.percentile(peak_null, 95)),
-        'n_shifts':  n_use,
-    }
-    if selected_bin is not None and 0 <= int(selected_bin) < n_bins:
-        out["selected_peak_null"] = sheet_null[int(selected_bin)]
-    return out
-
 
 def simulated_ohlc_tensor(data: pd.DataFrame, n_paths: int = 1000, seed: int = 20260907):
-    """Fit and draw the entire shared OHLC ensemble on the configured Torch device."""
+    """Fit and draw the shared OHLC ensemble on the configured Torch device."""
     import torch
+
     from barrierlab.domain import tensor_runtime
+
     close = data["close"].to_numpy(float)
     open_ = data["open"].to_numpy(float) if "open" in data else close
     high = data["high"].to_numpy(float) if "high" in data else np.maximum(open_, close)
     low = data["low"].to_numpy(float) if "low" in data else np.minimum(open_, close)
     previous = np.r_[close[0], close[:-1]]
     vectors = np.column_stack((
-        np.log(open_ / previous),
-        np.log(close / open_),
-        np.log(high / np.maximum(open_, close)),
-        np.log(low / np.minimum(open_, close)),
+        np.log(open_ / previous), np.log(close / open_),
+        np.log(high / np.maximum(open_, close)), np.log(low / np.minimum(open_, close)),
     ))
     vectors = vectors[np.isfinite(vectors).all(axis=1)]
     device = tensor_runtime.device()
     samples = torch.as_tensor(vectors, dtype=torch.float64, device=device)
-    mean = samples.mean(0)
-    covariance = torch.cov(samples.T)
-    # Cholesky plus an explicitly seeded normal draw is equivalent to a
-    # multivariate-normal draw and accepts a per-run generator on CPU and CUDA.
+    mean, covariance = samples.mean(0), torch.cov(samples.T)
     scale = torch.diagonal(covariance).abs().max().clamp_min(1.0)
-    factor = torch.linalg.cholesky(covariance + torch.eye(4, dtype=torch.float64, device=device) * scale * 1e-12)
+    factor = torch.linalg.cholesky(
+        covariance + torch.eye(4, dtype=torch.float64, device=device) * scale * 1e-12
+    )
     generator = torch.Generator(device=device).manual_seed(seed)
-    # One sampling call produces every path and bar; this is deliberately not a
-    # Python loop over histories.
-    draws = torch.randn((n_paths, len(data), 4), dtype=torch.float64, device=device, generator=generator) @ factor.T + mean
+    draws = torch.randn(
+        (n_paths, len(data), 4), dtype=torch.float64, device=device, generator=generator
+    ) @ factor.T + mean
     initial_close = torch.as_tensor(close[0], dtype=torch.float64, device=device)
-    log_open = draws[:, :, 0]
-    log_close = draws[:, :, 1]
-    log_path = torch.cumsum(log_open + log_close, dim=1)
-    synthetic_close = initial_close * torch.exp(log_path)
+    log_open, log_close = draws[:, :, 0], draws[:, :, 1]
+    synthetic_close = initial_close * torch.exp(torch.cumsum(log_open + log_close, dim=1))
     previous = torch.cat((initial_close.expand(n_paths, 1), synthetic_close[:, :-1]), dim=1)
     synthetic_open = previous * torch.exp(log_open)
     synthetic_high = torch.maximum(synthetic_open, synthetic_close) * torch.exp(draws[:, :, 2])
     synthetic_low = torch.minimum(synthetic_open, synthetic_close) * torch.exp(draws[:, :, 3])
-    volume = torch.as_tensor(np.array(data["volume"] if "volume" in data else np.ones(len(data)), dtype=float, copy=True), dtype=torch.float64, device=device).expand(n_paths, -1)
+    volume = torch.as_tensor(
+        np.array(data["volume"] if "volume" in data else np.ones(len(data)), dtype=float, copy=True),
+        dtype=torch.float64, device=device,
+    ).expand(n_paths, -1)
     return torch.stack((synthetic_open, synthetic_high, synthetic_low, synthetic_close, volume), dim=-1)
-
-
-def simulated_ohlc_paths(data: pd.DataFrame, n_paths: int = 1000, seed: int = 20260907) -> list[pd.DataFrame]:
-    """Compatibility adapter. Pipeline validation uses ``simulated_ohlc_tensor``."""
-    paths = simulated_ohlc_tensor(data, n_paths, seed).cpu().numpy()
-    return [pd.DataFrame(dict(zip(("open", "high", "low", "close", "volume"), path.T)), index=data.index) for path in paths]
-
-
-def bin_score(
-    data: pd.DataFrame, feature: pd.Series, delta: float, horizon: int, n_bins: int,
-    bin_index: int, excursions: tuple[np.ndarray, np.ndarray] | None = None,
-) -> float:
-    """Production two-sided score for one selected condition bin."""
-    return float(bin_scores(
-        data, feature, delta, horizon, n_bins, excursions=excursions
-    )[int(bin_index)])
 
 
 def baseline_prob(
@@ -242,42 +54,41 @@ def baseline_prob(
     """Two-sided unconditional touch probability for one history."""
     from barrierlab.domain import barrier
 
-    horizons = np.asarray([horizon])
-    deltas = np.asarray([-abs(delta), abs(delta)])
     return barrier.touch_tensor(
-        data, pd.Series(1.0, index=data.index), horizons, deltas, np.empty(0),
-        excursions=excursions,
+        data, pd.Series(1.0, index=data.index), np.asarray([horizon]),
+        np.asarray([-abs(delta), abs(delta)]), np.empty(0), excursions=excursions,
     )["prob"][:, 0, 0]
 
 
 def bin_scores(
     data: pd.DataFrame, feature: pd.Series, delta: float, horizon: int, n_bins: int,
     excursions: tuple[np.ndarray, np.ndarray] | None = None,
-    baseline: np.ndarray | None = None,
-    edges: np.ndarray | None = None,
+    baseline: np.ndarray | None = None, edges: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Two-sided scores for every condition bin from one history."""
+    """Two-sided skew scores for every condition bin in one history."""
     from barrierlab.domain import barrier
 
-    horizons = np.asarray([horizon])
-    deltas = np.asarray([-abs(delta), abs(delta)])
     if baseline is None:
         baseline = baseline_prob(data, delta, horizon, excursions)
     if edges is None:
         edges = barrier.bin_edges(feature, n_bins)
     conditional = barrier.touch_tensor(
-        data, feature, horizons, deltas, edges, excursions=excursions,
+        data, feature, np.asarray([horizon]), np.asarray([-abs(delta), abs(delta)]),
+        edges, excursions=excursions,
     )
     shifts = (conditional["prob"][:, :, 0] - baseline[:, None]) * 100.0
     return np.abs(shifts[1] - shifts[0])
 
 
-def batched_bin_scores(paths, features: np.ndarray | None, delta: float,
-                            horizon: int, n_bins: int, feature_name: str | None = None,
-                            params: dict | None = None) -> np.ndarray:
+def batched_bin_scores(
+    paths, features: np.ndarray | None, delta: float, horizon: int, n_bins: int,
+    feature_name: str | None = None, params: dict | None = None,
+) -> np.ndarray:
     """Score every bin for every synthetic path in one Torch device batch."""
     import torch
+
     from barrierlab.domain import tensor_runtime, torch_features
+
     device = tensor_runtime.device()
     ohlcv = paths if isinstance(paths, torch.Tensor) else tensor_runtime.tensor(paths)
     close, high, low = ohlcv[:, :, 3], ohlcv[:, :, 1], ohlcv[:, :, 2]
@@ -287,13 +98,14 @@ def batched_bin_scores(paths, features: np.ndarray | None, delta: float,
         x = torch.as_tensor(np.array(features, dtype=float, copy=True), dtype=torch.float64, device=device)
     p, n = close.shape
     valid_n = n - horizon
-    lo = torch.full_like(close, float("nan")); hi = torch.full_like(close, float("nan"))
+    lo, hi = torch.full_like(close, float("nan")), torch.full_like(close, float("nan"))
     lo[:, :valid_n] = low[:, 1:].unfold(1, horizon, 1).amin(-1) / close[:, :valid_n] - 1
     hi[:, :valid_n] = high[:, 1:].unfold(1, horizon, 1).amax(-1) / close[:, :valid_n] - 1
     ok = torch.isfinite(x) & torch.isfinite(lo) & torch.isfinite(hi)
-    edges = torch.quantile(x.nan_to_num(nan=0.0), torch.linspace(
-        0.1, 0.9, n_bins - 1, dtype=torch.float64, device=device
-    ), dim=1).T
+    edges = torch.quantile(
+        x.nan_to_num(nan=0.0),
+        torch.linspace(0.1, 0.9, n_bins - 1, dtype=torch.float64, device=device), dim=1,
+    ).T
     idx = (x[:, :, None] >= edges[:, None, :]).sum(-1).long()
     counts = torch.zeros((p, n_bins), dtype=torch.float64, device=device)
     counts.scatter_add_(1, idx, ok.to(torch.float64))
@@ -305,312 +117,23 @@ def batched_bin_scores(paths, features: np.ndarray | None, delta: float,
     return (scores[1] - scores[0]).abs().mul(100).cpu().numpy()
 
 
-def validate_node(
-    data:          pd.DataFrame,
-    feature:       pd.Series,
-    horizons:      np.ndarray,
-    Δs:        np.ndarray,
-    edges:         np.ndarray,
-    min_n:         int = MIN_BIN_N,
-    guard:         int = EDGE_GUARD,
-    excursions: tuple[np.ndarray, np.ndarray] | None = None,
-    selected_bin: int | None = None,
-) -> dict:
-    """
-    Null-test every horizon of a node, returning arrays shaped like its cube.
-
-    The bin edges are the node's own, passed in rather than recomputed, so validation
-    and the cube partition the sample identically.
-
-    """
-    from barrierlab.domain import barrier
-
-    t_max = int(np.max(horizons))
-    if excursions is None:
-        mins, maxs = barrier.forward_extremes_upto(data, t_max)
-    else:
-        mins, maxs = excursions
-        expected = (t_max, len(data))
-        if mins.shape != expected or maxs.shape != expected:
-            raise ValueError("cached excursions do not match the selected node history")
-    x_all = feature.to_numpy(float)
-    n_bins = len(edges) + 1
-    n_th, n_t = len(Δs), len(horizons)
-
-    out = {k: np.full((n_th, n_bins, n_t), np.nan)
-           for k in ('cell_real', 'cell_p', 'cell_p95')}
-    for k in ('peak_real', 'peak_p', 'peak_p95'):
-        out[k] = np.full(n_t, np.nan)
-    for k in ('sheet_peak_real', 'sheet_peak_p', 'sheet_peak_p95'):
-        out[k] = np.full((n_bins, n_t), np.nan)
-    out['n_shifts'] = np.zeros(n_t, dtype=np.int32)
-    if selected_bin is not None:
-        out["selected_peak_null"] = np.full((n_t, len(data)), np.nan)
-
-    for j, t in enumerate(horizons):
-        lo_t, hi_t = mins[t - 1], maxs[t - 1]
-        ok = ~np.isnan(lo_t) & ~np.isnan(hi_t) & ~np.isnan(x_all)
-        if ok.sum() < 2 * guard + 1:
-            continue
-        xs, ls, hs = x_all[ok], lo_t[ok], hi_t[ok]
-        idx = np.searchsorted(edges, xs) if len(edges) else np.zeros(len(xs), dtype=int)
-
-        touched = np.empty((n_th, len(xs)))
-        for i, th in enumerate(Δs):
-            touched[i] = (ls <= th) if th < 0 else (hs >= th)
-
-        r = null_surface(touched, idx, n_bins, min_n, guard, selected_bin)
-        for k in ('cell_real', 'cell_p', 'cell_p95'):
-            out[k][:, :, j] = r[k]
-        for k in ('sheet_peak_real', 'sheet_peak_p', 'sheet_peak_p95'):
-            out[k][:, j] = r[k]
-        for k in ('peak_real', 'peak_p', 'peak_p95'):
-            out[k][j] = r[k]
-        out['n_shifts'][j] = r['n_shifts']
-        if selected_bin is not None and "selected_peak_null" in r:
-            values = r["selected_peak_null"]
-            out["selected_peak_null"][j, :len(values)] = values
-
-    out['Δs']   = np.asarray(Δs, dtype=float)
-    out['horizons'] = np.asarray(horizons, dtype=int)
-    # carried so the renderer works straight off this dict, not only off a reloaded
-    # artifact; `save` writes the richer meta passed to it
-    out['meta']     = {'bin_labels': barrier.bin_labels(edges, feature)}
-    return out
-
-
-def peak_shift_distribution(
-    data:     pd.DataFrame,
-    feature:  pd.Series,
-    horizon:  int,
-    Δs:   np.ndarray,
-    edges:    np.ndarray,
-    bin_index: int | None = None,
-    min_n:    int = MIN_BIN_N,
-    guard:    int = EDGE_GUARD,
-) -> dict:
-    """
-    The whole null for one horizon, not just its summary: max |deviation| over the
-    surface, or over one selected bin sheet, for every usable circular shift beside the
-    observed value.
-
-    `null_surface` reduces this to three numbers because that is all the verdict needs. The
-    distribution itself is what makes the stage legible -- a histogram of ~3,800 shifts
-    with the real surface sitting outside all of them says in one glance what a p-value
-    at the resolution floor means, and why that floor exists at all.
-
-    Returns {null, observed, p95, p_value, n_shifts, floor}.
-    """
-    from barrierlab.domain import barrier
-
-    mins, maxs = barrier.forward_extremes_upto(data, int(horizon))
-    lo_t, hi_t = mins[int(horizon) - 1], maxs[int(horizon) - 1]
-    x_all = feature.to_numpy(float)
-    ok = ~np.isnan(lo_t) & ~np.isnan(hi_t) & ~np.isnan(x_all)
-    xs, ls, hs = x_all[ok], lo_t[ok], hi_t[ok]
-
-    n_bins = len(edges) + 1
-    idx = np.searchsorted(edges, xs) if len(edges) else np.zeros(len(xs), dtype=int)
-    bin_n = np.bincount(idx, minlength=n_bins).astype(float)
-
-    touched = np.empty((len(Δs), len(xs)))
-    for i, th in enumerate(Δs):
-        touched[i] = (ls <= th) if th < 0 else (hs >= th)
-
-    signed = _dev_all_shifts(touched, idx, bin_n, n_bins)
-    signed[:, bin_n < min_n, :] = np.nan
-    if bin_index is not None:
-        keep = np.zeros(n_bins, dtype=bool)
-        keep[int(bin_index)] = True
-        signed[:, ~keep, :] = np.nan
-
-    usable = _usable_shifts(len(xs), guard)
-    with np.errstate(invalid='ignore'), warnings.catch_warnings():
-        warnings.simplefilter('ignore', category=RuntimeWarning)
-        peak_by_shift = np.nanmax(np.abs(signed).reshape(-1, len(xs)), axis=0)
-
-    observed = float(peak_by_shift[0])
-    null = peak_by_shift[usable]
-    n_use = int(usable.sum())
-    return {
-        'null': null,
-        'observed': observed,
-        'p95': float(np.percentile(null, 95)),
-        'p_value': float((1.0 + (null >= observed).sum()) / (1.0 + n_use)),
-        'n_shifts': n_use,
-        'floor': 1.0 / (1.0 + n_use),
-    }
-
-
-# ── economic validation ───────────────────────────────────────────────────────
-
-def economic_filter_sheet(
-    cube: dict,
-    bin_index: int,
-    min_dev: float,
-    min_bin_n: int,
-    min_run: int,
-) -> dict:
-    """Apply the product-effect filter to one selected representative-bin sheet."""
-    dev = np.asarray(cube["shift"], dtype=float)
-    prob = np.asarray(cube["prob"], dtype=float)
-    base = np.asarray(cube["base"], dtype=float)
-    bin_n = np.asarray(cube["bin_n"])
-    Δs = np.asarray(cube["Δs"], dtype=float)
-    horizons = np.asarray(cube["horizons"], dtype=int)
-
-    best = None
-    for j, horizon in enumerate(horizons):
-        if bin_n[bin_index, j] < min_bin_n:
-            continue
-        col = dev[:, bin_index, j]
-        run, start = 0, None
-        for i, value in enumerate(col):
-            if np.isnan(value) or abs(value) < min_dev:
-                run, start = 0, None
-                continue
-            if start is not None and np.sign(value) != np.sign(col[start]):
-                run, start = 1, i
-            else:
-                if start is None:
-                    start = i
-                run += 1
-            if run < min_run:
-                continue
-            k = int(start + np.argmax(np.abs(col[start:i + 1])))
-            candidate = {
-                "horizon": int(horizon),
-                "bin": int(bin_index),
-                "bin_number": int(bin_index + 1),
-                "Δ": float(Δs[k]),
-                "dev": float(col[k]),
-                "run": int(run),
-                "prob": float(prob[k, bin_index, j]),
-                "base": float(base[k, j]),
-                "bin_n": int(bin_n[bin_index, j]),
-                "hits": int(cube["hits"][k, bin_index, j]),
-            }
-            if best is None or abs(candidate["dev"]) > abs(best["dev"]):
-                best = candidate
-
-    return {
-        "passed": best is not None,
-        "best": best,
-        "criteria": {
-            "min_dev": min_dev,
-            "min_bin_n": min_bin_n,
-            "min_run": min_run,
-        },
-    }
-
-
-# ── multiple testing ──────────────────────────────────────────────────────────
-
 def bh(p_values: np.ndarray, q: float = 0.05) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Benjamini-Hochberg: control the false discovery rate across the whole sweep.
-
-    BH compares the k-th smallest p-value against k*q/m instead, so tests sitting at the
-    floor clear collectively: a hundred of them at 2.4e-4 pass a rank-100 threshold of
-    2.5e-3 comfortably. What it controls is the expected share of false positives among
-    the discoveries, which is the right target for a screen of this size.
-
-    Returns (rejected, qvalues), both aligned to the input. NaN p-values are never
-    rejected and take a NaN qvalue, and are excluded from m.
-    """
+    """Benjamini-Hochberg FDR correction, preserving input order."""
     p = np.asarray(p_values, dtype=float)
     finite = np.isfinite(p)
-    rejected = np.zeros(p.shape, dtype=bool)
-    qvals = np.full(p.shape, np.nan)
+    rejected, qvals = np.zeros(p.shape, dtype=bool), np.full(p.shape, np.nan)
     m = int(finite.sum())
     if m == 0:
         return rejected, qvals
-
-    order = np.argsort(p[finite], kind='stable')
-    ps = p[finite][order]
-    ranks = np.arange(1, m + 1)
-
+    order = np.argsort(p[finite], kind="stable")
+    ps, ranks = p[finite][order], np.arange(1, m + 1)
     below = ps <= ranks * q / m
+    rejected_sorted = np.zeros(m, dtype=bool)
     if below.any():
-        k = int(np.flatnonzero(below).max()) + 1
-        rej_sorted = np.zeros(m, dtype=bool)
-        rej_sorted[:k] = True
-    else:
-        rej_sorted = np.zeros(m, dtype=bool)
-
-    # step-up adjusted p-values, monotone from the largest rank down
-    q_sorted = np.minimum.accumulate((ps * m / ranks)[::-1])[::-1]
-    q_sorted = np.clip(q_sorted, 0.0, 1.0)
-
-    inv = np.empty(m, dtype=int)
-    inv[order] = np.arange(m)
-    idx_finite = np.flatnonzero(finite)
-    rejected[idx_finite] = rej_sorted[inv]
-    qvals[idx_finite] = q_sorted[inv]
+        rejected_sorted[:int(np.flatnonzero(below).max()) + 1] = True
+    q_sorted = np.clip(np.minimum.accumulate((ps * m / ranks)[::-1])[::-1], 0.0, 1.0)
+    inverse = np.empty(m, dtype=int)
+    inverse[order] = np.arange(m)
+    positions = np.flatnonzero(finite)
+    rejected[positions], qvals[positions] = rejected_sorted[inverse], q_sorted[inverse]
     return rejected, qvals
-
-
-def verdict(
-    rejected: bool,
-    p_value: float,
-    at_floor: bool,
-    null_pass: bool | None = None,
-) -> str:
-    """
-    discovery  passed the raw node-null threshold and BH at the configured q
-    fdr_only   cleared BH, but not the stricter raw node-null threshold
-    nominal    p <= 0.05 on its own, which a single-node view would call an edge
-    noise      indistinguishable from the null
-
-    `at_floor` records that a p-value sat at 1/(n+1), the strongest the exact test can
-    report. It is not a weaker verdict -- it is the ceiling of the available evidence.
-    """
-    if not np.isfinite(p_value):
-        return 'insufficient'
-    if rejected and (null_pass is None or null_pass):
-        return 'discovery'
-    if rejected:
-        return 'fdr_only'
-    if p_value <= 0.05:
-        return 'nominal'
-    return 'noise'
-
-
-def sheet_from_node_result(result: dict, row: dict) -> dict:
-    """Copy one selected bin sheet out of a full node validation result."""
-    b = int(row["bin"])
-    out = {
-        "cell_real": result["cell_real"][:, b:b + 1, :],
-        "cell_p": result["cell_p"][:, b:b + 1, :],
-        "cell_p95": result["cell_p95"][:, b:b + 1, :],
-        "sheet_peak_real": result["sheet_peak_real"][b:b + 1, :],
-        "sheet_peak_p": result["sheet_peak_p"][b:b + 1, :],
-        "sheet_peak_p95": result["sheet_peak_p95"][b:b + 1, :],
-        "peak_real": result["sheet_peak_real"][b, :],
-        "peak_p": result["sheet_peak_p"][b, :],
-        "peak_p95": result["sheet_peak_p95"][b, :],
-        # The displayed sheet is one representative bin, but node selection searched
-        # all bins. Retain the whole-node peak so validation can account for that search.
-        "node_peak_real": result["peak_real"],
-        "node_peak_p": result["peak_p"],
-        "node_peak_p95": result["peak_p95"],
-        "n_shifts": result["n_shifts"],
-        "Δs": result["Δs"],
-        "horizons": result["horizons"],
-        "source_bin": np.array(b, dtype=np.int32),
-        "source_bin_number": np.array(b + 1, dtype=np.int32),
-        "selection_rank": np.array(int(row["rank"]), dtype=np.int32),
-        "selection_score": np.array(float(row["score"]), dtype=np.float32),
-        "meta": {
-            **result.get("meta", {}),
-            "bin_labels": [row.get("bin_label", f"bin {b + 1}")],
-            "source_bin": b,
-            "source_bin_number": b + 1,
-            "selection_rank": int(row["rank"]),
-            "selection_score": float(row["score"]),
-            "selection_best_cell": row.get("best_cell"),
-        },
-    }
-    if "selected_peak_null" in result:
-        out["selected_peak_null"] = result["selected_peak_null"]
-    return out

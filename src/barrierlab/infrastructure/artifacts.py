@@ -51,12 +51,6 @@ class ArtifactPaths:
     def selection_surface_path(self, row: dict) -> Path:
         return self._ranked_path("selection", row, ".xlsx")
 
-    def validation_array_path(self, row: dict) -> Path:
-        return self._ranked_path("validation", row, ".safetensors")
-
-    def validation_surface_path(self, row: dict) -> Path:
-        return self._ranked_path("validation", row, ".xlsx")
-
     def _ranked_path(self, stage: str, row: dict, suffix: str) -> Path:
         rank = int(row["rank"])
         return (
