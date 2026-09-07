@@ -1,4 +1,4 @@
-"""Stage 3 command: select nodes by their strongest-bin probability skew."""
+"""Stage 3 command: select strongest condition bins across the full grid."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from openpyxl import load_workbook
 from barrierlab.domain import selection
 from barrierlab.infrastructure import artifact_io
 from barrierlab.infrastructure.workspace import BASELINE_NODE, Workspace
-from barrierlab.pipeline.reporting import StageReport
+from barrierlab.pipeline.reporting import MilestoneProgress, StageReport
 
 
 def _copy_selected_workbook_sheet(source: Path, target: Path, bin_index: int) -> None:
@@ -48,16 +48,14 @@ def cmd_selection(ws: Workspace) -> None:
         report.line("no shift arrays available; run compare first")
         report.completed()
         return
+    report.line(
+        f"scoring {len(nodes)} nodes · {len(ws.deltas)} Δ × "
+        f"{ws.n_bins} bins × {len(ws.horizons)} horizons"
+    )
 
     def load_cube(node: dict) -> dict:
         return artifact_io.load_shift(ws.shift_cube_path(node["id"]))
 
-    baseline_path = ws.shift_cube_path(BASELINE_NODE)
-    if not baseline_path.exists():
-        report.line("no baseline shift array available; run compare first")
-        report.completed()
-        return
-    delta, horizon = ws.target(artifact_io.load_shift(baseline_path)["base"])
     result = {
         "generated": datetime.now(timezone.utc).isoformat(),
         "artifact": "03_selection",
@@ -66,8 +64,7 @@ def cmd_selection(ws: Workspace) -> None:
             nodes,
             load_cube,
             ws.selection_top_k,
-            delta,
-            horizon,
+            MilestoneProgress(report, "scoring condition bins", len(nodes)),
         ),
     }
     result["workspace"] = ws.dir.name
@@ -76,13 +73,14 @@ def cmd_selection(ws: Workspace) -> None:
     selected = result["selected"]
     report.line(
         f"scoring {len(result['candidates'])} condition bins from {len(nodes)} nodes · "
-        f"retaining top {len(selected)} by absolute skew"
+        f"retaining top {len(selected)} by summed linearly Δ-weighted skew"
     )
     _clear_selection_artifacts(ws)
     copied_npz = 0
     copied_xlsx = 0
     warnings = []
     by_id = {n["id"]: n for n in nodes}
+    artifact_progress = MilestoneProgress(report, "writing selected artifacts", len(selected))
     for row in selected:
         node = by_id[row["node"]]
         source = load_cube(node)
@@ -119,14 +117,16 @@ def cmd_selection(ws: Workspace) -> None:
                 f"selection workbook unavailable for rank {row['rank']} {row['node']}; "
                 "run compare to render it"
             )
+        finally:
+            artifact_progress.advance()
 
     ws.write_json(ws.selection_path, result)
     from barrierlab.presentation.selection_plots import write_selected_shift_graphs
     plots = write_selected_shift_graphs(ws, selected)
 
     report.line(
-        f"target ±{abs(delta):.0%} within {horizon}{ws.horizon_unit} · "
-        "score = |positive shift − negative shift|"
+        "all paired Δ levels and horizons · bin score = sum("
+        "|positive shift − negative shift| × |Δ| / max|Δ|)"
     )
     report.summary(
         f"wrote {copied_npz} arrays + {copied_xlsx} workbooks + {len(plots)} plots → "

@@ -49,10 +49,12 @@ def _render_shift(ws, head: dict, cube: dict, out_path: Path) -> Path | None:
     ax.axhline(0, color=SURFACE, linewidth=1.4)
 
     cell = head["cell"]
+    pair_delta = abs(float(cell["Δ"]))
     ax.plot(
-        [cell["horizon"]],
-        [cell["Δ"] * 100],
+        [cell["horizon"], cell["horizon"]],
+        [-pair_delta * 100, pair_delta * 100],
         marker="o",
+        linestyle="none",
         markersize=7,
         markerfacecolor="none",
         markeredgecolor=INK,
@@ -60,8 +62,8 @@ def _render_shift(ws, head: dict, cube: dict, out_path: Path) -> Path | None:
     )
     right = cell["horizon"] > ts.min() + 0.7 * (ts.max() - ts.min())
     ax.annotate(
-        f'{cell["dev"]:+.1f}%',
-        (cell["horizon"], cell["Δ"] * 100),
+        f'contrast {cell["contrast_pp"]:.1f}pp',
+        (cell["horizon"], pair_delta * 100),
         xytext=(-10 if right else 10, 0),
         textcoords="offset points",
         fontsize=8,
@@ -86,15 +88,16 @@ def _render_shift(ws, head: dict, cube: dict, out_path: Path) -> Path | None:
     )
     _title(
         fig,
-        f'Chance deviates by {abs(cell["dev"]):.1f}%, when {condition}',
+        f'Largest contrast pair is {cell["contrast_pp"]:.1f}pp, when {condition}',
         "This is the conditional surface minus the baseline. Red means the barrier "
-        "is reached more often than usual; blue means less. The ring is the "
-        "strongest selected cell.",
+        "is reached more often than usual; blue means less. The rings mark the "
+        "strongest selected +Δ/−Δ contrast pair.",
     )
     _note(
         fig,
         f'{head["gate"].get("bin_label", "selected bin")} · ring at '
-        f'+{cell["horizon"]}{ws.horizon_unit} · bin holds {cell["bin_n"]} bars · '
+        f'±{abs(cell["Δ"]):.0%}, +{cell["horizon"]}{ws.horizon_unit} · '
+        f'bin holds {cell["bin_n"]} bars · '
         "03_selection selected-node artifact",
     )
     fig.subplots_adjust(top=0.80)
@@ -109,14 +112,20 @@ def write_selected_shift_graphs(ws, selected: list[dict]) -> list[Path]:
     for row in selected:
         cube = artifact_io.load_selected_node(ws.selection_array_path(row))
         bin_index = int(row["bin"])
+        delta_index = int(np.flatnonzero(np.isclose(cube["Δs"], float(row["delta"])))[0])
+        horizon_index = int(np.flatnonzero(cube["horizons"] == int(row["horizon"]))[0])
         surface = np.asarray(cube["shift"][:, bin_index, :], dtype=float)
-        flat = int(np.nanargmax(np.abs(surface)))
-        delta_index, horizon_index = np.unravel_index(flat, surface.shape)
+        best_cell = row["best_cell"]
         cell = {
             "bin": bin_index,
             "Δ": float(cube["Δs"][delta_index]),
             "horizon": int(cube["horizons"][horizon_index]),
-            "dev": float(surface[delta_index, horizon_index]),
+            "positive_shift": float(surface[delta_index, horizon_index]),
+            "negative_shift": float(surface[
+                int(np.flatnonzero(np.isclose(cube["Δs"], -float(row["delta"])))[0]),
+                horizon_index,
+            ]),
+            "contrast_pp": float(best_cell["skew_pp"]),
             "bin_n": int(cube["bin_n"][bin_index, horizon_index]),
         }
         node = ws.catalog.find(row["node"])

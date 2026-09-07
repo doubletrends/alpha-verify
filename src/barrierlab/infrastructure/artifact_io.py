@@ -154,6 +154,8 @@ def save_selected_node(cube: dict, path: Path, meta: dict) -> None:
         "source_bin_number": cube["source_bin_number"],
         "selection_rank": cube["selection_rank"],
         "selection_score": cube["selection_score"],
+        "selection_delta": cube["selection_delta"],
+        "selection_horizon": cube["selection_horizon"],
         **_history_payload(cube),
     }
     _write_npz(path, payload, meta)
@@ -179,4 +181,3 @@ def load_selected_node(path: Path) -> dict:
     ):
         raise ValueError("selected-node artifact does not contain the complete bin cube")
     return artifact
-

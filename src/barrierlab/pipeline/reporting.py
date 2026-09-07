@@ -20,7 +20,7 @@ class StageReport:
         ),
         3: (
             "Strongest directional condition effects",
-            "Rank bins by |shift(+Δ) − shift(−Δ)|",
+            "Rank bins by summed |shift(+Δ) − shift(−Δ)| across the full grid",
         ),
         4: (
             "Statistical validation against simulated price paths",

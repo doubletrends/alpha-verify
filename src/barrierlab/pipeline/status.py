@@ -130,10 +130,10 @@ def cmd_status(ws: Workspace, node_id: str | None = None) -> None:
     )
     if validation and validation_current:
         method = validation.get("method", {})
-        if method.get("unit") == "one two-sided condition-bin score":
+        if method.get("unit") == "one full-grid linearly Δ-weighted condition-bin score; raw p < 0.05":
             print(
                 f"  validation: {len(tests)} selected bins vs {method.get('null')} | "
-                f"BH q={method.get('q')} cleared {len(cleared_rows)}"
+                f"raw p < 0.05 cleared {len(cleared_rows)}"
             )
     elif validation:
         missing = validation.get("missing_nodes", [])
@@ -159,5 +159,5 @@ def cmd_status(ws: Workspace, node_id: str | None = None) -> None:
     print(f"  {'TOTAL':<15}" + "".join(f"{value:>9}" for value in totals))
     print(
         f"\n  full grid {len(ws.deltas)}Δ x {len(ws.horizons)}t   |   "
-        f"03_selection keeps top {len(selected)} nodes and one representative bin each"
+        f"03_selection keeps top {len(selected)} condition bins ranked over the full grid"
     )

@@ -21,9 +21,6 @@
       "min_bin_n": 200,
       "min_run": 2
     },
-    "validation": {
-      "null_alpha": 0.01
-    },
     "horizons": {
       "min": 1,
       "max": 48

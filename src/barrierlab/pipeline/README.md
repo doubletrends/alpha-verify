@@ -66,10 +66,13 @@ Artifacts:
 barrierlab select --workspace <name>
 ```
 
-Selection ranks candidate condition bins at the workspace target by two-sided skew:
+Selection calculates every candidate condition-bin, paired-barrier, and horizon cell
+by two-sided skew with a linear barrier-magnitude weight, then ranks each condition
+bin by the sum of its valid cell scores:
 
 ```text
-score = abs(shift(+Δ, bin) - shift(-Δ, bin))
+cell_score = abs(shift(+Δ, bin, horizon) - shift(-Δ, bin, horizon)) * abs(Δ) / max_abs_Δ
+bin_score = sum(cell_score)
 ```
 
 It retains the configured top rows, records them in `selection.json`, and copies each
@@ -89,13 +92,11 @@ view; the Safetensor retains every bin.
 barrierlab validate --workspace <name>
 ```
 
-Stage 4 tests each selected condition-bin score against 1,000 shared synthetic OHLC
+Stage 4 tests each selected full-grid condition-bin score against 10,000 shared synthetic OHLC
 histories. The synthetic ensemble is fitted once to the selected history; market-derived
 features are recomputed on each path, while external condition histories remain fixed.
-For each selected bin the summary records its observed two-sided skew, the synthetic
-null p-value and 95th percentile, then applies Benjamini-Hochberg correction across the
-selected sweep. A bin is cleared only when it survives BH and its raw null p-value is at
-most the workspace's `validation.null_alpha`.
+For each selected bin the summary records its observed score, synthetic-null p-value,
+and null 95th percentile. A bin is cleared when its raw null p-value is below 0.05.
 
 Stage 4 has one machine-readable artifact and readable histogram plots:
 
@@ -105,7 +106,7 @@ Stage 4 has one machine-readable artifact and readable histogram plots:
 ```
 
 The JSON includes `tests[]` for every selected bin and `cleared[]` for the bins that pass
-both statistical gates. It contains no per-node validation array or workbook artifacts.
+the raw-p threshold. It contains no per-node validation array or workbook artifacts.
 
 ## Boundaries
 

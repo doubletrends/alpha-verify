@@ -23,7 +23,6 @@ The standard stages produce a one-way artifact chain. Generated files are ignore
 - `start_date`, `min_obs`, `horizons`, and `Δ` (or `Delta`);
 - `n_bins` for conditional features;
 - `evaluate.min_dev`, `evaluate.min_bin_n`, and `evaluate.min_run` for practical significance;
-- `validation.null_alpha`; and
 - `target.Δ` and `target.horizon`, shared by selection and validation.
 
 `families` maps a family name to nodes. Every node needs `id`, `family`, `feature`, `params`, and the `data` source names it requires. The family name must match the artifact subdirectory used by the pipeline. Include the `_base/baseline` constant node: it is the unconditional probability surface every conditional result is compared with.

@@ -76,8 +76,6 @@ class NodeStrongestBinSelectionTests(unittest.TestCase):
             [{"id": "example", "family": "test", "feature": "close", "params": {}}],
             lambda node: cube,
             top_k=1,
-            delta=-0.10,
-            horizon=14,
         )
 
         self.assertNotIn("economic", result["selected"][0])
@@ -86,7 +84,10 @@ class NodeStrongestBinSelectionTests(unittest.TestCase):
 
     def test_selected_node_artifact_preserves_every_bin(self) -> None:
         cube = _cube([0.35, 0.45, 0.55, 0.65])
-        row = {"bin": 2, "rank": 1, "score": 0.02, "bin_label": "bin 3"}
+        row = {
+            "bin": 2, "rank": 1, "score": 0.02, "bin_label": "bin 3",
+            "delta": 0.10, "horizon": 14,
+        }
 
         artifact = selected_node_from_shift_cube(cube, row)
 
@@ -104,6 +105,35 @@ class NodeStrongestBinSelectionTests(unittest.TestCase):
         np.testing.assert_allclose(loaded["shift"], cube["shift"])
         self.assertEqual(loaded["shift"].shape[1], 4)
 
+    def test_rank_sums_all_horizons_and_linearly_weighted_barriers_per_bin(self) -> None:
+        cube = _cube([0.60, 0.55], [0.40, 0.50])
+        cube["Δs"] = np.array([-0.10, -0.05, 0.05, 0.10])
+        cube["horizons"] = np.array([7, 14])
+        cube["bin_n"] = np.full((2, 2), 100)
+        cube["prob"] = np.array([
+            [[0.40, 0.40], [0.50, 0.50]],
+            [[0.40, 0.40], [0.50, 0.50]],
+            [[0.60, 0.60], [0.55, 0.55]],
+            [[0.60, 0.60], [0.55, 0.55]],
+        ])
+        cube["base"] = np.full((4, 2), 0.50)
+        cube["shift"] = (cube["prob"] - cube["base"][:, None, :]) * 100.0
+        cube["hits"] = np.rint(cube["prob"] * 100).astype(int)
+
+        result = rank_nodes(
+            [{"id": "example", "family": "test", "feature": "close", "params": {}}],
+            lambda node: cube,
+            top_k=20,
+        )
+
+        self.assertEqual(len(result["candidates"]), 2)
+        winner = result["candidates"][0]
+        self.assertEqual(winner["bin"], 0)
+        self.assertEqual(winner["cell_count"], 4)
+        # Two 20pp ±10% cells plus two 10pp ±5% cells.
+        self.assertAlmostEqual(winner["score_pp"], 60.0)
+        self.assertAlmostEqual(winner["delta"], 0.10)
+        self.assertEqual(winner["horizon"], 7)
 
 if __name__ == "__main__":
     unittest.main()

@@ -30,7 +30,6 @@ class WorkspaceConfig:
     target_delta: float | None
     target_horizon: int | None
     selection_top_k: int
-    null_alpha: float
     min_dev: float
     min_bin_n: int
     min_run: int
@@ -42,7 +41,6 @@ class WorkspaceConfig:
         barriers = meta.get("Delta", meta.get("\u0394", {}))
         target = meta.get("target", {})
         selection = meta.get("selection", {})
-        validation = meta.get("validation", {})
         evaluate = meta.get("evaluate", {})
         target_delta = target.get("Delta", target.get("\u0394"))
         return cls(
@@ -64,7 +62,6 @@ class WorkspaceConfig:
                 else int(target["horizon"])
             ),
             selection_top_k=int(selection.get("top_k", 20)),
-            null_alpha=float(validation.get("null_alpha", 0.01)),
             min_dev=float(evaluate.get("min_dev", 10.0)),
             min_bin_n=int(evaluate.get("min_bin_n", 50)),
             min_run=int(evaluate.get("min_run", 2)),
@@ -168,10 +165,6 @@ class Workspace:
     @property
     def selection_top_k(self) -> int:
         return self.config.selection_top_k
-
-    @property
-    def null_alpha(self) -> float:
-        return self.config.null_alpha
 
     @property
     def min_dev(self) -> float:

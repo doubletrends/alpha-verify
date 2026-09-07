@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 
-def simulated_ohlc_tensor(data: pd.DataFrame, n_paths: int = 1000, seed: int = 20260907):
+def simulated_ohlc_tensor(data: pd.DataFrame, n_paths: int = 10_000, seed: int = 20260907):
     """Fit and draw the shared OHLC ensemble on the configured Torch device."""
     import torch
 
@@ -80,6 +80,33 @@ def bin_scores(
     return np.abs(shifts[1] - shifts[0])
 
 
+def bin_score_from_shift_cube(cube: dict) -> np.ndarray:
+    """Sum the Stage 3 cell statistic over each bin's complete shift grid."""
+    deltas = np.asarray(cube["Δs"], dtype=float)
+    shifts = np.asarray(cube["shift"], dtype=float)
+    bin_n = np.asarray(cube["bin_n"], dtype=float)
+    magnitudes = sorted({abs(float(value)) for value in deltas if abs(value) > 1e-12})
+    paired = [
+        magnitude for magnitude in magnitudes
+        if np.count_nonzero(np.isclose(deltas, magnitude, atol=1e-12)) == 1
+        and np.count_nonzero(np.isclose(deltas, -magnitude, atol=1e-12)) == 1
+    ]
+    total = np.zeros(shifts.shape[1], dtype=float)
+    if not paired:
+        return total
+    max_magnitude = max(paired)
+    for magnitude in paired:
+        positive = int(np.flatnonzero(np.isclose(deltas, magnitude, atol=1e-12))[0])
+        negative = int(np.flatnonzero(np.isclose(deltas, -magnitude, atol=1e-12))[0])
+        skew = np.abs(shifts[positive] - shifts[negative])
+        usable = np.isfinite(skew) & np.isfinite(bin_n) & (bin_n > 0)
+        # Match selection: a barrier/horizon contributes only when it can
+        # compare at least two condition bins.
+        usable[:, np.sum(usable, axis=0) < 2] = False
+        total += np.where(usable, skew, 0.0).sum(axis=1) * (magnitude / max_magnitude)
+    return total
+
+
 def batched_bin_scores(
     paths, features: np.ndarray | None, delta: float, horizon: int, n_bins: int,
     feature_name: str | None = None, params: dict | None = None,
@@ -117,23 +144,58 @@ def batched_bin_scores(
     return (scores[1] - scores[0]).abs().mul(100).cpu().numpy()
 
 
-def bh(p_values: np.ndarray, q: float = 0.05) -> tuple[np.ndarray, np.ndarray]:
-    """Benjamini-Hochberg FDR correction, preserving input order."""
-    p = np.asarray(p_values, dtype=float)
-    finite = np.isfinite(p)
-    rejected, qvals = np.zeros(p.shape, dtype=bool), np.full(p.shape, np.nan)
-    m = int(finite.sum())
-    if m == 0:
-        return rejected, qvals
-    order = np.argsort(p[finite], kind="stable")
-    ps, ranks = p[finite][order], np.arange(1, m + 1)
-    below = ps <= ranks * q / m
-    rejected_sorted = np.zeros(m, dtype=bool)
-    if below.any():
-        rejected_sorted[:int(np.flatnonzero(below).max()) + 1] = True
-    q_sorted = np.clip(np.minimum.accumulate((ps * m / ranks)[::-1])[::-1], 0.0, 1.0)
-    inverse = np.empty(m, dtype=int)
-    inverse[order] = np.arange(m)
-    positions = np.flatnonzero(finite)
-    rejected[positions], qvals[positions] = rejected_sorted[inverse], q_sorted[inverse]
-    return rejected, qvals
+def batched_bin_score_sums(
+    paths, features: np.ndarray | None, deltas: np.ndarray, horizons: np.ndarray, n_bins: int,
+    feature_name: str | None = None, params: dict | None = None, progress=None,
+) -> np.ndarray:
+    """Return the complete linearly Δ-weighted bin score for every null path."""
+    import torch
+
+    from barrierlab.domain import tensor_runtime, torch_features
+
+    device = tensor_runtime.device()
+    ohlcv = paths if isinstance(paths, torch.Tensor) else tensor_runtime.tensor(paths)
+    close, high, low = ohlcv[:, :, 3], ohlcv[:, :, 1], ohlcv[:, :, 2]
+    if features is None:
+        x = torch_features.compute(ohlcv, feature_name, params or {})
+    else:
+        x = torch.as_tensor(np.array(features, dtype=float, copy=True), dtype=torch.float64, device=device)
+    path_count, length = close.shape
+    edges = torch.quantile(
+        x.nan_to_num(nan=0.0),
+        torch.linspace(0.1, 0.9, n_bins - 1, dtype=torch.float64, device=device), dim=1,
+    ).T
+    idx = (x[:, :, None] >= edges[:, None, :]).sum(-1).long()
+    deltas = np.asarray(deltas, dtype=float)
+    magnitudes = sorted({abs(float(value)) for value in deltas if abs(value) > 1e-12})
+    paired = [
+        magnitude for magnitude in magnitudes
+        if np.count_nonzero(np.isclose(deltas, magnitude, atol=1e-12)) == 1
+        and np.count_nonzero(np.isclose(deltas, -magnitude, atol=1e-12)) == 1
+    ]
+    total = torch.zeros((path_count, n_bins), dtype=torch.float64, device=device)
+    if not paired:
+        return total.cpu().numpy()
+    max_magnitude = max(paired)
+    for horizon in np.asarray(horizons, dtype=int):
+        try:
+            valid_n = length - int(horizon)
+            if valid_n <= 0:
+                continue
+            lo, hi = torch.full_like(close, float("nan")), torch.full_like(close, float("nan"))
+            lo[:, :valid_n] = low[:, 1:].unfold(1, int(horizon), 1).amin(-1) / close[:, :valid_n] - 1
+            hi[:, :valid_n] = high[:, 1:].unfold(1, int(horizon), 1).amax(-1) / close[:, :valid_n] - 1
+            ok = torch.isfinite(x) & torch.isfinite(lo) & torch.isfinite(hi)
+            counts = torch.zeros((path_count, n_bins), dtype=torch.float64, device=device)
+            counts.scatter_add_(1, idx, ok.to(torch.float64))
+            for magnitude in paired:
+                scores = []
+                for touched in (lo <= -magnitude, hi >= magnitude):
+                    hits = torch.zeros_like(counts)
+                    hits.scatter_add_(1, idx, (touched & ok).to(torch.float64))
+                    scores.append(hits / counts.clamp_min(1))
+                total += (scores[1] - scores[0]).abs().mul(100 * magnitude / max_magnitude)
+        finally:
+            if progress is not None:
+                progress.advance()
+    return total.cpu().numpy()

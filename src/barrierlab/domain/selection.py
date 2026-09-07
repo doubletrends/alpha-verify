@@ -1,4 +1,4 @@
-"""Stage 3 selection: rank predictors by their strongest conditional bin."""
+"""Stage 3 selection: rank conditional bins by their full-grid evidence."""
 
 from __future__ import annotations
 
@@ -88,42 +88,94 @@ def rank_nodes(
     nodes: list[dict],
     load_cube,
     top_k: int,
-    delta: float,
-    horizon: int,
+    progress=None,
 ) -> dict:
-    """Return globally ranked individual condition-bin scores."""
+    """Return globally ranked condition-bin scores accumulated over the full grid.
+
+    Every available two-sided barrier and horizon contributes a cell score. The
+    raw skew is weighted linearly by its barrier magnitude relative to the
+    largest paired magnitude available in the cube, then summed per node/bin.
+    """
     candidates = []
     for node in nodes:
-        cube = load_cube(node)
-        n_bins = int(cube["shift"].shape[1])
-        if n_bins < 2:
-            continue
-        row = bin_information(cube, delta, horizon)
-        if row is None:
-            continue
-        labels = cube.get("meta", {}).get("bin_labels", [])
-        for cell in row["bin_cells"]:
-            b = int(cell["bin"])
-            candidates.append({
-                "node": node["id"], "family": node["family"],
-                "feature": node["feature"], "params": node["params"],
-                "score": cell["score"], "score_pp": cell["score_pp"],
-                "bin": b, "bin_number": b + 1,
-                "bin_label": labels[b] if b < len(labels) else f"bin {b + 1}",
-                "best_cell": cell,
-            })
+        try:
+            cube = load_cube(node)
+            n_bins = int(cube["shift"].shape[1])
+            if n_bins < 2:
+                continue
+            deltas = np.asarray(cube["Δs"], dtype=float)
+            horizons = np.asarray(cube["horizons"], dtype=int)
+            magnitudes = sorted({abs(float(value)) for value in deltas if abs(value) > 1e-12})
+            paired = [
+                magnitude for magnitude in magnitudes
+                if np.count_nonzero(np.isclose(deltas, magnitude, atol=1e-12)) == 1
+                and np.count_nonzero(np.isclose(deltas, -magnitude, atol=1e-12)) == 1
+            ]
+            if not paired:
+                continue
+            max_magnitude = max(paired)
+            labels = cube.get("meta", {}).get("bin_labels", [])
+            bin_candidates = {}
+            for magnitude in paired:
+                for horizon in horizons:
+                    row = bin_information(cube, magnitude, int(horizon))
+                    if row is None:
+                        continue
+                    weight = magnitude / max_magnitude
+                    for cell in row["bin_cells"]:
+                        b = int(cell["bin"])
+                        skew_pp = cell["score_pp"]
+                        score_pp = skew_pp * weight
+                        scored_cell = {
+                            **cell,
+                            "delta_weight": weight,
+                            "skew": skew_pp / 100.0,
+                            "skew_pp": skew_pp,
+                            "score": score_pp / 100.0,
+                            "score_pp": score_pp,
+                        }
+                        candidate = bin_candidates.setdefault(b, {
+                            "node": node["id"], "family": node["family"],
+                            "feature": node["feature"], "params": node["params"],
+                            "score": 0.0, "score_pp": 0.0,
+                            "bin": b, "bin_number": b + 1,
+                            "bin_label": labels[b] if b < len(labels) else f"bin {b + 1}",
+                            "cell_count": 0, "best_cell": None,
+                        })
+                        candidate["score"] += scored_cell["score"]
+                        candidate["score_pp"] += scored_cell["score_pp"]
+                        candidate["cell_count"] += 1
+                        if (
+                            candidate["best_cell"] is None
+                            or scored_cell["score"] > candidate["best_cell"]["score"]
+                        ):
+                            candidate["best_cell"] = scored_cell
+            for candidate in bin_candidates.values():
+                # The representative cell drives the Stage 3 view and the existing
+                # per-cell synthetic-null validation, while ranking uses the total.
+                candidate["delta"] = candidate["best_cell"]["Δ"]
+                candidate["delta_abs"] = candidate["best_cell"]["Δ_abs"]
+                candidate["delta_weight"] = candidate["best_cell"]["delta_weight"]
+                candidate["horizon"] = candidate["best_cell"]["horizon"]
+                candidates.append(candidate)
+        finally:
+            if progress is not None:
+                progress.advance()
 
-    candidates.sort(key=lambda r: (-r["score"], r["family"], r["node"], r["bin"]))
+    candidates.sort(
+        key=lambda r: (-r["score"], r["family"], r["node"], r["bin"])
+    )
     for rank, row in enumerate(candidates, 1):
         row["rank"] = rank
 
     return {
         "method": {
-            "score": "abs(02_shift(+Δ, bin) - 02_shift(-Δ, bin))",
-            "unit": "percentage points",
-            "target": {"Δ_abs": abs(float(delta)), "horizon": horizon},
-            "source": "02_shift.shift",
+            "cell_score": "abs(02_shift(+Δ, bin, horizon) - 02_shift(-Δ, bin, horizon)) * (abs(Δ) / max_abs_Δ)",
+            "score": "sum(cell_score for all valid paired-Δ and horizon cells in a condition bin)",
+            "unit": "linearly Δ-weighted percentage points",
             "selection_unit": "individual condition bin",
+            "delta_weight": "abs(Δ) / max_abs_Δ within each node cube",
+            "source": "02_shift.shift",
             "top_k": top_k,
         },
         "selected": candidates[:top_k],
@@ -150,12 +202,16 @@ def selected_node_from_shift_cube(cube: dict, row: dict) -> dict:
         "source_bin_number": np.array(b + 1, dtype=np.int32),
         "selection_rank": np.array(int(row["rank"]), dtype=np.int32),
         "selection_score": np.array(float(row["score"]), dtype=np.float32),
+        "selection_delta": np.array(float(row["delta"]), dtype=np.float32),
+        "selection_horizon": np.array(int(row["horizon"]), dtype=np.int32),
         "meta": {
             **cube.get("meta", {}),
             "source_bin": b,
             "source_bin_number": b + 1,
             "selection_rank": int(row["rank"]),
             "selection_score": float(row["score"]),
+            "selection_delta": float(row["delta"]),
+            "selection_horizon": int(row["horizon"]),
             "selection_best_cell": row.get("best_cell"),
         },
     }
