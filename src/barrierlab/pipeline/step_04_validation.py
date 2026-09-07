@@ -72,42 +72,6 @@ def selection_fingerprint(selected: list[dict]) -> list[dict]:
     ]
 
 
-def write_validated_bundle(ws: Workspace, selected: list[dict], summary: dict) -> None:
-    """Carry the selected-node evidence forward as Stage 4's single handoff.
-
-    Stage 5 must not reconstruct its inputs from Stages 1--3.  The bundle therefore
-    contains the common market history, unconditional surface, and every selected
-    feature history.  Stage 5 will retain only validation-cleared nodes for weighting.
-    """
-    artifacts = [artifact_io.load_selected_node(ws.selection_array_path(row)) for row in selected]
-    first = artifacts[0]
-    data = market_data_from_artifact(first)
-    arrays: dict[str, np.ndarray] = {
-        "index": np.asarray(data.index.astype(str), dtype=str),
-        "high": data["high"].to_numpy(float),
-        "low": data["low"].to_numpy(float),
-        "close": data["close"].to_numpy(float),
-        "base": np.asarray(first["base"], dtype=float),
-        "Δs": np.asarray(first["Δs"], dtype=float),
-        "horizons": np.asarray(first["horizons"], dtype=int),
-        "node_ids": np.asarray([row["node"] for row in selected], dtype=str),
-        "families": np.asarray([row["family"] for row in selected], dtype=str),
-        "cleared_node_ids": np.asarray([row["node"] for row in summary["cleared"]], dtype=str),
-    }
-    for index, artifact in enumerate(artifacts):
-        feature = feature_from_artifact(artifact, data.index)
-        arrays[f"feature_{index}"] = feature.to_numpy(float)
-        arrays[f"shift_{index}"] = np.asarray(artifact["shift"], dtype=float)
-        arrays[f"edges_{index}"] = np.asarray(artifact["edges"], dtype=float)
-    artifact_io.save_validated_bundle(ws.validated_bundle_path, arrays, {
-        "artifact": "04_validation/validated",
-        "workspace": ws.dir.name,
-        "generated": datetime.now(timezone.utc).isoformat(),
-        "selection_fingerprint": selection_fingerprint(selected),
-        "source": "03_selection selected-node artifacts",
-    })
-
-
 def _economic_criteria(ws: Workspace) -> dict:
     return {
         "min_dev": ws.min_dev,
@@ -147,7 +111,7 @@ def validation_summary_is_current(ws: Workspace, summary: dict) -> bool:
     if not selected or summary.get("selection_fingerprint") != selection_fingerprint(selected):
         return False
     if summary.get("method", {}).get("unit") == "one two-sided condition-bin score":
-        return ws.validated_bundle_path.exists()
+        return True
     if summary.get("method", {}).get("economic_filter") != _economic_criteria(ws):
         return False
     if summary.get("method", {}).get("null_alpha") != ws.null_alpha:
@@ -383,9 +347,7 @@ def finalize_validation(ws: Workspace, q: float = 0.05) -> bool:
         "tests": rows,
     }
     ws.write_json(ws.validation_summary_path, summary)
-    write_validated_bundle(ws, selected, summary)
     print(f"\n  wrote {ws.validation_summary_path.relative_to(ws.root_dir)}")
-    print(f"  wrote {ws.validated_bundle_path.relative_to(ws.root_dir)}")
     return True
 
 
@@ -408,7 +370,7 @@ def cmd_validation(ws: Workspace) -> None:
         selected_node = artifact_io.load_selected_node(ws.selection_array_path(row))
         data = market_data_from_artifact(selected_node)
         feature = feature_from_artifact(selected_node, data.index)
-        delta, horizon = ws.composition_target(selected_node["base"])
+        delta, horizon = ws.target(selected_node["base"])
         if simulated_paths is None:
             simulated_paths = val.simulated_ohlc_tensor(data)
         node = nodes[row["node"]]
@@ -460,7 +422,6 @@ def cmd_validation(ws: Workspace) -> None:
         "tests": records, "cleared": cleared, "economics": [],
     }
     ws.write_json(ws.validation_summary_path, summary)
-    write_validated_bundle(ws, rows, summary)
-    from barrierlab.presentation.report_diagnostics import write_bin_score_null_histograms
+    from barrierlab.presentation.validation_plots import write_bin_score_null_histograms
     write_bin_score_null_histograms(ws, summary)
     print(f"  tested {len(records)} selected-bin scores; {len(cleared)} cleared after BH")

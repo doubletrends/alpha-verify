@@ -5,7 +5,7 @@ This package turns one workspace declaration into staged, inspectable barrier-to
 ## Public entrypoints
 
 - `barrierlab.cli:main` is the console entrypoint installed as `barrierlab`.
-- `barrierlab <surface|shift|selection|validation|redundancy|composition|report>` runs one named stage.
+- `barrierlab <surface|shift|selection|validation>` runs one named stage.
 - `barrierlab status [NODE] --workspace NAME` is read-only and reports artifact/validation state.
 - `infrastructure.workspace.Workspace` is the runtime view of a workspace declaration and its artifact namespace.
 
@@ -17,18 +17,16 @@ The CLI command registry in [`cli.py`](cli.py) is the source of truth for comman
 workspace declaration + source data
         │
         ▼
-01 surface → 02 shift → 03 selection → 04 validation ─┐
-                              │                         ├→ 05 redundancy → 06 composition → 07 report
-                              └─────────────────────────┘
+01 surface → 02 shift → 03 selection → 04 validation
 ```
 
-This is a one-way artifact DAG, not a request to rerun every earlier stage indiscriminately. In particular, validation consumes the selected Stage 3 artifacts, while composition reads Stage 2 candidate history plus Stage 4 decisions. Reports read artifacts only and must not fetch data or recompute measurements. See [the pipeline protocol](pipeline/README.md) for the full contract.
+This is a one-way artifact chain, not a request to rerun every earlier stage indiscriminately. Validation consumes the selected Stage 3 artifacts and writes the final verdict. See [the pipeline protocol](pipeline/README.md) for the full contract.
 
 ## Boundaries
 
 ### Domain
 
-`domain/` owns deterministic numerical work: barrier calculations, features, baseline shifts, selection scores, validation statistics, redundancy, and Bayes composition. It must not depend on `infrastructure`, `pipeline`, or `presentation`; it also does not read/write files or provide CLI entrypoints. Add reusable, source-independent feature transforms in `domain/features.py`.
+`domain/` owns deterministic numerical work: barrier calculations, features, baseline shifts, selection scores, and validation statistics. It must not depend on `infrastructure`, `pipeline`, or `presentation`; it also does not read/write files or provide CLI entrypoints. Add reusable, source-independent feature transforms in `domain/features.py`.
 
 ### Infrastructure
 
@@ -40,7 +38,7 @@ This is a one-way artifact DAG, not a request to rerun every earlier stage indis
 
 ### Presentation
 
-`presentation/` owns human-readable Excel workbooks and report figures. It may consume domain outputs and persisted artifacts, but must not depend on CLI or pipeline modules. Presentation never changes a measurement, decision, or artifact schema.
+`presentation/` owns human-readable Excel workbooks and diagnostic figures. It may consume domain outputs and persisted artifacts, but must not depend on CLI or pipeline modules. Presentation never changes a measurement, decision, or artifact schema.
 
 ## Safe modification guide
 
@@ -48,7 +46,7 @@ This is a one-way artifact DAG, not a request to rerun every earlier stage indis
 |---|---|---|
 | Built-in feature | `domain/features.py` | domain’s no-I/O/no-outward-dependency rule |
 | Data provider | `infrastructure/market_data.py` or workspace plugin | source names named in `universe.json` |
-| Artifact schema/path | `infrastructure/artifact_io.py`, `artifacts.py` | consumers, report readers, and contract tests |
+| Artifact schema/path | `infrastructure/artifact_io.py`, `artifacts.py` | consumers and contract tests |
 | Statistical decision | `domain/validation.py`, `pipeline/step_04_validation.py` | node-wide null and three-gate semantics |
 | Workbook or figure | `presentation/` | artifacts remain the numerical source of truth |
 | New stage or command | `pipeline/`, then `cli.py` | command/order and stage-directory contracts |
@@ -57,4 +55,4 @@ Run `python -m pytest` after a change. The architecture tests explicitly enforce
 
 ## Operational limits
 
-Run commands from the repository root: `Workspace` resolves `workspaces/` from the current working directory. A stage may overwrite its own generated artifacts; declarations (`universe.json`) and plugins are source-controlled separately. Network-backed stages depend on the provider’s current data availability. Report dates resolve non-trading days to the latest available bar retained by the upstream artifact.
+Run commands from the repository root: `Workspace` resolves `workspaces/` from the current working directory. A stage may overwrite its own generated artifacts; declarations (`universe.json`) and plugins are source-controlled separately. Network-backed stages depend on the provider’s current data availability.

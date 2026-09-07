@@ -1,6 +1,6 @@
 # Pipeline protocol
 
-`pipeline/` owns the seven-stage artifact workflow: what each command reads, writes,
+`pipeline/` owns the four-stage artifact workflow: what each command reads, writes,
 and proves. It does not own reusable feature implementations, data-provider adapters,
 workspace declarations, or figure styling; those boundaries are documented in the
 [package README](../README.md) and [workspace README](../../../workspaces/README.md).
@@ -19,7 +19,7 @@ That is different from asking where price closes. Stops, limits, liquidations an
 calls care whether a level was reached at any point inside the forward window, so the
 engine uses high/low extremes rather than close-to-close returns.
 
-The product workflow has seven stages:
+The product workflow has four stages:
 
 ```text
 01_surface/               surface       full arrays and surface workbooks
@@ -32,32 +32,16 @@ The product workflow has seven stages:
 04_validation/validation.json
                           validation    raw null + BH + economic intersection
 
-05_redundancy/            redundancy    numerical matrix and readable workbook
-05_redundancy/redundancy.json
-                          redundancy    compact manifest and cluster summary
-06_composition/composition.npz
-                          composition   walk-forward composition arrays
-06_composition/composition.json
-                          composition   walk-forward composition summary
-06_composition/probability.xlsx
-                          composition   current weighted probability surface
-06_composition/shift.xlsx
-                          composition   current weighted shift from baseline
-07_report/                report        audience-facing figures
 ```
 
-Stages 1-4 build the measured, selected and validated surfaces and assign final
-validation verdicts. Stage 5 maps redundancy, Stage 6 is the out-of-sample composition
-check, and Stage 7 renders figures from stored artifacts. Its null figure reconstructs
-the saved null distribution from Stage 3 history but does not fetch or remeasure market data.
+Stages 1-4 build the measured and selected surfaces, test them against the null,
+and assign final validation verdicts.
 
-The artifact flow is a one-way DAG rather than a strict chain. Shift reads surface
-artifacts; selection promotes each top-ranked node's complete shift cube and records its
-representative bin; validation reads only those selection artifacts. Redundancy is an
-audit branch from the validation decisions. Composition separately reads the Stage 2
-candidate panel and Stage 4 cleared-node decisions, then report reads the stored artifacts needed
-by each figure. Validation recomputes the circular-shift null from the ordered history
-carried by each selected-node artifact because aggregate cube rates alone are insufficient.
+The artifact flow is a one-way chain. Shift reads surface artifacts; selection promotes
+each top-ranked node's complete shift cube and records its representative bin; validation
+reads only those selection artifacts. Validation recomputes the circular-shift null from
+the ordered history carried by each selected-node artifact because aggregate cube rates
+alone are insufficient.
 
 ## Implementation Boundaries
 
@@ -131,7 +115,7 @@ shift = 100 * (P(price touches Δ within t | bin) - P(price touches Δ within t)
 ```
 
 The shift stage does not judge nodes. It writes the full baseline-subtracted cube that
-selection, validation and reporting read.
+selection and validation read.
 
 The workbook uses a diverging scale centered at zero: red cells mean the barrier is
 reached more often than baseline, blue cells mean less often.
@@ -143,7 +127,7 @@ barrierlab selection --workspace <name>
 ```
 
 Selection ranks one *node* per predictor, rather than allowing several decile sheets
-from one predictor to consume the shortlist. It uses the workspace's composition target
+from one predictor to consume the shortlist. It uses the workspace's configured target
 `P(touch Δ within t)`, calculates the two-sided skew of each bin, and scores the
 node by its strongest bin. Here Δ is the positive barrier magnitude:
 
@@ -244,107 +228,6 @@ a screen of this size.
 Until every selected node has a current null artifact,
 `04_validation/validation.json` records `complete: false` and the missing nodes.
 
-## 5. Redundancy
-
-`redundancy` maps the validation-cleared nodes using normalized
-conditional mutual information between their ten-bin states:
-
-```text
-I(bin_i ; bin_j | touch outcome)
-```
-
-Pairs above the threshold form connected clusters. Stage 5 retains the highest-information
-node from each cluster as the equal-weight Naive-Bayes representative.
-
-Stage 5 writes three synchronized artifacts. `05_redundancy/redundancy.npz` is
-the numerical source of truth: ordered node ids, information scores, the square
-conditional-NMI matrix, cluster ids, representative flags, target, threshold, sample
-count and outcome rate. `05_redundancy/redundancy.xlsx` renders Overview, Matrix,
-Clusters, Nodes, Pairs and Definitions sheets. `05_redundancy/redundancy.json`
-is written last as a
-compact manifest; `complete: true` certifies that both larger artifacts exist and match
-the current Stage 4 validation fingerprint.
-
-```bash
-barrierlab redundancy --workspace <name>
-```
-
-## 6. Compose
-
-```bash
-barrierlab composition --workspace <name>
-```
-
-Stage 5 forwards its cluster representatives. Composition asks whether those independent
-representatives can be combined out of sample with equal Naive-Bayes contributions.
-
-Under conditional independence, log-odds add:
-
-```text
-logit P(touch Δ in t | x1..xk)
-  = logit P(touch Δ in t)
-    + sum_i [logit P(touch Δ in t | xi) - logit P(touch Δ in t)]
-```
-
-Every term already lives in the measured cubes. The composition stage tests this with an
-expanding walk-forward design:
-
-1. Fit bin edges, per-bin rates and prior on the training window only.
-2. Embargo the last `horizon` training bars so labels do not reach into test data.
-3. Use the fold-local Stage 5 representative plan, which chooses one node from each
-   conditional-dependence cluster using only that fold's training history.
-4. Predict the test block with equal node contributions.
-5. Score every `horizon`th bar so forward windows do not overlap.
-
-Stage 6 separately fits a deployment-side forecast for the latest jointly available
-feature state. For every barrier/horizon cell, it trains on completed outcomes only and
-uses the Stage 5 cluster representatives with equal contributions. This is a current forecast, not an average
-of the walk-forward predictions. Because separately estimated cells can contain sampling
-reversals, a final isotonic projection enforces the defining nesting rules: farther
-barriers cannot be more likely than nearer barriers, and longer horizons cannot be less
-likely than shorter horizons. The raw fitted face remains in the NPZ for auditability.
-
-It writes:
-
-```text
-06_composition/composition.npz
-06_composition/composition.json
-06_composition/probability.xlsx
-06_composition/shift.xlsx
-```
-
-`06_composition/composition.json` records prior-only and equal-weight representative
-metrics. Every outer fold records its Stage 5 representative set. The point is not to claim a
-trading strategy; it is to test whether the measured conditional tables compose without
-leaking future data. The NPZ additionally stores the current `Delta x horizon`
-probability face and its observation counts. It also stores a leakage-safe report face
-fit from the node states and completed outcomes available as of the day Stage 6 runs.
-On a non-trading day, that resolves to the latest available market bar. The `probability.xlsx`
-single-sheet workbook renders the current face with exactly the same layout, percentage
-format, fixed color scale, and frozen panes as a Stage 1 probability sheet.
-`shift.xlsx` subtracts the Stage 2 unconditional baseline from that face and
-renders the percentage-point difference with Stage 2's signed formatting and fixed
-blue/white/red color scale.
-
-## 7. Report
-
-```bash
-barrierlab report --workspace <name>
-```
-
-The report renders `workspaces/<name>/07_report/*.png`. Figures read
-from `.npz` and `.json` artifacts; they do not recompute the pipeline. Plot A uses the
-full-Bayes face produced by Stage 6 as of today (or the latest available market bar) and
-shows the price path through that date.
-
-The main product figures show:
-
-- the full weighted-Bayes envelope as of today
-- the exact null distribution behind a headline node
-- one conditional-shift surface for every node that cleared all three
-- the ATR regime ladder
-- the null-gap ranking across top discoveries
-
 ## Extension routing
 
 Add reusable features at the package’s domain boundary; add asset-specific sources,
@@ -368,15 +251,6 @@ the artifacts on disk.
 | `04_validation/array/rank_*.safetensors` | `validation` | exact null artifacts |
 | `04_validation/spreadsheet/rank_*.xlsx` | `validation` | readable validation workbook |
 | `04_validation/validation.json` | `validation` | three-gate verdicts and cleared rows |
-| `05_redundancy/redundancy.npz` | `redundancy` | numerical conditional-NMI matrix and clusters |
-| `05_redundancy/redundancy.xlsx` | `redundancy` | six-sheet readable redundancy map |
-| `05_redundancy/redundancy.json` | `redundancy` | compact manifest and cluster summary |
-| `06_composition/composition.npz` | `composition` | pooled walk-forward predictions |
-| `06_composition/composition.json` | `composition` | walk-forward metrics and fold metadata |
-| `06_composition/probability.xlsx` | `composition` | one-sheet current weighted probability surface |
-| `06_composition/shift.xlsx` | `composition` | one-sheet current weighted shift from baseline |
-| `07_report/*.png` | `report` | product figures |
 
-All generated workspace artifacts and report images are git-ignored except the
-reviewed NASDAQ evidence image used by the root README. `universe.json` and an optional
+All generated workspace artifacts are git-ignored. `universe.json` and an optional
 `plugin.py` are source-controlled per workspace.

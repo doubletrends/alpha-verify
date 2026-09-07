@@ -8,7 +8,7 @@ generated artifacts.
 
 - [Package boundary](barrierlab/README.md): public CLI, dependency direction, shared
   ownership, and safe modification map.
-- [Pipeline protocol](barrierlab/pipeline/README.md): seven-stage artifact workflow,
+- [Pipeline protocol](barrierlab/pipeline/README.md): four-stage artifact workflow,
   statistical procedure, inputs, outputs, and stage-specific limits.
 
 The executable public entrypoint is `barrierlab.cli:main`, installed as `barrierlab`.

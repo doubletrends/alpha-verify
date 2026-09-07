@@ -8,10 +8,6 @@ import pandas as pd
 from barrierlab.domain import barrier
 from barrierlab.domain.features import FeatureRegistry, register_builtin_features
 from barrierlab.infrastructure import artifact_io
-from barrierlab.infrastructure.artifacts import (
-    feature_from_artifact,
-    market_data_from_artifact,
-)
 from barrierlab.infrastructure.market_data import SourceRegistry, register_builtin_sources
 from barrierlab.infrastructure.workspace import BASELINE_NODE, Workspace
 from barrierlab.infrastructure.workspace_plugins import load_workspace_plugin
@@ -67,41 +63,3 @@ def baseline_surface(ws: Workspace) -> np.ndarray | None:
     if not path.exists():
         return None
     return artifact_io.load_surface(path)["prob"][:, 0, :]
-
-
-def artifact_feature_panel(ws: Workspace) -> tuple[pd.DataFrame, dict, dict]:
-    """
-    Full candidate feature panel reconstructed from Stage 2 shift artifacts.
-
-    This keeps composition downstream of the artifact chain after regeneration: Stage 1
-    stores the ordered market and feature arrays, Stage 2 copies them into the shift
-    artifacts, and Bayes reads those files instead of fetching data again.
-    """
-    base_path = ws.shift_cube_path("_base", BASELINE_NODE)
-    if not base_path.exists():
-        raise ValueError("missing baseline shift artifact - run shift first")
-    base = artifact_io.load_shift(base_path)
-    try:
-        data = market_data_from_artifact(base)
-    except ValueError as error:
-        raise ValueError(f"baseline {error} - run surface and shift again") from error
-
-    feats, fams = {}, {}
-    for node in ws.catalog.all_nodes():
-        if node["id"] == BASELINE_NODE:
-            continue
-        path = ws.shift_cube_path(node["family"], node["id"])
-        if not path.exists():
-            continue
-        cube = artifact_io.load_shift(path)
-        try:
-            feats[node["id"]] = feature_from_artifact(cube, data.index)
-        except ValueError as error:
-            raise ValueError(
-                f"{node['id']} {error} - run surface and shift again"
-            ) from error
-        fams[node["id"]] = node["family"]
-
-    if not feats:
-        raise ValueError("no feature values in shift artifacts")
-    return data, feats, fams

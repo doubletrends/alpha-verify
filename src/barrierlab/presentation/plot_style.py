@@ -1,4 +1,4 @@
-"""Shared visual system for report figures."""
+"""Shared visual system for pipeline figures."""
 
 from __future__ import annotations
 
@@ -17,15 +17,7 @@ INK = "#0b0b0b"
 INK_2 = "#52514e"
 MUTED = "#8a8983"
 GRID = "#e6e5e1"
-# Categorical slots, in fixed order, never cycled.
-S1, S2 = "#2a78d6", "#eb6834"
-
-# One hue, light to dark: the sequential ramp for magnitude.
-SEQ = [
-    "#cde2fb", "#b7d3f6", "#9ec5f4", "#86b6ef", "#6da7ec", "#5598e7",
-    "#3987e5", "#2a78d6", "#256abf", "#1c5cab", "#184f95", "#104281",
-    "#0d366b",
-]
+S1 = "#2a78d6"
 
 CMAP_DIV = LinearSegmentedColormap.from_list(
     "div",
@@ -58,7 +50,7 @@ plt.rcParams.update({
 
 
 def frame(ax, grid_axis: str | None = "y") -> None:
-    """Apply the report's minimal axis chrome."""
+    """Apply the pipeline figures' minimal axis chrome."""
     for side in ("top", "right"):
         ax.spines[side].set_visible(False)
     for side in ("left", "bottom"):
@@ -107,29 +99,6 @@ def note(fig, text: str) -> None:
         fontsize=7.2,
         color=MUTED,
     )
-
-
-def place_labels(ax, x, items: list, min_gap_frac: float = 0.055) -> None:
-    """Place right-edge direct labels with a small vertical collision pass."""
-    lo, hi = ax.get_ylim()
-    gap = (hi - lo) * min_gap_frac
-    items = sorted(items, key=lambda it: it[0])
-    placed = []
-    for y, text, colour in items:
-        if placed and y - placed[-1] < gap:
-            y = placed[-1] + gap
-        placed.append(y)
-        ax.annotate(
-            text,
-            (x, y),
-            xytext=(7, 0),
-            textcoords="offset points",
-            color=colour,
-            fontsize=8,
-            fontweight="bold",
-            va="center",
-            annotation_clip=False,
-        )
 
 
 def save(fig, path: Path) -> Path:

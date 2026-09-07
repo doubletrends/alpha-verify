@@ -1,6 +1,6 @@
 # Workspaces
 
-Each directory here is a versioned experiment declaration plus a local artifact namespace. A workspace owns its asset-specific configuration and node catalog; it does **not** own the shared numerical engine, artifact schema, or report implementation.
+Each directory here is a versioned experiment declaration plus a local artifact namespace. A workspace owns its asset-specific configuration and node catalog; it does **not** own the shared numerical engine, artifact schema, or presentation implementation.
 
 `universe.json` is the source of truth. `barrierlab.infrastructure.workspace.Workspace` validates and reads it once for a run. Keep cross-file facts there rather than copying asset, grid, horizon, or threshold values into Python code or documentation.
 
@@ -10,10 +10,10 @@ Each directory here is a versioned experiment declaration plus a local artifact 
 workspaces/<name>/
   universe.json              source-controlled declaration
   plugin.py                  optional source/feature registrations
-  01_surface/ … 07_report/   generated, local pipeline artifacts
+  01_surface/ … 04_validation/ generated, local pipeline artifacts
 ```
 
-The standard stages produce a one-way artifact DAG. Generated files are ignored by Git, with one deliberate exception: `nasdaq_daily/07_report/A_band.png` is the root README’s versioned evidence image. Update that image only by running the report stage and reviewing the result; it represents a dated run, not live data.
+The standard stages produce a one-way artifact chain. Generated files are ignored by Git.
 
 ## Contract for `universe.json`
 
@@ -24,7 +24,7 @@ The standard stages produce a one-way artifact DAG. Generated files are ignored 
 - `n_bins` for conditional features;
 - `evaluate.min_dev`, `evaluate.min_bin_n`, and `evaluate.min_run` for practical significance;
 - `validation.null_alpha`; and
-- `composition.Δ`, `composition.horizon`, and `composition.folds`.
+- `target.Δ` and `target.horizon`, shared by selection and validation.
 
 `families` maps a family name to nodes. Every node needs `id`, `family`, `feature`, `params`, and the `data` source names it requires. The family name must match the artifact subdirectory used by the pipeline. Include the `_base/baseline` constant node: it is the unconditional probability surface every conditional result is compared with.
 
@@ -36,7 +36,7 @@ The standard stages produce a one-way artifact DAG. Generated files are ignored 
 4. Run `barrierlab surface --workspace <name>` and then the remaining stages in order. Use `barrierlab status --workspace <name>` to inspect the artifact funnel before relying on later-stage output.
 5. Add or update tests if the new workspace establishes a contract beyond its own declaration.
 
-Do not copy generated `.npz`, `.xlsx`, or report artifacts between workspaces: artifact history, validation fingerprints, and asset configuration must agree. See [the package boundary](../src/barrierlab/README.md) for stage ownership and [the pipeline protocol](../src/barrierlab/pipeline/README.md) for the full artifact contract.
+Do not copy generated array, workbook, or plot artifacts between workspaces: artifact history, validation fingerprints, and asset configuration must agree. See [the package boundary](../src/barrierlab/README.md) for stage ownership and [the pipeline protocol](../src/barrierlab/pipeline/README.md) for the full artifact contract.
 
 ## Current declarations
 

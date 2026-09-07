@@ -10,7 +10,7 @@ __pycache__/
 build/
 dist/
 
-# Workspace declarations are source; all generated artifacts and reports are local.
+# Workspace declarations are source; all generated artifacts are local.
 workspaces/*/*
 !workspaces/*/universe.json
 !workspaces/*/plugin.py

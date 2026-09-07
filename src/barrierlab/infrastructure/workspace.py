@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import date
 from pathlib import Path
 
 import numpy as np
@@ -28,9 +27,8 @@ class WorkspaceConfig:
     delta_max: float
     delta_step: float
     n_bins: int
-    composition_delta: float | None
-    composition_horizon: int | None
-    composition_folds: int
+    target_delta: float | None
+    target_horizon: int | None
     selection_top_k: int
     null_alpha: float
     min_dev: float
@@ -42,11 +40,11 @@ class WorkspaceConfig:
         asset = meta["asset"]
         horizons = meta.get("horizons", {})
         barriers = meta.get("Delta", meta.get("\u0394", {}))
-        composition = meta.get("composition", {})
+        target = meta.get("target", {})
         selection = meta.get("selection", {})
         validation = meta.get("validation", {})
         evaluate = meta.get("evaluate", {})
-        composition_delta = composition.get("Delta", composition.get("\u0394"))
+        target_delta = target.get("Delta", target.get("\u0394"))
         return cls(
             asset=dict(asset),
             start_date=meta["start_date"],
@@ -57,15 +55,14 @@ class WorkspaceConfig:
             delta_max=float(barriers.get("max", 0.20)),
             delta_step=float(barriers.get("step", 0.01)),
             n_bins=int(meta.get("n_bins", 10)),
-            composition_delta=(
-                None if composition_delta is None else float(composition_delta)
+            target_delta=(
+                None if target_delta is None else float(target_delta)
             ),
-            composition_horizon=(
+            target_horizon=(
                 None
-                if composition.get("horizon") is None
-                else int(composition["horizon"])
+                if target.get("horizon") is None
+                else int(target["horizon"])
             ),
-            composition_folds=int(composition.get("folds", 5)),
             selection_top_k=int(selection.get("top_k", 20)),
             null_alpha=float(validation.get("null_alpha", 0.01)),
             min_dev=float(evaluate.get("min_dev", 10.0)),
@@ -161,25 +158,12 @@ class Workspace:
         return self.config.n_bins
 
     @property
-    def composition_delta(self) -> float | None:
-        return self.config.composition_delta
+    def target_delta(self) -> float | None:
+        return self.config.target_delta
 
     @property
-    def composition_horizon(self) -> int | None:
-        return self.config.composition_horizon
-
-    @property
-    def composition_folds(self) -> int:
-        return self.config.composition_folds
-
-    @property
-    def report_as_of(self) -> str:
-        """Today's requested cutoff for the report's probability band.
-
-        The underlying market history resolves a non-trading day to its most recent
-        available bar, and Stage 6 saves that resolved date with the fitted surface.
-        """
-        return date.today().isoformat()
+    def target_horizon(self) -> int | None:
+        return self.config.target_horizon
 
     @property
     def selection_top_k(self) -> int:
@@ -208,46 +192,6 @@ class Workspace:
     @property
     def validation_summary_path(self) -> Path:
         return self.artifacts.validation_summary_path
-
-    @property
-    def validated_bundle_path(self) -> Path:
-        return self.artifacts.validated_bundle_path
-
-    @property
-    def redundancy_path(self) -> Path:
-        return self.artifacts.redundancy_path
-
-    @property
-    def redundancy_array_path(self) -> Path:
-        return self.artifacts.redundancy_array_path
-
-    @property
-    def composition_inputs_path(self) -> Path:
-        return self.artifacts.composition_inputs_path
-
-    @property
-    def redundancy_workbook_path(self) -> Path:
-        return self.artifacts.redundancy_workbook_path
-
-    @property
-    def composition_array_path(self) -> Path:
-        return self.artifacts.composition_array_path
-
-    @property
-    def composition_summary_path(self) -> Path:
-        return self.artifacts.composition_summary_path
-
-    @property
-    def composition_probability_workbook_path(self) -> Path:
-        return self.artifacts.composition_probability_workbook_path
-
-    @property
-    def composition_shift_workbook_path(self) -> Path:
-        return self.artifacts.composition_shift_workbook_path
-
-    @property
-    def report_dir(self) -> Path:
-        return self.artifacts.report_dir
 
     def cube_path(self, family: str, node_id: str) -> Path:
         return self.artifacts.cube_path(family, node_id)
@@ -301,11 +245,12 @@ class Workspace:
     def has_validation_surface(self, row: dict) -> bool:
         return self.validation_surface_path(row).exists()
 
-    def composition_target(self, baseline: np.ndarray) -> tuple[float, int]:
+    def target(self, baseline: np.ndarray) -> tuple[float, int]:
+        """Return the shared Stage 3 selection and Stage 4 validation target."""
         horizons = self.horizons
-        horizon = self.composition_horizon or int(horizons[len(horizons) // 2])
-        if self.composition_delta is not None:
-            return self.composition_delta, horizon
+        horizon = self.target_horizon or int(horizons[len(horizons) // 2])
+        if self.target_delta is not None:
+            return self.target_delta, horizon
         horizon_index = int(np.flatnonzero(horizons == horizon)[0])
         deltas = self.deltas
         downside = np.flatnonzero(deltas < 0)

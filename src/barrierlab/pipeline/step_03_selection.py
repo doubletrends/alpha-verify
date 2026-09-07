@@ -53,7 +53,7 @@ def cmd_selection(ws: Workspace) -> None:
     if not baseline_path.exists():
         print("No baseline shift array - run shift first.")
         return
-    delta, horizon = ws.composition_target(artifact_io.load_shift(baseline_path)["base"])
+    delta, horizon = ws.target(artifact_io.load_shift(baseline_path)["base"])
     result = {
         "generated": datetime.now(timezone.utc).isoformat(),
         "artifact": "03_selection",
@@ -106,7 +106,7 @@ def cmd_selection(ws: Workspace) -> None:
             print(f"  rank {row['rank']:>3} {row['node']:<26} [no shift workbook] run shift to render it")
 
     ws.write_json(ws.selection_path, result)
-    from barrierlab.presentation.report_nodes import write_selected_shift_graphs
+    from barrierlab.presentation.selection_plots import write_selected_shift_graphs
     write_selected_shift_graphs(ws, selected)
 
     print(f"\n=== 3. Selection [{ws.dir.name}] ===")

@@ -15,9 +15,6 @@ STAGE_DIRECTORIES = {
     "shift": "02_shift",
     "selection": "03_selection",
     "validation": "04_validation",
-    "redundancy": "05_redundancy",
-    "composition": "06_composition",
-    "report": "07_report",
 }
 
 
@@ -71,45 +68,6 @@ class ArtifactPaths:
     def validation_summary_path(self) -> Path:
         return self.stage_dir("validation") / "validation.json"
 
-    @property
-    def validated_bundle_path(self) -> Path:
-        return self.stage_dir("validation") / "array" / "validated.safetensors"
-
-    @property
-    def redundancy_path(self) -> Path:
-        return self.stage_dir("redundancy") / "redundancy.json"
-
-    @property
-    def redundancy_array_path(self) -> Path:
-        return self.stage_dir("redundancy") / "redundancy.npz"
-
-    @property
-    def composition_inputs_path(self) -> Path:
-        return self.stage_dir("redundancy") / "composition_inputs.npz"
-
-    @property
-    def redundancy_workbook_path(self) -> Path:
-        return self.stage_dir("redundancy") / "redundancy.xlsx"
-
-    @property
-    def composition_array_path(self) -> Path:
-        return self.stage_dir("composition") / "composition.npz"
-
-    @property
-    def composition_summary_path(self) -> Path:
-        return self.stage_dir("composition") / "composition.json"
-
-    @property
-    def composition_probability_workbook_path(self) -> Path:
-        return self.stage_dir("composition") / "probability.xlsx"
-
-    @property
-    def composition_shift_workbook_path(self) -> Path:
-        return self.stage_dir("composition") / "shift.xlsx"
-
-    @property
-    def report_dir(self) -> Path:
-        return self.stage_dir("report")
 def market_data_from_artifact(artifact: dict) -> pd.DataFrame:
     """Restore the ordered OHLCV history retained in a pipeline artifact."""
     missing = [key for key in _REQUIRED_HISTORY_COLUMNS if key not in artifact]

@@ -13,7 +13,6 @@ from barrierlab.pipeline.step_04_validation import (
     validation_artifact_is_current,
     validation_summary_is_current,
 )
-from barrierlab.pipeline.step_05_redundancy import redundancy_artifacts_are_current
 
 
 def _print_node_status(ws: Workspace, node_id: str) -> None:
@@ -143,7 +142,6 @@ def cmd_status(ws: Workspace, node_id: str | None = None) -> None:
         row for row in selection.get("selected", []) if ws.has_selection_array(row)
     ]
     validation = ws.read_json(ws.validation_summary_path)
-    redundancy = ws.read_json(ws.redundancy_path)
     validation_current = validation_summary_is_current(ws, validation)
     cleared_rows = validation.get("cleared", []) if validation_current else []
     economic_nodes = (
@@ -218,14 +216,6 @@ def cmd_status(ws: Workspace, node_id: str | None = None) -> None:
         missing = validation.get("missing_nodes", [])
         detail = f" ({len(missing)} missing nodes)" if missing else ""
         print(f"  validation: incomplete or stale{detail} - run validation")
-
-    if redundancy_artifacts_are_current(ws, validation, redundancy):
-        print(
-            f"  redundancy: {len(redundancy.get('nodes', []))} cleared nodes in "
-            f"{len(redundancy.get('clusters', []))} conditional-dependence clusters"
-        )
-    elif redundancy:
-        print("  redundancy: stale for current validation - run redundancy")
 
     print()
     header = f"  {'family':<15}" + "".join(

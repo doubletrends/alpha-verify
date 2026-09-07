@@ -13,9 +13,6 @@ from barrierlab.pipeline.step_01_surface import cmd_surface
 from barrierlab.pipeline.step_02_shift import cmd_shift
 from barrierlab.pipeline.step_03_selection import cmd_selection
 from barrierlab.pipeline.step_04_validation import cmd_validation
-from barrierlab.pipeline.step_05_redundancy import cmd_redundancy
-from barrierlab.pipeline.step_06_composition import cmd_composition
-from barrierlab.pipeline.step_07_report import cmd_report
 from barrierlab.pipeline.status import cmd_status
 
 
@@ -52,24 +49,6 @@ COMMANDS = (
         "4. validate selected nodes and write final verdicts",
         cmd_validation,
         STAGE_DIRECTORIES["validation"],
-    ),
-    Command(
-        "redundancy",
-        "5. map dependence among cleared nodes",
-        cmd_redundancy,
-        STAGE_DIRECTORIES["redundancy"],
-    ),
-    Command(
-        "composition",
-        "6. evaluate out-of-sample composition and current forecasts",
-        cmd_composition,
-        STAGE_DIRECTORIES["composition"],
-    ),
-    Command(
-        "report",
-        "7. render audience-facing figures",
-        cmd_report,
-        STAGE_DIRECTORIES["report"],
     ),
     Command(
         "status",

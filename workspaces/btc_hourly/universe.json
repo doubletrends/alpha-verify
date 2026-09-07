@@ -28,10 +28,9 @@
       "min": 1,
       "max": 48
     },
-    "composition": {
+    "target": {
       "Δ": -0.05,
-      "horizon": 24,
-      "folds": 5
+      "horizon": 24
     },
     "selection": {
       "top_k": 20
