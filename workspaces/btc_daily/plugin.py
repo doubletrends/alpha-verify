@@ -4,7 +4,6 @@ import json
 import urllib.parse
 import urllib.request
 
-import numpy as np
 import pandas as pd
 import torch
 
@@ -39,16 +38,6 @@ def _coinmetrics(start: str, asset: dict) -> pd.DataFrame:
     return df[df.index >= pd.Timestamp(start)]
 
 # ── on-chain feature helpers ──────────────────────────────────────────────────
-
-def _hash_rate_ma_ratio(data: pd.DataFrame, period: int) -> pd.Series:
-    hr = np.log(data['hash_rate'].replace(0, np.nan))
-    return hr / hr.rolling(period).mean() - 1.0
-
-
-def _adr_act_ma_ratio(data: pd.DataFrame, period: int) -> pd.Series:
-    aa = np.log(data['adr_act_cnt'].replace(0, np.nan))
-    return aa / aa.rolling(period).mean() - 1.0
-
 
 def _torch_column(data: pd.DataFrame, column: str) -> torch.Tensor:
     return tensor_runtime.tensor(data[column].to_numpy(float))
@@ -108,12 +97,6 @@ def _days_since_halving(data: pd.DataFrame) -> pd.Series:
 def register(sources, features) -> None:
     """Register BTC-only sources and features for one pipeline run."""
     sources.register('coinmetrics', _coinmetrics)
-    features.register('mvrv',               lambda d, p: d['mvrv'])
-    features.register('hash_rate_ma_ratio', lambda d, p: _hash_rate_ma_ratio(d, p['period']))
-    features.register('adr_act_ma_ratio',   lambda d, p: _adr_act_ma_ratio(d, p['period']))
-    features.register('cycle_phase',        lambda d, p: _cycle_phase(d))
-    features.register('days_to_halving',    lambda d, p: _days_to_halving(d))
-    features.register('days_since_halving', lambda d, p: _days_since_halving(d))
     # The data-frame index remains the date-label boundary; all numeric feature
     # arithmetic below is on the pipeline's selected Torch device.
     features.register_torch('mvrv', lambda d, p: _torch_column(d, 'mvrv'))

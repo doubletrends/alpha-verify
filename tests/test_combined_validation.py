@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 
 from barrierlab.domain.validation import bh
+from barrierlab.domain.features import is_ohlcv_feature
 from barrierlab.pipeline.step_04_validation import validation_summary_is_current
 
 
@@ -17,6 +18,11 @@ class _Workspace:
 
 
 class CombinedValidationTests(unittest.TestCase):
+    def test_only_core_ohlcv_features_are_recomputed_for_the_null(self) -> None:
+        self.assertTrue(is_ohlcv_feature("atr"))
+        self.assertFalse(is_ohlcv_feature("days_since_halving"))
+        self.assertFalse(is_ohlcv_feature("day_of_week"))
+
     def test_stale_selection_fingerprint_is_rejected(self) -> None:
         self.assertFalse(validation_summary_is_current(_Workspace(), {"complete": True}))
 

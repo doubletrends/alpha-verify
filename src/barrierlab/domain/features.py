@@ -22,6 +22,17 @@ _TORCH_EXTERNAL_FEATURES = {
 _BUILTINS = _TORCH_OHLCV_FEATURES | _TORCH_EXTERNAL_FEATURES | {'day_of_week'}
 
 
+def is_ohlcv_feature(name: str) -> bool:
+    """Whether a feature can be recomputed from an unlabeled synthetic OHLCV path.
+
+    Workspace extensions may be registered as Torch features too, but that only
+    describes their numerical implementation on real, labelled data.  It does
+    not mean they can be evaluated against a synthetic path, which has no
+    calendar index or external columns.
+    """
+    return name in _TORCH_OHLCV_FEATURES
+
+
 class FeatureRegistry:
     """Explicit feature registry scoped to one pipeline run."""
 
@@ -34,6 +45,10 @@ class FeatureRegistry:
 
     def register_torch(self, name: str, feature: Callable) -> None:
         """Register an extension returning a one-dimensional device tensor."""
+        # A Torch extension is also a valid public feature.  Registering that
+        # name here avoids maintaining an unreachable pandas fallback solely to
+        # satisfy ``compute``'s name validation.
+        self._features[name] = None
         self._torch_features[name] = feature
 
     def compute(self, data: pd.DataFrame, feature: str, params: dict) -> pd.Series:

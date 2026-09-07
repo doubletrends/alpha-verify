@@ -18,8 +18,8 @@ class WorkspaceContractTests(unittest.TestCase):
         row = {"rank": 7, "family": "vix", "node": "vix_level", "bin_number": 3}
         self.assertEqual(len(workspace.catalog.all_nodes()), 58)
         self.assertEqual(workspace.catalog.find("vix_level")["family"], "vix")
-        self.assertEqual(workspace.cube_path("vix", "vix_level").parts[-3:], ("01_surface", "array", "vix_level.safetensors"))
-        self.assertEqual(workspace.shift_cube_path("vix", "vix_level").parts[-3:], ("02_shift", "array", "vix_level.safetensors"))
+        self.assertEqual(workspace.cube_path("vix_level").parts[-3:], ("01_surface", "array", "vix_level.safetensors"))
+        self.assertEqual(workspace.shift_cube_path("vix_level").parts[-3:], ("02_shift", "array", "vix_level.safetensors"))
         self.assertEqual(workspace.selection_array_path(row).parts[-3:], ("03_selection", "array", "rank_007__vix_level__bin_03.safetensors"))
         self.assertEqual(workspace.validation_summary_path.parts[-2:], ("04_validation", "validation.json"))
 

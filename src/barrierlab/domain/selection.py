@@ -116,7 +116,6 @@ def rank_nodes(
     candidates.sort(key=lambda r: (-r["score"], r["family"], r["node"], r["bin"]))
     for rank, row in enumerate(candidates, 1):
         row["rank"] = rank
-        row["selected"] = rank <= top_k
 
     return {
         "method": {

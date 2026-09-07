@@ -187,35 +187,35 @@ class Workspace:
 
     @property
     def baseline_cube(self) -> Path:
-        return self.cube_path("_base", BASELINE_NODE)
+        return self.cube_path(BASELINE_NODE)
 
     @property
     def validation_summary_path(self) -> Path:
         return self.artifacts.validation_summary_path
 
-    def cube_path(self, family: str, node_id: str) -> Path:
-        return self.artifacts.cube_path(family, node_id)
+    def cube_path(self, node_id: str) -> Path:
+        return self.artifacts.cube_path(node_id)
 
-    def has_cube(self, family: str, node_id: str) -> bool:
-        return self.cube_path(family, node_id).exists()
+    def has_cube(self, node_id: str) -> bool:
+        return self.cube_path(node_id).exists()
 
-    def surface_path(self, family: str, node_id: str) -> Path:
-        return self.artifacts.surface_path(family, node_id)
+    def surface_path(self, node_id: str) -> Path:
+        return self.artifacts.surface_path(node_id)
 
-    def has_surface(self, family: str, node_id: str) -> bool:
-        return self.surface_path(family, node_id).exists()
+    def has_surface(self, node_id: str) -> bool:
+        return self.surface_path(node_id).exists()
 
-    def shift_cube_path(self, family: str, node_id: str) -> Path:
-        return self.artifacts.shift_cube_path(family, node_id)
+    def shift_cube_path(self, node_id: str) -> Path:
+        return self.artifacts.shift_cube_path(node_id)
 
-    def has_shift_cube(self, family: str, node_id: str) -> bool:
-        return self.shift_cube_path(family, node_id).exists()
+    def has_shift_cube(self, node_id: str) -> bool:
+        return self.shift_cube_path(node_id).exists()
 
-    def shift_surface_path(self, family: str, node_id: str) -> Path:
-        return self.artifacts.shift_surface_path(family, node_id)
+    def shift_surface_path(self, node_id: str) -> Path:
+        return self.artifacts.shift_surface_path(node_id)
 
-    def has_shift_surface(self, family: str, node_id: str) -> bool:
-        return self.shift_surface_path(family, node_id).exists()
+    def has_shift_surface(self, node_id: str) -> bool:
+        return self.shift_surface_path(node_id).exists()
 
     @property
     def selection_path(self) -> Path:

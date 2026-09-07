@@ -29,16 +29,16 @@ class ArtifactPaths:
     def stage_dir(self, stage: str) -> Path:
         return self.workspace_dir / STAGE_DIRECTORIES[stage]
 
-    def cube_path(self, family: str, node_id: str) -> Path:
+    def cube_path(self, node_id: str) -> Path:
         return self.stage_dir("surface") / "array" / f"{node_id}.safetensors"
 
-    def surface_path(self, family: str, node_id: str) -> Path:
+    def surface_path(self, node_id: str) -> Path:
         return self.stage_dir("surface") / "spreadsheet" / f"{node_id}.xlsx"
 
-    def shift_cube_path(self, family: str, node_id: str) -> Path:
+    def shift_cube_path(self, node_id: str) -> Path:
         return self.stage_dir("shift") / "array" / f"{node_id}.safetensors"
 
-    def shift_surface_path(self, family: str, node_id: str) -> Path:
+    def shift_surface_path(self, node_id: str) -> Path:
         return self.stage_dir("shift") / "spreadsheet" / f"{node_id}.xlsx"
 
     @property
