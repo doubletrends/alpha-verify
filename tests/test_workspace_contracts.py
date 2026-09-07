@@ -11,6 +11,7 @@ from barrierlab.infrastructure.artifacts import (
     feature_from_artifact,
     market_data_from_artifact,
 )
+from barrierlab.infrastructure.market_data import SourceRegistry
 from barrierlab.infrastructure.workspace import Workspace
 from barrierlab.pipeline.context import RunContext
 from barrierlab.pipeline.step_06_composition import composition_targets
@@ -136,6 +137,30 @@ class WorkspaceContractTests(unittest.TestCase):
         data = pd.DataFrame({"mvrv": [1.1]}, index=pd.to_datetime(["2024-01-01"]))
         result = context.features.compute(data, "mvrv", {})
         self.assertEqual(float(result.iloc[0]), 1.1)
+
+    def test_source_registry_fetches_shared_ohlcv_only_once_per_run(self) -> None:
+        registry = SourceRegistry()
+        calls: list[str] = []
+        index = pd.date_range("2024-01-01", periods=2)
+
+        def source(name: str, columns: dict[str, list[float]]):
+            def fetch(**_kwargs):
+                calls.append(name)
+                return pd.DataFrame(columns, index=index)
+            return fetch
+
+        registry.register("ohlcv", source("ohlcv", {"close": [1.0, 2.0]}))
+        registry.register("vix", source("vix", {"vix": [10.0, 11.0]}))
+        registry.register("treasury", source("treasury", {"tnx": [4.0, 4.1]}))
+        asset = {"ticker": "TEST", "interval": "1d"}
+
+        registry.fetch(["ohlcv"], "2024-01-01", asset)
+        with_vix = registry.fetch(["ohlcv", "vix"], "2024-01-01", asset)
+        with_treasury = registry.fetch(["ohlcv", "treasury"], "2024-01-01", asset)
+
+        self.assertEqual(calls, ["ohlcv", "vix", "treasury"])
+        self.assertEqual(with_vix.columns.tolist(), ["close", "vix"])
+        self.assertEqual(with_treasury.columns.tolist(), ["close", "tnx"])
 
     def test_btc_hourly_workspace_uses_its_local_raw_ohlcv_source(self) -> None:
         workspace = Workspace("btc_hourly")

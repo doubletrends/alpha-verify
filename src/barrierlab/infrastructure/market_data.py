@@ -19,6 +19,11 @@ class SourceRegistry:
 
     def __init__(self) -> None:
         self._sources: dict[str, Callable] = {}
+        # Cache raw feeds independently of the panels that consume them.  Several
+        # Stage 1 nodes request e.g. ["ohlcv", "vix"] or ["ohlcv", "treasury"];
+        # panel-level caching alone would fetch the same OHLCV history once per
+        # distinct combination.
+        self._source_cache: dict[tuple, pd.DataFrame] = {}
         self._cache: dict[tuple, pd.DataFrame] = {}
 
     def register(self, name: str, source: Callable) -> None:
@@ -31,7 +36,14 @@ class SourceRegistry:
         missing = sorted(set(sources) - self._sources.keys())
         if missing:
             raise ValueError(f"unknown data sources: {', '.join(missing)}")
-        frames = [self._sources[source](start=start, asset=asset) for source in sources]
+        frames = []
+        for source in sources:
+            source_key = (source, start, asset.get("ticker"), asset.get("interval"))
+            if source_key not in self._source_cache:
+                self._source_cache[source_key] = self._sources[source](
+                    start=start, asset=asset
+                )
+            frames.append(self._source_cache[source_key])
         if not frames:
             raise ValueError("at least one data source is required")
         data = frames[0]
