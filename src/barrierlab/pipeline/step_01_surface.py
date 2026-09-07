@@ -11,7 +11,7 @@ from barrierlab.pipeline.context import RunContext
 from barrierlab.presentation import workbooks
 
 
-def _build_cube(context: RunContext, node: dict, quiet: bool = False) -> None:
+def _build_cube(context: RunContext, node: dict) -> None:
     workspace = context.workspace
     data, feature = context.node_feature(node)
     edges = barrier.bin_edges(feature, workspace.n_bins)
@@ -39,8 +39,7 @@ def _build_cube(context: RunContext, node: dict, quiet: bool = False) -> None:
         "grid": "full",
         "generated": datetime.now(timezone.utc).isoformat(),
     })
-    if not quiet:
-        print(f"  {node['id']:<26} {cube['prob'].shape}  n={int(cube['n_obs'][0])}")
+    print(f"  {node['id']:<26} {cube['prob'].shape}  n={int(cube['n_obs'][0])}")
 
 
 def _write_surface_arrays(workspace: Workspace) -> None:

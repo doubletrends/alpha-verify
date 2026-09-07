@@ -112,7 +112,7 @@ def cmd_validation(ws: Workspace) -> None:
             "null": "1000 shared synthetic OHLC histories; external condition histories fixed",
         },
         "summary": {"tested": len(records), "cleared": len(cleared)},
-        "tests": records, "cleared": cleared, "economics": [],
+        "tests": records, "cleared": cleared,
     }
     ws.write_json(ws.validation_summary_path, summary)
     from barrierlab.presentation.validation_plots import write_bin_score_null_histograms

@@ -6,7 +6,7 @@ from collections import defaultdict
 
 import numpy as np
 
-from barrierlab.domain import shift, validation as val
+from barrierlab.domain import shift
 from barrierlab.infrastructure import artifact_io
 from barrierlab.infrastructure.workspace import Workspace
 from barrierlab.pipeline.step_04_validation import validation_summary_is_current
@@ -95,18 +95,7 @@ def cmd_status(ws: Workspace, node_id: str | None = None) -> None:
     validation = ws.read_json(ws.validation_summary_path)
     validation_current = validation_summary_is_current(ws, validation)
     cleared_rows = validation.get("cleared", []) if validation_current else []
-    economic_nodes = (
-        {
-            row["node"]
-            for row in validation.get("economics", [])
-            if row.get("passed")
-        }
-        if validation_current
-        else set()
-    )
     tests = validation.get("tests", []) if validation_current else []
-    null_nodes = {row["node"] for row in tests if row.get("null_pass")}
-    fdr_nodes = {row["node"] for row in tests if row.get("fdr_pass")}
 
     columns = [
         "nodes",
@@ -116,7 +105,6 @@ def cmd_status(ws: Workspace, node_id: str | None = None) -> None:
         "sheet",
         "select",
         "s-sheet",
-        "econ",
         "cleared",
     ]
     by_family = defaultdict(lambda: [0] * len(columns))
@@ -131,9 +119,6 @@ def cmd_status(ws: Workspace, node_id: str | None = None) -> None:
         counts[5] += sum(1 for row in selected_rows if ws.has_selection_array(row))
         counts[6] += sum(1 for row in selected_rows if ws.has_selection_surface(row))
         counts[7] += sum(
-            1 for row in selected_rows if row["node"] in economic_nodes
-        )
-        counts[8] += sum(
             1 for row in cleared_rows if row.get("node") == node["id"]
         )
 
@@ -149,12 +134,6 @@ def cmd_status(ws: Workspace, node_id: str | None = None) -> None:
             print(
                 f"  validation: {len(tests)} selected bins vs {method.get('null')} | "
                 f"BH q={method.get('q')} cleared {len(cleared_rows)}"
-            )
-        else:
-            print(
-                f"  validation: raw p<={method.get('null_alpha')} {len(null_nodes)} nodes | "
-                f"BH q={method.get('q')} {len(fdr_nodes)} | economic {len(economic_nodes)} | "
-                f"all three {len(cleared_rows)}"
             )
     elif validation:
         missing = validation.get("missing_nodes", [])

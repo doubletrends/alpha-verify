@@ -107,36 +107,33 @@ def write_selected_shift_graphs(ws, selected: list[dict]) -> list[Path]:
     out.mkdir(parents=True, exist_ok=True)
     paths = []
     for row in selected:
-        try:
-            cube = artifact_io.load_selected_node(ws.selection_array_path(row))
-            bin_index = int(row["bin"])
-            surface = np.asarray(cube["shift"][:, bin_index, :], dtype=float)
-            flat = int(np.nanargmax(np.abs(surface)))
-            delta_index, horizon_index = np.unravel_index(flat, surface.shape)
-            cell = {
-                "bin": bin_index,
-                "Δ": float(cube["Δs"][delta_index]),
-                "horizon": int(cube["horizons"][horizon_index]),
-                "dev": float(surface[delta_index, horizon_index]),
-                "bin_n": int(cube["bin_n"][bin_index, horizon_index]),
-            }
-            node = ws.catalog.find(row["node"])
-            head = {
-                **node,
-                "cell": cell,
-                "gate": {
-                    "bin_label": row.get("bin_label", f"bin {bin_index + 1}"),
-                },
-            }
-            paths.append(
-                _render_shift(
-                    ws,
-                    head,
-                    cube,
-                    out
-                    / f'selected_shift_surface__{row["rank"]:03d}__{row["node"]}.png',
-                )
+        cube = artifact_io.load_selected_node(ws.selection_array_path(row))
+        bin_index = int(row["bin"])
+        surface = np.asarray(cube["shift"][:, bin_index, :], dtype=float)
+        flat = int(np.nanargmax(np.abs(surface)))
+        delta_index, horizon_index = np.unravel_index(flat, surface.shape)
+        cell = {
+            "bin": bin_index,
+            "Δ": float(cube["Δs"][delta_index]),
+            "horizon": int(cube["horizons"][horizon_index]),
+            "dev": float(surface[delta_index, horizon_index]),
+            "bin_n": int(cube["bin_n"][bin_index, horizon_index]),
+        }
+        node = ws.catalog.find(row["node"])
+        head = {
+            **node,
+            "cell": cell,
+            "gate": {
+                "bin_label": row.get("bin_label", f"bin {bin_index + 1}"),
+            },
+        }
+        paths.append(
+            _render_shift(
+                ws,
+                head,
+                cube,
+                out
+                / f'selected_shift_surface__{row["rank"]:03d}__{row["node"]}.png',
             )
-        except Exception:
-            continue
+        )
     return [path for path in paths if path is not None]
