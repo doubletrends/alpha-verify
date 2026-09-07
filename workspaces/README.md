@@ -1,46 +1,138 @@
 # Workspaces
 
-Each directory here is a versioned experiment declaration plus a local artifact namespace. A workspace owns its asset-specific configuration and node catalog; it does **not** own the shared numerical engine, artifact schema, or presentation implementation.
+Each child directory is a versioned experiment declaration and a local artifact namespace. A workspace owns its asset, history start, barrier grid, horizons, condition catalog, optional extensions, and selection count. It does not own shared numerical definitions, artifact schemas, renderers, or CLI behavior; those belong to [`src/`](../src/README.md).
 
-`universe.json` is the source of truth. `barrierlab.infrastructure.workspace.Workspace` validates and reads it once for a run. Keep cross-file facts there rather than copying asset, grid, horizon, or threshold values into Python code or documentation.
-
-## Contents and lifecycle
+## Boundary and source of truth
 
 ```text
 workspaces/<name>/
-  universe.json              source-controlled declaration
-  plugin.py                  optional source/feature registrations
-  01_surface/ … 04_validation/ generated, local pipeline artifacts
+  universe.json              versioned experiment declaration
+  plugin.py                  optional versioned source/feature registration
+  01_surface/                generated measurement artifacts
+  02_shift/                  generated baseline-relative artifacts
+  03_selection/              generated ranked candidates and views
+  04_validation/             generated null results and plots
 ```
 
-The standard stages produce a one-way artifact chain. Generated files are ignored by Git.
+`universe.json` is the source of truth for cross-file experiment facts. `barrierlab.infrastructure.workspace.Workspace` loads it into an immutable runtime configuration and node catalog. Do not duplicate asset symbols, grids, horizons, or feature parameters in package code.
 
-## Contract for `universe.json`
+Only `universe.json` and an optional `plugin.py` are versioned. The stage directories contain derived local artifacts and are ignored by Git. They can be regenerated, but later stages depend on the exact history and metadata embedded upstream.
 
-`meta` must declare:
+## `universe.json` contract
 
-- `asset`: provider, ticker, and interval;
-- `start_date`, `min_obs`, `horizons`, and `Δ` (or `Delta`);
-- `n_bins` for conditional features;
-- `evaluate.min_dev`, `evaluate.min_bin_n`, and `evaluate.min_run` for practical significance;
-- `target.Δ` and `target.horizon`, shared by selection and validation.
+The document contains `meta` and `families` objects.
 
-`families` maps a family name to nodes. Every node needs `id`, `family`, `feature`, `params`, and the `data` source names it requires. The family name must match the artifact subdirectory used by the pipeline. Include the `_base/baseline` constant node: it is the unconditional probability surface every conditional result is compared with.
+### `meta`
 
-## Add a workspace safely
+| Field | Meaning |
+|---|---|
+| `workspace` | Declaration identity; keep it equal to the directory name |
+| `asset` | Provider label, ticker, and bar interval |
+| `start_date` | Earliest requested observation |
+| `min_obs` | Minimum valid feature observations required for a node |
+| `Δ` or `Delta` | Inclusive signed barrier grid: `min`, `max`, and `step` |
+| `horizons` | Inclusive forward-bar range: `min` and `max` |
+| `n_bins` | Quantile-bin count for conditional features |
+| `selection.top_k` | Number of globally ranked condition bins retained; defaults to 20 |
+| `evaluate` | `min_dev`, `min_bin_n`, and `min_run` used by detailed node status inspection |
+| `target` | Parsed target barrier/horizon available to Python callers; the current CLI selection and validation stages score the complete grid rather than this single target |
 
-1. Copy an existing declaration, choose a new workspace name, and set an asset-appropriate daily barrier grid and horizon range.
-2. Declare only source names registered by the built-in source registry or by this workspace’s `plugin.py`.
-3. Add a plugin only for workspace-specific sources or features. It must define `register(sources, features)`; registration is per run, not process-global.
-4. Run `barrierlab measure --workspace <name>`, then `compare`, `select`, and `validate` in order. Use `barrierlab status --workspace <name>` to inspect the artifact funnel before relying on later-stage output.
-5. Add or update tests if the new workspace establishes a contract beyond its own declaration.
+The `evaluate` block does not gate Stage 3 or Stage 4. It controls the practical-effect summary printed by `barrierlab status <node>`.
 
-Do not copy generated array, workbook, or plot artifacts between workspaces: artifact history, validation fingerprints, and asset configuration must agree. See [the package boundary](../src/barrierlab/README.md) for stage ownership and [the pipeline protocol](../src/barrierlab/pipeline/README.md) for the full artifact contract.
+### `families`
+
+Each family maps to a list of node declarations. Every node must provide:
+
+- `id`: unique artifact-safe identifier;
+- `family`: family label, matching its enclosing family and artifact grouping;
+- `category`: descriptive grouping for consumers;
+- `feature`: a registered feature name;
+- `params`: feature arguments;
+- `data`: ordered registered source names;
+- `derived_from`: provenance hint or `null`.
+
+Every workspace needs the `_base` family's `baseline` node. Its constant feature produces the unconditional probability surface that Stage 2 subtracts from all conditional nodes.
+
+`NodeCatalog` currently validates the top-level shape, while missing node keys fail when a stage consumes them. Treat the complete node shape above as the authoring contract even where validation is deferred.
+
+## Optional `plugin.py`
+
+A workspace plugin is appropriate when a source or feature is experiment-specific. It must expose:
+
+```python
+def register(sources, features) -> None:
+    ...
+```
+
+`RunContext` creates new registries and loads the plugin once per command. Registrations therefore do not leak between workspaces or runs. A plugin can add or replace a named source and add feature implementations; it should not write stage artifacts or invoke pipeline commands.
+
+Current examples:
+
+- `btc_daily/plugin.py` adds the CoinMetrics community source and BTC on-chain and halving-cycle features.
+- `btc_hourly/plugin.py` replaces `ohlcv` with raw hourly bars from the public `mouadja02/bitcoin-technical-indicators-dataset` CSV.
+- `nasdaq_daily` needs no plugin; it uses built-in Yahoo and cross-asset sources.
+
+## Artifact lifecycle
+
+| Stage | Command | Machine-readable contract | Human-readable views |
+|---|---|---|---|
+| `01_surface` | `measure` | Per-node SafeTensors probability cube and embedded ordered history | Per-node XLSX workbook |
+| `02_shift` | `compare` | Per-node SafeTensors baseline-relative cube | Per-node XLSX workbook |
+| `03_selection` | `select` | `selection.json` plus ranked complete-node SafeTensors artifacts | Ranked single-bin XLSX and selected-surface PNG |
+| `04_validation` | `validate` | `validation.json` with fingerprint, observed scores, null scores, p95, and raw p-values | Per-candidate null-histogram PNG |
+
+The flow is one way. Stage 4 consumes the promoted Stage 3 artifacts, including their embedded price and feature histories; it does not silently reload current provider data or reach back to Stage 2. `validation.json` fingerprints the selection it certifies, and `status` reports a mismatched summary as stale.
+
+Do not copy generated artifacts between workspaces. Paths may look compatible while grids, histories, features, ranks, or fingerprints disagree.
 
 ## Current declarations
 
-- `nasdaq_daily` is the reproducible daily NASDAQ Composite flagship (`^IXIC`, from 2015-01-01).
-- `btc_daily` is the daily BTC comparison workspace (`BTC-USD`, from 2015-01-01). Its plugin supplies CoinMetrics on-chain data and BTC cycle features.
-- `btc_hourly` is an exploratory BTC workspace with +1h through +48h horizons. It loads raw OHLCV from the public `mouadja02/bitcoin-technical-indicators-dataset` CSV and recomputes every feature locally.
+### `nasdaq_daily`
 
-Hourly Yahoo workspaces remain out of scope: Yahoo exposes only a trailing hourly window, so historical reruns are not reproducible. `btc_hourly` avoids that limit with its workspace-local source.
+The flagship Alpha Verifier experiment. It requests Nasdaq Composite (`^IXIC`) daily bars from 2015, a −20% to +20% barrier grid in 1% steps, horizons from 1 to 30 days, and ten condition bins. Its catalog combines price/volume indicators with VIX, Treasury-yield, DXY, and calendar conditions.
+
+The documented result in the [root README](../README.md) comes from this workspace's selected top 20 condition bins and 10,000-history validation run.
+
+### `btc_daily`
+
+A daily BTC (`BTC-USD`) comparison workspace from 2015 with a −20% to +20% grid and 1- to 30-day horizons. Its plugin extends the built-in price features with CoinMetrics on-chain histories and halving-cycle conditions. Those plugin-defined conditions are held fixed during the current synthetic-OHLC null because they cannot be reconstructed from OHLC alone.
+
+### `btc_hourly`
+
+An exploratory hourly BTC workspace from 2018 with a −10% to +10% grid and 1- to 48-hour horizons. It uses the publisher's raw OHLCV columns and recomputes indicators locally; it does not trust precomputed indicator columns from the source dataset.
+
+The GitHub media URL in its plugin deliberately dereferences a Git LFS object. Yahoo hourly history is not used because Yahoo exposes only a trailing intraday window, preventing the intended historical rerun.
+
+## Run and inspect a workspace
+
+Run from the repository root and keep the stages in order:
+
+```powershell
+barrierlab measure  --workspace nasdaq_daily
+barrierlab compare  --workspace nasdaq_daily
+barrierlab select   --workspace nasdaq_daily
+barrierlab validate --workspace nasdaq_daily
+barrierlab status   --workspace nasdaq_daily
+```
+
+Every command accepts `--cuda` when CUDA is available through PyTorch. A command reuses data and price excursions in memory only for that command; the next stage reads persisted artifacts.
+
+Inspect one node after `compare`:
+
+```powershell
+barrierlab status vix_level --workspace nasdaq_daily
+```
+
+If a workbook is open in Excel, a stage may report it as locked while continuing with other artifacts. Close the workbook and rerun that stage. If validation is stale, rerun `validate` after confirming the current Stage 3 selection is intended.
+
+## Add or change a workspace safely
+
+1. Copy the closest existing declaration into a new, clearly named child directory.
+2. Set the asset, date range, barrier grid, horizons, bin count, and selection count in `universe.json`.
+3. Keep the baseline node and give every node a unique ID, registered feature, valid parameters, and registered data sources.
+4. Add `plugin.py` only for workspace-specific registrations. Keep reusable numerical behavior in `src/barrierlab/`.
+5. Run `measure`, `compare`, `select`, and `validate` in order, then inspect workspace and representative node status.
+6. Review selected-surface and null-histogram plots as well as the JSON manifests; a successful command alone does not validate their scientific interpretation.
+7. Add or update [tests](../tests/README.md) when the declaration introduces a repository-level source, schema, plugin, or path contract.
+
+Changing history, grid, feature definitions, or node parameters invalidates downstream interpretation even if old artifacts remain readable. Prefer a clean new workspace identity for materially different experiments; otherwise rerun the full pipeline and use the selection fingerprint to detect stale validation.
