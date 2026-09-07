@@ -12,7 +12,7 @@ from barrierlab.pipeline.reporting import MilestoneProgress, StageReport
 from barrierlab.presentation import workbooks
 
 
-def _build_cube(context: RunContext, node: dict) -> tuple[tuple[int, ...], int]:
+def _build_cube(context: RunContext, node: dict) -> None:
     workspace = context.workspace
     data, feature = context.node_feature(node)
     edges = barrier.bin_edges(feature, workspace.n_bins)
@@ -40,21 +40,16 @@ def _build_cube(context: RunContext, node: dict) -> tuple[tuple[int, ...], int]:
         "grid": "full",
         "generated": datetime.now(timezone.utc).isoformat(),
     })
-    return cube["prob"].shape, int(cube["n_obs"][0])
 
 
-def _write_surface_arrays(
-    workspace: Workspace, verbose: bool, progress: MilestoneProgress
-) -> list[str]:
+def _write_surface_arrays(workspace: Workspace, progress: MilestoneProgress) -> list[str]:
     nodes = workspace.catalog.all_nodes()
     context = RunContext(workspace)
     horizons = workspace.horizons
     skipped = {}
     for node in nodes:
         try:
-            shape, n_obs = _build_cube(context, node)
-            if verbose:
-                print(f"  {node['id']:<26} {shape}  n={n_obs}")
+            _build_cube(context, node)
         except Exception as error:
             skipped[node["id"]] = str(error)
         finally:
@@ -93,7 +88,7 @@ def _render_surface(
     return written, warnings
 
 
-def cmd_surface(workspace: Workspace, *, verbose: bool = False) -> None:
+def cmd_surface(workspace: Workspace) -> None:
     """Write full surface arrays and their workbook views."""
     report = StageReport(1, "measure", workspace.dir.name)
     nodes = workspace.catalog.all_nodes()
@@ -102,7 +97,7 @@ def cmd_surface(workspace: Workspace, *, verbose: bool = False) -> None:
         f"{workspace.n_bins} bins × {len(workspace.horizons)} horizons"
     )
     warnings = _write_surface_arrays(
-        workspace, verbose, MilestoneProgress(report, "calculating arrays", len(nodes))
+        workspace, MilestoneProgress(report, "calculating arrays", len(nodes))
     )
     render_nodes = [node for node in nodes if workspace.has_cube(node["id"])]
     written, render_warnings = _render_surface(

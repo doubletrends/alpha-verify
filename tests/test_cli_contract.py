@@ -24,16 +24,15 @@ class CliContractTests(unittest.TestCase):
             self.assertIn(command, help_text)
         for removed in ("--gate", "--family", "--rerun", "--read", "--fdr"):
             self.assertNotIn(removed, help_text)
+        self.assertNotIn("--verbose", help_text)
         with redirect_stderr(StringIO()), self.assertRaises(SystemExit):
             parser.parse_args(["bayes"])
 
         args = parser.parse_args(["measure", "--workspace", "btc_daily"])
         self.assertEqual(args.command, "measure")
         self.assertEqual(args.workspace, "btc_daily")
-        self.assertFalse(args.verbose)
-
-        verbose_args = parser.parse_args(["compare", "--verbose"])
-        self.assertTrue(verbose_args.verbose)
+        with redirect_stderr(StringIO()), self.assertRaises(SystemExit):
+            parser.parse_args(["compare", "--verbose"])
 
     def test_commands_preserve_pipeline_order(self) -> None:
         self.assertEqual(

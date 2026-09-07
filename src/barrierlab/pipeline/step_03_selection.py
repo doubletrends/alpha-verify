@@ -37,7 +37,7 @@ def _clear_selection_artifacts(ws: Workspace) -> None:
                 path.unlink()
 
 
-def cmd_selection(ws: Workspace, *, verbose: bool = False) -> None:
+def cmd_selection(ws: Workspace) -> None:
     """Stage 3: retain nodes with the largest single-bin probability skew."""
     nodes = [
         n for n in ws.catalog.all_nodes()
@@ -128,18 +128,6 @@ def cmd_selection(ws: Workspace, *, verbose: bool = False) -> None:
         f"target ±{abs(delta):.0%} within {horizon}{ws.horizon_unit} · "
         "score = |positive shift − negative shift|"
     )
-    if selected and verbose:
-        print()
-        print(f"  {'rank':>4}  {'node':<26}{'family':<13}{'bin':>5}  {'skew':>7}  representative bin")
-        print(f"  {'-'*4}  {'-'*26}{'-'*13}{'-'*5}  {'-'*7}  {'-'*37}")
-        for row in selected:
-            c = row["best_cell"]
-            print(
-                f"  {row['rank']:>4}  {row['node']:<26}{row['family']:<13}"
-                f"{row['bin_number']:>5}  {row['score_pp']:>6.1f}pp  "
-                f"+={c['positive_shift']:+.1f}pp -={c['negative_shift']:+.1f}pp n={c['bin_n']}"
-            )
-
     report.summary(
         f"wrote {copied_npz} arrays + {copied_xlsx} workbooks + {len(plots)} plots → "
         f"{ws.dir.relative_to(ws.root_dir)}/03_selection"

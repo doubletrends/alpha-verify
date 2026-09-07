@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 from collections.abc import Callable
 from dataclasses import dataclass
+import sys
+from textwrap import dedent
 
 from barrierlab.domain import barrier
 from barrierlab.infrastructure.workspace import Workspace
@@ -26,22 +28,22 @@ class Command:
 COMMANDS = (
     Command(
         "measure",
-        "1. calculate conditional probability surfaces",
+        "1. measure raw conditional probabilities",
         cmd_surface,
     ),
     Command(
         "compare",
-        "2. calculate baseline-relative probability shifts",
+        "2. compare raw probabilities to the baseline",
         cmd_shift,
     ),
     Command(
         "select",
-        "3. rank and retain the strongest condition effects",
+        "3. select the strongest condition effects",
         cmd_selection,
     ),
     Command(
         "validate",
-        "4. test selected effects and write final verdicts",
+        "4. validate selected effects against the null",
         cmd_validation,
     ),
     Command(
@@ -53,6 +55,54 @@ COMMANDS = (
 )
 COMMAND_BY_NAME = {command.name: command for command in COMMANDS}
 
+OVERVIEW = dedent("""\
+    ============================================================
+    BarrierLab
+    Conditional barrier-touch probability pipeline
+    ============================================================
+
+      Pipeline
+
+        measure     Measure raw conditional probabilities → 01_surface/
+        compare     Compare raw probabilities to baseline → 02_shift/
+        select      Select strongest condition effects    → 03_selection/
+        validate    Validate selected effects vs null     → 04_validation/
+
+      Inspect
+
+        status [NODE]    Show workspace or node results
+
+      Options
+
+        --workspace NAME    Select a workspace
+        --cuda              Use CUDA numerical kernels
+        -h, --help          Show this help
+    """)
+
+
+class RootParser(argparse.ArgumentParser):
+    """Keep the root command overview distinct from subcommand option help."""
+
+    def format_help(self) -> str:
+        if not sys.stdout.isatty():
+            return OVERVIEW
+
+        cyan, bold, dim, reset = "\033[36m", "\033[1m", "\033[2m", "\033[0m"
+        help_text = OVERVIEW.replace("=" * 60, f"{cyan}{'=' * 60}{reset}")
+        for heading in ("Pipeline", "Inspect", "Options"):
+            help_text = help_text.replace(f"  {heading}", f"  {cyan}{bold}{heading}{reset}")
+        for command, artifact in (
+            ("measure", "01_surface/"),
+            ("compare", "02_shift/"),
+            ("select", "03_selection/"),
+            ("validate", "04_validation/"),
+        ):
+            help_text = help_text.replace(
+                f"    {command}", f"    {bold}{command}{reset}"
+            ).replace(f"→ {artifact}", f"→ {dim}{artifact}{reset}")
+        help_text = help_text.replace("    status", f"    {bold}status{reset}")
+        return help_text
+
 
 def _add_workspace(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--workspace", metavar="NAME", default="nasdaq_daily")
@@ -61,21 +111,16 @@ def _add_workspace(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="run numerical barrier kernels on CUDA (requires an available CUDA PyTorch device)",
     )
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="show per-node progress and diagnostic details",
-    )
-
-
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = RootParser(
         description=(
             "Barrier-touch pipeline: P(price reaches Δ within t | condition), "
             "measured on a full grid and judged after subtracting the baseline."
         )
     )
-    commands = parser.add_subparsers(dest="command", metavar="COMMAND")
+    commands = parser.add_subparsers(
+        dest="command", metavar="COMMAND", parser_class=argparse.ArgumentParser
+    )
 
     for command in COMMANDS:
         subparser = commands.add_parser(command.name, help=command.help)
@@ -103,7 +148,7 @@ def main(argv: list[str] | None = None) -> None:
     if command.accepts_node:
         command.handler(ws, args.node)
     else:
-        command.handler(ws, verbose=args.verbose)
+        command.handler(ws)
 
 
 if __name__ == "__main__":

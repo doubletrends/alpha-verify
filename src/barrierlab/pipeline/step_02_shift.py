@@ -10,7 +10,7 @@ from barrierlab.pipeline.reporting import MilestoneProgress, StageReport
 from barrierlab.presentation import workbooks
 
 
-def _write_shift_array(ws: Workspace, verbose: bool, progress: MilestoneProgress) -> list[str]:
+def _write_shift_array(ws: Workspace, progress: MilestoneProgress) -> list[str]:
     nodes = [
         node for node in ws.catalog.all_nodes()
         if ws.has_cube(node["id"])
@@ -38,9 +38,6 @@ def _write_shift_array(ws: Workspace, verbose: bool, progress: MilestoneProgress
             )
         except Exception as error:
             skipped[node["id"]] = str(error)
-        else:
-            if verbose:
-                print(f"  {node['id']:<26} {shifted['shift'].shape}")
         finally:
             progress.advance()
     return [f"shift skipped {node}: {error}" for node, error in skipped.items()]
@@ -75,7 +72,7 @@ def _render_shift(ws: Workspace, progress: MilestoneProgress) -> tuple[int, list
     return written, warnings
 
 
-def cmd_shift(ws: Workspace, *, verbose: bool = False) -> None:
+def cmd_shift(ws: Workspace) -> None:
     """Write full baseline-subtracted shift arrays and workbooks."""
     report = StageReport(2, "compare", ws.dir.name)
     nodes = [node for node in ws.catalog.all_nodes() if ws.has_cube(node["id"])]
@@ -84,7 +81,7 @@ def cmd_shift(ws: Workspace, *, verbose: bool = False) -> None:
         f"{len(ws.deltas) * ws.n_bins * len(ws.horizons):,} cells per full-bin node"
     )
     warnings = _write_shift_array(
-        ws, verbose, MilestoneProgress(report, "calculating arrays", len(nodes))
+        ws, MilestoneProgress(report, "calculating arrays", len(nodes))
     )
     render_nodes = [node for node in nodes if ws.has_shift_cube(node["id"])]
     written, render_warnings = _render_shift(
