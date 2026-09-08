@@ -1,6 +1,6 @@
 <div align="center">
-  <h1>AlphaVerifier - Financial Strategy Debunker</h1>
-  <img src="docs/alpha-verifier-icon.svg" alt="Alpha Verifier icon" width="180">
+  <h1><strong>AlphaVerify</strong> - Multi-Asset Financial Strategy Debunker</h1>
+  <img src="docs/alpha-verify-icon.svg" alt="AlphaVerify icon" width="180">
   <br><br>
   <img src="https://img.shields.io/badge/Python-%E2%89%A5%203.12-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python >= 3.12">
   <img src="https://img.shields.io/badge/CUDA-%E2%89%A5%2012.0-76B900?style=for-the-badge&logo=nvidia&logoColor=white" alt="CUDA >= 12.0">
@@ -14,7 +14,7 @@ You've seen lots of them: a so-called “alpha” strategy and an equity curve t
 
 **Most “technical” indicators are essentially astrology with better charts.**
 
- `alpha-verifier` is built to put an end to all that bullshit.
+ AlphaVerify is built to put an end to all that bullshit.
 
 <p align="center">
 <table>
