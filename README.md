@@ -1,10 +1,22 @@
-<p align="center">
-  <a href="docs/selected_shift_surface__008__ma_cross_50_200.png"><img src="docs/selected_shift_surface__008__ma_cross_50_200.png" width="100%" alt="Observed MA Cross 50-200 condition shift surface with a 23.3 percentage-point contrast"></a>
-</p>
+# Alpha Verifier
 
-<h1 align="center">Alpha Verifier</h1>
+<div align="center">
+  <img src="docs/alpha-verifier-icon.svg" alt="Alpha Verifier icon" width="180">
+  <br><br>
+  <img src="https://img.shields.io/badge/Python-%E2%89%A5%203.12-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python >= 3.12">
+  <img src="https://img.shields.io/badge/CUDA-%E2%89%A5%2012.0-76B900?style=for-the-badge&logo=nvidia&logoColor=white" alt="CUDA >= 12.0">
+  <br><br>
+</div>
 
-<p align="center"><strong>The chart found an edge. We asked whether chance could draw it too.</strong></p>
+
+
+**The chart found an edge. We asked whether chance could draw it too.**
+
+You've seen lots of them: a so-called “alpha” strategy and an equity curve that claims to beat the market. They explain the setup, promise there is no future leak, and show that it earns money.
+
+**Most “technical” indicators are essentially astrology with better charts.**
+
+ `alpha-verifier` is built to put an end to all that bullshit.
 
 <p align="center">
 <table>
@@ -17,95 +29,44 @@
 <br>
 </p>
 
-You've seen lots of them: a so-called “alpha” strategy and an equity curve that claims to beat the market. They explain the setup, promise there is no future leak, and show that it earns money.
+## Example - MA Cross 50/200
 
-`alpha-verifier` **is built to put an end to that bullshit.**
+The "MA Cross" heatmap looks decisive: the classic MA Cross 50/200 produces a coherent **23.3 percentage-point** upside/downside contrast. 
 
-We measure how market conditions change the probability of reaching a price level. We find the strongest-looking effects, then ask the harder question: **is the effect actually unusual, or can a market-shaped null manufacture it too?**
+<p align="center">
+  <a href="docs/selected_shift_surface__008__ma_cross_50_200.png"><img src="docs/selected_shift_surface__008__ma_cross_50_200.png" width="100%" alt="Observed MA Cross 50-200 condition shift surface with a 23.3 percentage-point contrast"></a>
+</p>
 
-> ### In the Nasdaq run, the null manufactured 19 of the top 20.
->
-> Nineteen selected condition bins did not clear the synthetic null's 95th percentile. The one raw pass had `p = 0.0443`; because all 20 were selected and tested without a multiple-testing correction, it is a lead for further study—not established alpha.
-
-Most “technical” indicators may be astrology with better charts. This repository makes them face a falsifiable test.
-
-## 01 — The moving-average trap
-
-The hero image looks decisive: the classic MA Cross 50/200 produces a coherent **23.3 percentage-point** upside/downside contrast. Then the same full-grid score is applied to 10,000 fitted synthetic histories.
-
-| What the chart suggests | What the null says |
-|---|---|
-| Large, coherent conditional structure | `1630.32pp` observed vs `3031.27pp` null p95 |
-| A 23.3pp headline contrast | Raw `p = 0.3232` |
-| A familiar golden/death-cross story | **Not cleared** |
-
-<p align="center"><sub><strong>THE NULL DISTRIBUTION</strong> · blue is observed · dashed is p95</sub></p>
+Then the same full-grid score is applied to 10,000 fitted synthetic histories, and it turns out the **decisive edge** is just pure luck.
 
 <p align="center">
   <a href="docs/null_histogram__008__ma_cross_50_200__bin_02.png"><img src="docs/null_histogram__008__ma_cross_50_200__bin_02.png" width="100%" alt="MA Cross 50-200 score falling well below the 95th percentile of 10,000 synthetic OHLC histories"></a>
 </p>
 
-## 02 — Realized volatility tells the same story
+## Try it
 
-This is not just a moving-average problem. Realized Volatility 30 produces a structured **12.7pp** contrast, but its aggregate score is also ordinary under the fitted null: `1337.19pp` observed versus `2194.19pp` at p95, `p = 0.3638`.
+Run commands from the repository root. 
 
-<p align="center"><sub><strong>OBSERVED SURFACE</strong> · conditional barrier-touch probability minus baseline</sub></p>
-
-
-<p align="center">
-  <a href="docs/selected_shift_surface__016__realized_vol_30.png"><img src="docs/selected_shift_surface__016__realized_vol_30.png" width="100%" alt="Observed Realized Volatility 30 condition shift surface"></a>
-</p>
-
-<p align="center"><sub><strong>THE NULL DISTRIBUTION</strong> · a second coherent pattern that does not clear p95</sub></p>
-
-<p align="center">
-  <a href="docs/null_histogram__016__realized_vol_30__bin_04.png"><img src="docs/null_histogram__016__realized_vol_30__bin_04.png" width="100%" alt="Realized Volatility 30 score falling below the 95th percentile of 10,000 synthetic OHLC histories"></a>
-</p>
-
-## The scoreboard
-
-| Selected Nasdaq example | Observed score | Null p95 | Raw p | Verdict |
-|---|---:|---:|---:|---|
-| MA Cross 50/200, bin 2 | 1630.32pp | 3031.27pp | 0.3232 | not cleared |
-| Realized Volatility 30, bin 4 | 1337.19pp | 2194.19pp | 0.3638 | not cleared |
-
-These are two representative condition-bin results, not verdicts on an indicator name as a whole. Several bins from the same indicator can enter the top 20. The complete Nasdaq run retained one raw pass among 20 selected candidates; it is not pictured here and is not treated as established alpha.
-
-## How the verifier works
-
-| 01 — Measure | 02 — Compare | 03 — Select | 04 — Validate |
-|---|---|---|---|
-| Compute `P(touch Δ by t \| condition)` across the full grid | Subtract the unconditional market baseline | Rank the strongest full-grid condition-bin skews | Compare each winner with 10,000 null scores |
-| `01_surface/` | `02_shift/` | `03_selection/` | `04_validation/` |
-
-## Run it
-
-Run commands from the repository root. Python 3.12+ and PyTorch are required; PyTorch is intentionally installed separately so you can choose a CPU or CUDA build.
-
-```powershell
-python -m pip install torch
+```
 python -m pip install -e .
 
-barrierlab measure  --workspace nasdaq_daily
-barrierlab compare  --workspace nasdaq_daily
-barrierlab select   --workspace nasdaq_daily
-barrierlab validate --workspace nasdaq_daily
-barrierlab status   --workspace nasdaq_daily
+barrierlab measure
+barrierlab compare
+barrierlab select
+barrierlab validate
 ```
 
-Each pipeline command also accepts `--cuda` when a CUDA-capable PyTorch installation and device are available. `measure` downloads declared market data; `validate` is the compute-heavy stage. Generated arrays, workbooks, plots, and validation JSON stay under the selected workspace and are ignored by Git.
+Each pipeline command also accepts `--cuda` when a CUDA-capable PyTorch installation and device are available.
 
-To inspect one measured condition after Stage 2:
+## How it works
 
-```powershell
-barrierlab status vix_level --workspace nasdaq_daily
-```
+| Stage | CLI Command | What it does | Mathematical form |
+|---|---|---|---|
+| 1 | measure | Measure raw conditional probabilities | `P(price touch Δ within t bars \| condition)` |
+| 2 | comapre | Compare raw probabilities to baseline | `P(price touch Δ within t bars \| condition) − P(price touch Δ within t bars)` |
+| 3 | select | Select strongest condition effects | `\|shift(+Δ) − shift(−Δ)\| * \|Δ\| / max\|Δ\|` |
+| 4 | validate | Validate selected effects vs null | `p < 0.05 or p >= 0.05` |
 
-## What the result does—and does not—say
-
-This is an adversarial exploratory screen. It demonstrates that large conditional probability shifts can arise under a fitted null and that visual structure alone is weak evidence of alpha.
-
-It does **not** yet establish strategy returns, out-of-sample persistence, causal predictiveness, execution feasibility, or performance after costs. The current null draws independent per-bar log-OHLC vectors from a fitted multivariate Gaussian. It preserves fitted within-bar relationships and history length, but not the observed temporal ordering, volatility regimes, or all market microstructure. Core OHLCV-derived indicators are recomputed on synthetic paths; external, calendar, and workspace-plugin condition histories are held fixed. Validation uses raw `p < 0.05`, without family-wise or false-discovery correction.
 
 ## Repository map
 
