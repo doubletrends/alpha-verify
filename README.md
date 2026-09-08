@@ -1,6 +1,5 @@
-# Alpha Verifier
-
 <div align="center">
+  <h1>AlphaVerifier - Financial Strategy Debunker</h1>
   <img src="docs/alpha-verifier-icon.svg" alt="Alpha Verifier icon" width="180">
   <br><br>
   <img src="https://img.shields.io/badge/Python-%E2%89%A5%203.12-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python >= 3.12">
@@ -8,8 +7,6 @@
   <br><br>  
   <pre><code>python -m pip install</code></pre>
 </div>
-
-
 
 **The chart found an edge. We asked whether chance could draw it too.**
 
