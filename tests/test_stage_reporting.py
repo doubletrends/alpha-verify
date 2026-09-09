@@ -19,7 +19,7 @@ def test_stage_report_has_a_compact_consistent_shape() -> None:
         "",
         "============================================================",
         "Stage 2: Conditional effect relative to the market baseline",
-        "P(touch Δ within t bars | condition) − P(touch Δ within t bars)",
+        "100 × (conditional_probability − baseline_probability)",
         "============================================================",
         "",
         "  shifting 58 nodes against baseline",

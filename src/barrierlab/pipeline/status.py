@@ -23,8 +23,8 @@ def _print_node_status(ws: Workspace, node_id: str) -> None:
         return
 
     cube = materialized_shift(ws, node_id)
-    dev = cube["shift"]
-    deltas = cube["Δs"]
+    dev = cube["probability_shift_pp"]
+    barriers = cube["barriers"]
     horizons = cube["horizons"]
     labels = cube["meta"]["bin_labels"]
 
@@ -34,16 +34,20 @@ def _print_node_status(ws: Workspace, node_id: str) -> None:
     evaluation = shift.evaluate(cube, ws.min_dev, ws.min_bin_n, ws.min_run)
     best = evaluation["best"]
     if not best:
-        print(f"  no cell reaches {ws.min_dev}pp across {ws.min_run} adjacent Δ rows")
+        print(
+            f"  no cell reaches {ws.min_dev}pp across "
+            f"{ws.min_run} adjacent barrier rows"
+        )
         return
 
     bin_index = best["bin"]
     print(f"  strongest bin : {bin_index + 1} of {len(labels)}   ({labels[bin_index]})")
     print(
-        f"  strongest cell: shift={best['dev']:+.1f}pp; P={best['prob']:.1%} "
-        f"vs {best['base']:.1%} baseline "
-        f"at Δ={best['Δ']:+.0%}, +{best['horizon']}{ws.horizon_unit} "
-        f"(run={best['run']}, n={best['bin_n']})"
+        f"  strongest cell: shift={best['dev']:+.1f}pp; "
+        f"P={best['conditional_probability']:.1%} "
+        f"vs {best['baseline_probability']:.1%} baseline "
+        f"at barrier={best['barrier']:+.0%}, +{best['horizon']}{ws.horizon_unit} "
+        f"(run={best['run']}, n={best['bin_observation_count']})"
     )
 
     available = {int(value) for value in horizons}
@@ -51,17 +55,17 @@ def _print_node_status(ws: Workspace, node_id: str) -> None:
         value for value in (1, 2, 3, 5, 7, 10, 14, 21, 30) if value in available
     ]
     columns = [int(np.flatnonzero(horizons == value)[0]) for value in shown_horizons]
-    percent_decimals = 1 if ws.delta_step < 0.01 else 0
+    percent_decimals = 1 if ws.barrier_step < 0.01 else 0
     delta_format = f"+.{percent_decimals}%"
 
     print()
     header = "".join(
         f"{'+' + str(value) + ws.horizon_unit:>8}" for value in shown_horizons
     )
-    print(f"  {'Δ':>7}{header}")
+    print(f"  {'barrier':>7}{header}")
     print("  " + "-" * (7 + 8 * len(shown_horizons)))
     shown = 0
-    for index in sorted(range(len(deltas)), key=lambda item: -deltas[item]):
+    for index in sorted(range(len(barriers)), key=lambda item: -barriers[item]):
         row = dev[index, bin_index, columns]
         finite = row[np.isfinite(row)]
         if finite.size == 0 or np.max(np.abs(finite)) < ws.min_dev:
@@ -70,17 +74,17 @@ def _print_node_status(ws: Workspace, node_id: str) -> None:
             "       -" if not np.isfinite(value) else f"{value:>8.1f}"
             for value in row
         )
-        print(f"  {format(deltas[index], delta_format):>7}{cells}")
+        print(f"  {format(barriers[index], delta_format):>7}{cells}")
         shown += 1
     if not shown:
-        print(f"  no Δ row deviates by {ws.min_dev}pp at these horizons")
+        print(f"  no barrier row deviates by {ws.min_dev}pp at these horizons")
     print()
     print(
         "  values are percentage-point shifts from baseline; rows shown deviate "
         f"at least {ws.min_dev}pp"
     )
     print(
-        f"  the workbook carries all {len(deltas)} Δ levels, {len(horizons)} horizons "
+        f"  the workbook carries all {len(barriers)} barriers, {len(horizons)} horizons "
         f"and {len(labels)} bins"
     )
 
@@ -122,7 +126,7 @@ def cmd_status(ws: Workspace, node_id: str | None = None) -> None:
 
     print(f"\n=== Status [{ws.dir.name}] ===")
     print(
-        f"  Δ {ws.deltas[0]:+.0%}..{ws.deltas[-1]:+.0%}   "
+        f"  barriers {ws.barriers[0]:+.0%}..{ws.barriers[-1]:+.0%}   "
         f"horizons +{ws.horizons[0]}{ws.horizon_unit}.."
         f"+{ws.horizons[-1]}{ws.horizon_unit}   {ws.n_bins} bins"
     )
@@ -159,6 +163,6 @@ def cmd_status(ws: Workspace, node_id: str | None = None) -> None:
     print("  " + "-" * (len(header) - 2))
     print(f"  {'TOTAL':<15}" + "".join(f"{value:>9}" for value in totals))
     print(
-        f"\n  full grid {len(ws.deltas)}Δ x {len(ws.horizons)}t   |   "
+        f"\n  full grid {len(ws.barriers)} barriers × {len(ws.horizons)} horizons   |   "
         "03_validation tests all eligible condition bins across available nodes"
     )

@@ -50,12 +50,12 @@ def selected_workspace(tmp_path):
     rows = [
         {"node": "a", "family": "test", "feature": "day_of_week", "params": {},
          "bin": 0, "bin_number": 1, "bin_label": "x < 0.5", "bin_score": 12.,
-         "peak_p": .01, "cleared": True, "null_p95": 10., "n_paths": 1000,
-         "n_valid_null": 1000},
+         "monte_carlo_p_value": .01, "cleared": True, "null_p95": 10.,
+         "n_null_replicates": 1000, "n_supported_null": 1000},
         {"node": "b", "family": "test", "feature": "day_of_week", "params": {},
          "bin": 1, "bin_number": 2, "bin_label": "0.5 < x", "bin_score": 8.,
-         "peak_p": .20, "cleared": False, "null_p95": 10., "n_paths": 1000,
-         "n_valid_null": 1000},
+         "monte_carlo_p_value": .20, "cleared": False, "null_p95": 10.,
+         "n_null_replicates": 1000, "n_supported_null": 1000},
     ]
     summary = {
         "workspace": "example", "artifact": "03_validation", "complete": True,

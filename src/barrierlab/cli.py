@@ -114,7 +114,7 @@ def _add_workspace(parser: argparse.ArgumentParser) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = RootParser(
         description=(
-            "Barrier-touch pipeline: P(price reaches Δ within t | condition), "
+            "Barrier-touch pipeline: conditional probability by barrier, bin, and horizon, "
             "measured on a full grid and judged after subtracting the baseline."
         )
     )

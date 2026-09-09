@@ -39,7 +39,8 @@ def cmd_selection(ws: Workspace) -> None:
     validation_sha256 = _file_sha256(ws.validation_summary_path)
     selected = [dict(row) for row in validation.get("cleared", []) if row.get("cleared")]
     selected.sort(key=lambda row: (
-        float(row["peak_p"]), -float(row["bin_score"]), row["node"], int(row["bin"]),
+        float(row["monte_carlo_p_value"]), -float(row["bin_score"]),
+        row["node"], int(row["bin"]),
     ))
     for number, row in enumerate(selected, 1):
         row["selection_number"] = number

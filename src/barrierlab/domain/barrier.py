@@ -1,11 +1,11 @@
 """
-Barrier-touch surfaces: will price reach ±Δ within t bars, given a condition?
+Barrier-touch surfaces: will price reach a signed barrier within a horizon?
 
 This is the engine's single measurement: the probability that price reaches a barrier,
 given a condition. Everything the pipeline used to compute as a separate "outcome" is a
-row of it -- the -10% drawdown surface is the Δ = -10% row, the +10% runup surface
+row of it -- the -10% drawdown surface is the -10% barrier row, the +10% runup surface
 is the +10% row, and the asymmetry between them is the two rows read against each other
-in the same column. There is no outcome registry any more; Δ *is* the axis.
+in the same column. There is no outcome registry any more; the barrier is the axis.
 
 Two things differ from the close-to-close machinery this replaces:
 
@@ -27,6 +27,7 @@ import numpy as np
 import pandas as pd
 import torch
 from barrierlab.domain import tensor_runtime
+from barrierlab.domain.notation import MeasurementSlice, OhlcvComponent
 
 # Below this many observations a bin's rate is not worth reporting.
 MIN_BIN_N = 30
@@ -79,88 +80,138 @@ def bin_indices(values: torch.Tensor, edges: torch.Tensor) -> torch.Tensor:
     return torch.searchsorted(edges.contiguous(), values.contiguous(), right=False)
 
 
-def touch_rates(lo, hi, feature, indices, n_bins, delta, min_n=MIN_BIN_N):
+def touch_rates(downside_excursion, upside_excursion, feature_values,
+                bin_assignments, effective_bin_count, barrier,
+                min_n=MIN_BIN_N):
     """Batched conditional rates and counts for one signed barrier/horizon.
 
     Inputs have (history, time) axes. The baseline is measured independently
     using a constant feature, so it includes all eligible market dates.
     """
-    ok = torch.isfinite(lo) & torch.isfinite(hi) & torch.isfinite(feature)
-    counts = lo.new_zeros((lo.shape[0], n_bins))
-    counts.scatter_add_(1, indices, ok.to(lo.dtype))
-    touched = lo <= delta if delta < 0 else hi >= delta
-    hits = torch.zeros_like(counts)
-    hits.scatter_add_(1, indices, (touched & ok).to(lo.dtype))
-    prob = torch.where(counts >= min_n, hits / counts.clamp_min(1), float("nan"))
-    return prob, hits, counts, ok.sum(dim=1)
+    condition_eligible = (
+        torch.isfinite(downside_excursion)
+        & torch.isfinite(upside_excursion)
+        & torch.isfinite(feature_values)
+    )
+    bin_observation_counts = downside_excursion.new_zeros(
+        (downside_excursion.shape[0], effective_bin_count)
+    )
+    bin_observation_counts.scatter_add_(
+        1, bin_assignments, condition_eligible.to(downside_excursion.dtype)
+    )
+    touch_mask = (
+        downside_excursion <= barrier
+        if barrier < 0 else upside_excursion >= barrier
+    )
+    bin_hit_counts = torch.zeros_like(bin_observation_counts)
+    bin_hit_counts.scatter_add_(
+        1, bin_assignments, (touch_mask & condition_eligible).to(downside_excursion.dtype)
+    )
+    conditional_probability = torch.where(
+        bin_observation_counts >= min_n,
+        bin_hit_counts / bin_observation_counts.clamp_min(1),
+        float("nan"),
+    )
+    return (conditional_probability, bin_hit_counts, bin_observation_counts,
+            condition_eligible.sum(dim=1))
 
 
-def touch_rate_matrix(lo, hi, feature, indices, n_bins, deltas, min_n=MIN_BIN_N):
+def touch_rate_matrix(downside_excursion, upside_excursion, feature_values,
+                      bin_assignments, effective_bin_count, barriers,
+                      min_n=MIN_BIN_N):
     """Conditional rates for every signed barrier in one tensor operation.
 
     Inputs have ``(history, time)`` axes. Results have
     ``(history, signed barrier, bin)`` axes; counts do not have a barrier axis.
     """
-    touched, price_ok = barrier_touch_matrix(lo, hi, deltas)
-    return reduce_touch_matrix(touched, price_ok, feature, indices, n_bins, min_n)
+    touch_mask, price_eligible = barrier_touch_matrix(
+        downside_excursion, upside_excursion, barriers
+    )
+    return reduce_touch_matrix(
+        touch_mask, price_eligible, feature_values, bin_assignments,
+        effective_bin_count, min_n,
+    )
 
 
-def barrier_touch_matrix(lo, hi, deltas):
+def barrier_touch_matrix(downside_excursion, upside_excursion, barriers):
     """Return the shared ``history × time × delta`` price-touch matrix."""
-    deltas_t = torch.as_tensor(deltas, dtype=lo.dtype, device=lo.device)
-    if deltas_t.ndim != 1:
+    barriers_tensor = torch.as_tensor(
+        barriers, dtype=downside_excursion.dtype, device=downside_excursion.device
+    )
+    if barriers_tensor.ndim != 1:
         raise ValueError("barriers must be a vector")
-    price_ok = torch.isfinite(lo) & torch.isfinite(hi)
-    if not len(deltas_t):
-        return torch.empty((*lo.shape, 0), dtype=torch.bool, device=lo.device), price_ok
-    delta_matrix = deltas_t.view(1, 1, -1)
-    touched = torch.where(
-        delta_matrix < 0,
-        lo.unsqueeze(-1) <= delta_matrix,
-        hi.unsqueeze(-1) >= delta_matrix,
-    ) & price_ok.unsqueeze(-1)
-    return touched, price_ok
+    price_eligible = torch.isfinite(downside_excursion) & torch.isfinite(upside_excursion)
+    if not len(barriers_tensor):
+        empty = torch.empty(
+            (*downside_excursion.shape, 0), dtype=torch.bool,
+            device=downside_excursion.device,
+        )
+        return empty, price_eligible
+    barrier_axis = barriers_tensor.view(1, 1, -1)
+    touch_mask = torch.where(
+        barrier_axis < 0,
+        downside_excursion.unsqueeze(-1) <= barrier_axis,
+        upside_excursion.unsqueeze(-1) >= barrier_axis,
+    ) & price_eligible.unsqueeze(-1)
+    return touch_mask, price_eligible
 
 
-def reduce_touch_matrix(touched, price_ok, feature, indices, n_bins, min_n=MIN_BIN_N):
+def reduce_touch_matrix(touch_mask, price_eligible, feature_values,
+                        bin_assignments, effective_bin_count, min_n=MIN_BIN_N):
     """Reduce one shared touch matrix through a condition's bin assignment."""
-    ok = price_ok & torch.isfinite(feature)
-    counts = feature.new_zeros((feature.shape[0], n_bins))
-    counts.scatter_add_(1, indices, ok.to(feature.dtype))
-    if touched.shape[-1] == 0:
-        empty = feature.new_empty((feature.shape[0], 0, n_bins))
-        return empty, empty.clone(), counts, ok.sum(dim=1)
-    hits = feature.new_zeros((feature.shape[0], n_bins, touched.shape[-1]))
-    hits.scatter_add_(
+    condition_eligible = price_eligible & torch.isfinite(feature_values)
+    bin_observation_counts = feature_values.new_zeros(
+        (feature_values.shape[0], effective_bin_count)
+    )
+    bin_observation_counts.scatter_add_(
+        1, bin_assignments, condition_eligible.to(feature_values.dtype)
+    )
+    if touch_mask.shape[-1] == 0:
+        empty = feature_values.new_empty((feature_values.shape[0], 0, effective_bin_count))
+        return empty, empty.clone(), bin_observation_counts, condition_eligible.sum(dim=1)
+    bin_hit_counts = feature_values.new_zeros(
+        (feature_values.shape[0], effective_bin_count, touch_mask.shape[-1])
+    )
+    bin_hit_counts.scatter_add_(
         1,
-        indices.unsqueeze(-1).expand(-1, -1, touched.shape[-1]),
-        (touched & ok.unsqueeze(-1)).to(feature.dtype),
+        bin_assignments.unsqueeze(-1).expand(-1, -1, touch_mask.shape[-1]),
+        (touch_mask & condition_eligible.unsqueeze(-1)).to(feature_values.dtype),
     )
-    probabilities = torch.where(
-        counts.unsqueeze(-1) >= min_n,
-        hits / counts.unsqueeze(-1).clamp_min(1),
+    conditional_probability = torch.where(
+        bin_observation_counts.unsqueeze(-1) >= min_n,
+        bin_hit_counts / bin_observation_counts.unsqueeze(-1).clamp_min(1),
         float("nan"),
     )
-    return probabilities.transpose(1, 2), hits.transpose(1, 2), counts, ok.sum(dim=1)
+    return (conditional_probability.transpose(1, 2), bin_hit_counts.transpose(1, 2),
+            bin_observation_counts, condition_eligible.sum(dim=1))
 
 
-def baseline_rate_matrix(lo, hi, deltas, min_n=MIN_BIN_N):
+def baseline_rate_matrix(downside_excursion, upside_excursion, barriers,
+                         min_n=MIN_BIN_N):
     """Unconditional rates for every signed barrier, without bin scattering."""
-    touched, ok = barrier_touch_matrix(lo, hi, deltas)
-    return reduce_baseline_touch_matrix(touched, ok, lo.dtype, min_n)
+    touch_mask, price_eligible = barrier_touch_matrix(
+        downside_excursion, upside_excursion, barriers
+    )
+    return reduce_baseline_touch_matrix(
+        touch_mask, price_eligible, downside_excursion.dtype, min_n
+    )
 
 
-def reduce_baseline_touch_matrix(touched, price_ok, dtype=torch.float64, min_n=MIN_BIN_N):
+def reduce_baseline_touch_matrix(touch_mask, price_eligible,
+                                 dtype=torch.float64, min_n=MIN_BIN_N):
     """Reduce a previously generated shared touch matrix to baseline rates."""
-    counts = price_ok.sum(dim=1).to(dtype)
-    if touched.shape[-1] == 0:
-        return torch.empty((touched.shape[0], 0), dtype=dtype, device=touched.device), counts
-    hits = touched.sum(dim=1).to(dtype)
+    eligible_observation_count = price_eligible.sum(dim=1).to(dtype)
+    if touch_mask.shape[-1] == 0:
+        empty = torch.empty(
+            (touch_mask.shape[0], 0), dtype=dtype, device=touch_mask.device
+        )
+        return empty, eligible_observation_count
+    hit_count = touch_mask.sum(dim=1).to(dtype)
     return torch.where(
-        counts.unsqueeze(-1) >= min_n,
-        hits / counts.unsqueeze(-1).clamp_min(1),
+        eligible_observation_count.unsqueeze(-1) >= min_n,
+        hit_count / eligible_observation_count.unsqueeze(-1).clamp_min(1),
         float("nan"),
-    ), counts
+    ), eligible_observation_count
 
 
 def bin_labels(edges: np.ndarray, feature: pd.Series | None = None) -> list[str]:
@@ -194,7 +245,9 @@ def ohlcv_tensor(data: pd.DataFrame) -> torch.Tensor:
 
 def iter_extremes(paths: torch.Tensor, horizons):
     """Shared incremental excursion ladder, yielding one horizon at a time."""
-    close, low, high = paths[:, :, 3], paths[:, :, 2], paths[:, :, 1]
+    close = paths[:, :, OhlcvComponent.CLOSE]
+    low = paths[:, :, OhlcvComponent.LOW]
+    high = paths[:, :, OhlcvComponent.HIGH]
     length = close.shape[1]
     reached = 0
     run_lo, run_hi = torch.full_like(close, float("inf")), torch.full_like(close, float("-inf"))
@@ -224,9 +277,10 @@ def forward_extremes_upto(data: pd.DataFrame, t_max: int) -> tuple[np.ndarray, n
     return tuple(torch.cat([row[i] for row in rows], dim=0).cpu().numpy() for i in (0, 1))
 
 
-def measure_histories(paths, features, deltas, horizons, n_bins, *, edges=None,
-                      min_n=MIN_BIN_N, excursions=None, touches=None, baselines=None,
-                      bin_indices_cache=None):
+def measure_histories(paths, features, barriers, horizons, requested_bin_count, *,
+                      bin_edges=None, min_n=MIN_BIN_N, excursions=None,
+                      touch_mask=None, baseline_probability=None,
+                      bin_assignments=None):
     """Return bin edges and an iterator of measured float64 horizon slices.
 
     Paths have (history, time, OHLCV) axes. Features may have one row, shared
@@ -243,17 +297,20 @@ def measure_histories(paths, features, deltas, horizons, n_bins, *, edges=None,
     if x.ndim != 2 or x.shape[1] != paths.shape[1] or x.shape[0] not in (1, paths.shape[0]):
         raise ValueError("features must match the path and time axes")
     x = x.expand(paths.shape[:2])
-    deltas, horizons = np.asarray(deltas, dtype=float), np.asarray(horizons, dtype=int)
-    if deltas.ndim != 1 or horizons.ndim != 1 or np.any(horizons < 1):
+    barriers = np.asarray(barriers, dtype=float)
+    horizons = np.asarray(horizons, dtype=int)
+    if barriers.ndim != 1 or horizons.ndim != 1 or np.any(horizons < 1):
         raise ValueError("barriers and horizons must be vectors, with positive horizons")
-    if edges is None:
-        edges_t = batched_bin_edges(x, n_bins)
+    if bin_edges is None:
+        edges_t = batched_bin_edges(x, requested_bin_count)
     else:
-        edges_t = edges.to(dtype=torch.float64) if isinstance(edges, torch.Tensor) else tensor_runtime.tensor(edges)
+        edges_t = (bin_edges.to(dtype=torch.float64)
+                   if isinstance(bin_edges, torch.Tensor)
+                   else tensor_runtime.tensor(bin_edges))
         edges_t = edges_t.expand(paths.shape[0], -1).contiguous()
-    n_bins = edges_t.shape[1] + 1
-    indices = (bin_indices(x, edges_t) if bin_indices_cache is None else
-               torch.as_tensor(bin_indices_cache, dtype=torch.long, device=paths.device))
+    effective_bin_count = edges_t.shape[1] + 1
+    indices = (bin_indices(x, edges_t) if bin_assignments is None else
+               torch.as_tensor(bin_assignments, dtype=torch.long, device=paths.device))
     if indices.ndim == 1 and paths.shape[0] == 1:
         indices = indices.unsqueeze(0)
     if indices.shape != paths.shape[:2]:
@@ -266,62 +323,79 @@ def measure_histories(paths, features, deltas, horizons, n_bins, *, edges=None,
         extremes = ((mins[t - 1][None], maxs[t - 1][None]) for t in horizons)
     else:
         extremes = iter_extremes(paths, horizons)
-    touches_t = None if touches is None else torch.as_tensor(touches, dtype=torch.bool, device=paths.device)
+    touches_t = (None if touch_mask is None else
+                 torch.as_tensor(touch_mask, dtype=torch.bool, device=paths.device))
     if touches_t is not None:
         if touches_t.ndim == 3 and paths.shape[0] == 1:
             touches_t = touches_t.unsqueeze(1)
-        expected = (len(horizons), paths.shape[0], paths.shape[1], len(deltas))
+        expected = (len(horizons), paths.shape[0], paths.shape[1], len(barriers))
         if touches_t.shape != expected:
             raise ValueError(f"cached touches do not match measurement axes: {touches_t.shape} vs {expected}")
-    baselines_t = None if baselines is None else torch.as_tensor(
-        baselines, dtype=paths.dtype, device=paths.device,
+    baselines_t = None if baseline_probability is None else torch.as_tensor(
+        baseline_probability, dtype=paths.dtype, device=paths.device,
     )
     if baselines_t is not None:
         if baselines_t.ndim == 2 and paths.shape[0] == 1:
             baselines_t = baselines_t.unsqueeze(0)
-        expected = (paths.shape[0], len(deltas), len(horizons))
+        expected = (paths.shape[0], len(barriers), len(horizons))
         if baselines_t.shape != expected:
             raise ValueError(f"cached baseline does not match measurement axes: {baselines_t.shape} vs {expected}")
 
     def measurements():
         for horizon_index, (lo, hi) in enumerate(extremes):
             if touches_t is None:
-                shared_touch, price_ok = barrier_touch_matrix(lo, hi, deltas)
+                shared_touch, price_ok = barrier_touch_matrix(lo, hi, barriers)
             else:
                 shared_touch = touches_t[horizon_index]
                 price_ok = torch.isfinite(lo) & torch.isfinite(hi)
             probabilities, hits, counts, observed = reduce_touch_matrix(
-                shared_touch, price_ok, x, indices, n_bins, min_n,
+                shared_touch, price_ok, x, indices, effective_bin_count, min_n,
             )
             baseline = (reduce_baseline_touch_matrix(shared_touch, price_ok, paths.dtype, min_n)[0]
                         if baselines_t is None else baselines_t[:, :, horizon_index])
-            yield {
-                "prob": probabilities.unsqueeze(-1),
-                "base": baseline.unsqueeze(-1),
-                "hits": hits.unsqueeze(-1),
-                "bin_n": counts.unsqueeze(-1), "n_obs": observed.unsqueeze(-1),
-            }
+            yield MeasurementSlice(
+                conditional_probability=probabilities.unsqueeze(-1),
+                baseline_probability=baseline.unsqueeze(-1),
+                bin_hit_counts=hits.unsqueeze(-1),
+                bin_observation_counts=counts.unsqueeze(-1),
+                eligible_observation_count=observed.unsqueeze(-1),
+            )
     return edges_t, measurements()
 
 
 def touch_tensor(data: pd.DataFrame, feature: pd.Series, horizons: np.ndarray,
-                 Δs: np.ndarray, edges: np.ndarray, min_n: int = MIN_BIN_N,
+                 barriers: np.ndarray, bin_edges: np.ndarray, min_n: int = MIN_BIN_N,
                  excursions: tuple[np.ndarray, np.ndarray] | None = None,
-                 touches=None, baseline=None) -> dict:
+                 touch_mask=None, baseline_probability=None) -> dict:
     """Stage 1 adapter: collect the shared history measurements into one cube."""
     _, measurements = measure_histories(
-        ohlcv_tensor(data), feature.to_numpy(float)[None], Δs, horizons, len(edges) + 1,
-        edges=edges, min_n=min_n, excursions=excursions,
-        touches=touches, baselines=baseline,
+        ohlcv_tensor(data), feature.to_numpy(float)[None], barriers, horizons,
+        len(bin_edges) + 1, bin_edges=bin_edges, min_n=min_n,
+        excursions=excursions, touch_mask=touch_mask,
+        baseline_probability=baseline_probability,
     )
     rows = list(measurements)
-    shape = (len(Δs), len(edges) + 1, len(horizons))
+    shape = (len(barriers), len(bin_edges) + 1, len(horizons))
     result = {}
-    for key, empty_shape in (("prob", shape), ("hits", shape),
-                             ("bin_n", shape[1:]), ("n_obs", shape[-1:])):
-        values = torch.cat([row[key] for row in rows], dim=-1)[0].cpu().numpy() if rows else np.empty(empty_shape)
-        result[key] = values if key == "prob" else values.astype(np.int32)
+    fields = (
+        ("conditional_probability", shape),
+        ("bin_hit_counts", shape),
+        ("bin_observation_counts", shape[1:]),
+        ("eligible_observation_count", shape[-1:]),
+    )
+    for field, empty_shape in fields:
+        values = (
+            torch.cat([getattr(row, field) for row in rows], dim=-1)[0].cpu().numpy()
+            if rows else np.empty(empty_shape)
+        )
+        result[field] = values if field == "conditional_probability" else values.astype(np.int32)
     values = feature.to_numpy(float)
-    return {**result, "Δs": np.asarray(Δs, dtype=float),
-            "horizons": np.asarray(horizons, dtype=int), "edges": np.asarray(edges, dtype=float),
-            "bin_indices": np.searchsorted(edges, values, side="left").astype(np.uint8)}
+    return {
+        **result,
+        "barriers": np.asarray(barriers, dtype=float),
+        "horizons": np.asarray(horizons, dtype=int),
+        "bin_edges": np.asarray(bin_edges, dtype=float),
+        "bin_assignments": np.searchsorted(
+            bin_edges, values, side="left"
+        ).astype(np.uint8),
+    }

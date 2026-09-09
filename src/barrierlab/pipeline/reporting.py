@@ -12,11 +12,11 @@ class StageReport:
     _HEADINGS = {
         1: (
             "Conditional barrier-touch probabilities",
-            "P(touch Δ within t bars | condition)",
+            "conditional_probability[barrier, bin, horizon]",
         ),
         2: (
             "Conditional effect relative to the market baseline",
-            "P(touch Δ within t bars | condition) − P(touch Δ within t bars)",
+            "100 × (conditional_probability − baseline_probability)",
         ),
         3: (
             "Statistical validation against simulated price paths",

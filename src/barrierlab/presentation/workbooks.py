@@ -2,7 +2,7 @@
 The pipeline's deliverable.
 
 write_barrier_xlsx renders a cube as one tab per condition bin. Each tab is that bin's
-whole (Δ x horizon) face, so the workbook holds every value the cube holds -- it is
+whole barrier-by-horizon face, so the workbook holds every value the cube holds -- it is
 a faithful view of the measurement, not a summary of it.
 
 Stage 1 workbooks show raw conditional probabilities. Stage 2 shift workbooks show the
@@ -40,7 +40,7 @@ _CENTER = Alignment(horizontal='center', vertical='center', wrap_text=True)
 
 _COL_ROW  = 4   # horizon labels
 _N_ROW    = 3   # observations behind this bin at each horizon
-_DATA_ROW = 5   # first Δ row
+_DATA_ROW = 5   # first barrier row
 _VALID_COL_ROW = 3
 
 _ABBREV = {'rsi', 'ma', 'atr', 'dxy', 'macd', 'bb', 'mvrv', 'wr', 'roc', 'vol'}
@@ -118,10 +118,10 @@ def write_barrier_xlsx(
     unit:    str = 'd',
 ) -> None:
     """
-    One tab per condition bin; each tab is that bin's full Δ x horizon face.
+    One tab per condition bin; each tab is that bin's full barrier × horizon face.
 
     Rows run from the highest barrier at the top to the lowest at the bottom, the way a
-    price ladder reads: up the sheet is up in price. Δ = 0 sits in the middle and is
+    price ladder reads: up the sheet is up in price. The zero barrier sits in the middle and is
     shaded, marking the boundary between two different questions -- above it a cell asks
     whether the *high* reached that level, below it whether the *low* did.
 
@@ -133,35 +133,35 @@ def write_barrier_xlsx(
     horizon; it falls as t grows, because the last t bars have no realized forward
     window.
     """
-    prob     = cube['prob']
-    Δs   = cube['Δs']
+    conditional_probability = cube['conditional_probability']
+    barriers = cube['barriers']
     horizons = cube['horizons']
-    bin_n    = cube['bin_n']
+    bin_observation_counts = cube['bin_observation_counts']
     labels   = cube['meta']['bin_labels']
-    edges    = cube['edges']
-    n_th, n_bins, n_t = prob.shape
+    bin_edges = cube['bin_edges']
+    barrier_count, effective_bin_count, horizon_count = conditional_probability.shape
 
-    order = np.argsort(Δs)[::-1]        # highest barrier on the top row
-    end   = get_column_letter(1 + n_t)
+    order = np.argsort(barriers)[::-1]        # highest barrier on the top row
+    end   = get_column_letter(1 + horizon_count)
 
     wb = Workbook()
     wb.remove(wb.active)
 
-    unconditional = n_bins == 1 and labels[0] == 'all'
+    unconditional = effective_bin_count == 1 and labels[0] == 'all'
     names = _sheet_names(list(labels))
 
-    for b in range(n_bins):
+    for b in range(effective_bin_count):
         ws = wb.create_sheet(names[b])
-        title = _condition_title(node_id, feature, labels, edges, b, unconditional)
+        title = _condition_title(node_id, feature, labels, bin_edges, b, unconditional)
         _write_headers(
             ws,
             title,
-            'P (Price touches Δ within t | Condition)',
+            'Conditional barrier-touch probability',
             None,
             merge_end=end,
         )
 
-        c = ws.cell(row=_COL_ROW, column=1, value='Δ')
+        c = ws.cell(row=_COL_ROW, column=1, value='barrier')
         c.font, c.alignment = Font(bold=True), _CENTER
         for j, t in enumerate(horizons):
             c = ws.cell(row=_COL_ROW, column=2 + j, value=f'+{int(t)}{unit}')
@@ -169,21 +169,21 @@ def write_barrier_xlsx(
 
         c = ws.cell(row=_N_ROW, column=1, value='n =')
         c.font, c.fill = Font(bold=True, italic=True, size=9), _FILL_NBAND
-        for j in range(n_t):
-            c = ws.cell(row=_N_ROW, column=2 + j, value=int(bin_n[b, j]))
+        for j in range(horizon_count):
+            c = ws.cell(row=_N_ROW, column=2 + j, value=int(bin_observation_counts[b, j]))
             c.font, c.fill, c.alignment = Font(italic=True, size=9), _FILL_NBAND, _CENTER
 
         for r_off, i in enumerate(order):
             r = _DATA_ROW + r_off
-            th = float(Δs[i])
+            th = float(barriers[i])
             is_zero = abs(th) < 1e-12
             tc = ws.cell(row=r, column=1, value=th)
             tc.number_format = '+0%;-0%;0%'
             tc.font, tc.alignment = Font(bold=True), _CENTER
             if is_zero:
                 tc.fill = _FILL_MID
-            for j in range(n_t):
-                v = prob[i, b, j]
+            for j in range(horizon_count):
+                v = conditional_probability[i, b, j]
                 cell = ws.cell(row=r, column=2 + j,
                                value=None if not np.isfinite(v) else round(float(v), 4))
                 cell.number_format = _PCT_FMT
@@ -191,13 +191,13 @@ def write_barrier_xlsx(
                     cell.fill = _FILL_NA
 
         ws.conditional_formatting.add(
-            f'B{_DATA_ROW}:{end}{_DATA_ROW + n_th - 1}',
+            f'B{_DATA_ROW}:{end}{_DATA_ROW + barrier_count - 1}',
             ColorScaleRule(start_type='num', start_value=0,   start_color=_WHITE,
                            mid_type='num',   mid_value=0.5,   mid_color=_AMBER,
                            end_type='num',   end_value=1.0,   end_color=_RED))
 
         ws.column_dimensions['A'].width = 8
-        for j in range(n_t):
+        for j in range(horizon_count):
             ws.column_dimensions[get_column_letter(2 + j)].width = 6.5
         ws.freeze_panes = f'B{_DATA_ROW}'
 
@@ -220,36 +220,36 @@ def write_shift_xlsx(
     centered at zero: blue means the barrier is touched less often than unconditional,
     red means more often.
     """
-    values   = cube['shift']
-    Δs   = cube['Δs']
+    values = cube['probability_shift_pp']
+    barriers = cube['barriers']
     horizons = cube['horizons']
-    bin_n    = cube['bin_n']
+    bin_observation_counts = cube['bin_observation_counts']
     labels   = cube['meta']['bin_labels']
-    edges    = cube['edges']
-    n_th, n_bins, n_t = values.shape
+    bin_edges = cube['bin_edges']
+    barrier_count, effective_bin_count, horizon_count = values.shape
 
-    order = np.argsort(Δs)[::-1]
-    end = get_column_letter(1 + n_t)
+    order = np.argsort(barriers)[::-1]
+    end = get_column_letter(1 + horizon_count)
     lim = _SHIFT_SCALE_LIMIT
 
     wb = Workbook()
     wb.remove(wb.active)
 
-    unconditional = n_bins == 1 and labels[0] == 'all'
+    unconditional = effective_bin_count == 1 and labels[0] == 'all'
     names = _sheet_names(list(labels))
 
-    for b in range(n_bins):
+    for b in range(effective_bin_count):
         ws = wb.create_sheet(names[b])
-        title = _condition_title(node_id, feature, labels, edges, b, unconditional)
+        title = _condition_title(node_id, feature, labels, bin_edges, b, unconditional)
         _write_headers(
             ws,
             title,
-            'P (Price touches Δ within t | Condition) - P (Price touches Δ within t)',
+            'Conditional probability minus baseline probability',
             None,
             merge_end=end,
         )
 
-        c = ws.cell(row=_COL_ROW, column=1, value='Δ')
+        c = ws.cell(row=_COL_ROW, column=1, value='barrier')
         c.font, c.alignment = Font(bold=True), _CENTER
         for j, t in enumerate(horizons):
             c = ws.cell(row=_COL_ROW, column=2 + j, value=f'+{int(t)}{unit}')
@@ -257,20 +257,20 @@ def write_shift_xlsx(
 
         c = ws.cell(row=_N_ROW, column=1, value='n =')
         c.font, c.fill = Font(bold=True, italic=True, size=9), _FILL_NBAND
-        for j in range(n_t):
-            c = ws.cell(row=_N_ROW, column=2 + j, value=int(bin_n[b, j]))
+        for j in range(horizon_count):
+            c = ws.cell(row=_N_ROW, column=2 + j, value=int(bin_observation_counts[b, j]))
             c.font, c.fill, c.alignment = Font(italic=True, size=9), _FILL_NBAND, _CENTER
 
         for r_off, i in enumerate(order):
             r = _DATA_ROW + r_off
-            th = float(Δs[i])
+            th = float(barriers[i])
             is_zero = abs(th) < 1e-12
             tc = ws.cell(row=r, column=1, value=th)
             tc.number_format = '+0%;-0%;0%'
             tc.font, tc.alignment = Font(bold=True), _CENTER
             if is_zero:
                 tc.fill = _FILL_MID
-            for j in range(n_t):
+            for j in range(horizon_count):
                 v = values[i, b, j]
                 cell = ws.cell(row=r, column=2 + j,
                                value=None if not np.isfinite(v) else round(float(v) / 100.0, 4))
@@ -278,7 +278,7 @@ def write_shift_xlsx(
                 if not np.isfinite(v):
                     cell.fill = _FILL_NA
 
-        rng = f'B{_DATA_ROW}:{end}{_DATA_ROW + n_th - 1}'
+        rng = f'B{_DATA_ROW}:{end}{_DATA_ROW + barrier_count - 1}'
         ws.conditional_formatting.add(
             rng,
             ColorScaleRule(start_type='num', start_value=-lim, start_color=_BLUE,
@@ -292,4 +292,3 @@ def write_shift_xlsx(
 
     path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(path)
-

@@ -18,7 +18,7 @@ from barrierlab.infrastructure.workspace import BASELINE_NODE, Workspace
 from barrierlab.pipeline.context import RunContext, materialized_shift
 from barrierlab.pipeline.reporting import MilestoneProgress, StageReport
 
-N_PATHS = 1_000
+N_NULL_REPLICATES = 1_000
 SEED = 20260907
 RAW_P_THRESHOLD = 0.05
 NULL_VERSION = "gaussian-log-ohlc-v1"
@@ -31,7 +31,7 @@ def _method() -> dict:
         "observed_source": "stored OHLCV history remeasured in float64",
         "feature_policy": "observed feature bins cached by Stage 1; core null features recomputed; external null bins fixed",
         "null_version": NULL_VERSION,
-        "n_paths": N_PATHS, "seed": SEED,
+        "n_null_replicates": N_NULL_REPLICATES, "seed": SEED,
         "threshold": {"raw_p": RAW_P_THRESHOLD},
         "unit": "linearly barrier-weighted percentage points",
         "null": "shared synthetic OHLC histories per identical stored market history; external conditions fixed",
@@ -80,7 +80,10 @@ def cmd_validation(ws: Workspace) -> None:
     fingerprint = input_fingerprint(ws)
     missing = [entry["node"]["id"] for entry in fingerprint["nodes"] if entry["sha256"] is None]
     available = [entry["node"] for entry in fingerprint["nodes"] if entry["sha256"] is not None]
-    report.line(f"testing all eligible bins from {len(available)} nodes against {N_PATHS:,} null histories")
+    report.line(
+        f"testing all eligible bins from {len(available)} nodes against "
+        f"{N_NULL_REPLICATES:,} null replicates"
+    )
 
     # Group references, not full probability cubes; retain only one synthetic
     # ensemble at a time, and never apply one market's null to another history.
@@ -96,31 +99,36 @@ def cmd_validation(ws: Workspace) -> None:
         for node in nodes:
             cube = _input_cube(ws, node["id"])
             data = market_data_from_artifact(cube)
-            outcomes = context.observed_outcomes(data, cube["Δs"], cube["horizons"])
+            outcomes = context.observed_outcomes(data, cube["barriers"], cube["horizons"])
             fixed = not is_ohlcv_feature(node["feature"])
             # Choose the policy once and pass it unchanged to both roles.
             policy = {
                 "features": feature_from_artifact(cube, data.index).to_numpy(float)[None] if fixed else None,
-                "edges": cube["edges"] if fixed else None,
+                "bin_edges": cube["bin_edges"] if fixed else None,
                 "feature_name": node["feature"], "params": node["params"],
-                "deltas": cube["Δs"], "horizons": cube["horizons"], "n_bins": ws.n_bins,
+                "barriers": cube["barriers"], "horizons": cube["horizons"],
+                "requested_bin_count": ws.n_bins,
             }
-            cached_condition = fixed or "bin_indices" in cube
+            cached_condition = fixed or "bin_assignments" in cube
             observed = validation.score_histories(
                 barrier.ohlcv_tensor(data),
                 features=(feature_from_artifact(cube, data.index).to_numpy(float)[None]
                           if cached_condition else None),
-                edges=cube["edges"] if cached_condition else None,
+                bin_edges=cube["bin_edges"] if cached_condition else None,
                 feature_name=node["feature"], params=node["params"],
-                deltas=cube["Δs"], horizons=cube["horizons"], n_bins=ws.n_bins,
-                touches=outcomes["touches"], baseline=outcomes["baseline"],
-                bin_indices=cube.get("bin_indices") if cached_condition else None,
+                barriers=cube["barriers"], horizons=cube["horizons"],
+                requested_bin_count=ws.n_bins,
+                touch_mask=outcomes["touch_mask"],
+                baseline_probability=outcomes["baseline_probability"],
+                bin_assignments=(
+                    cube.get("bin_assignments") if cached_condition else None
+                ),
             )
-            observed_edges = observed["edges"][0]
+            observed_edges = observed.bin_edges[0]
             observed_edges = observed_edges[np.isfinite(observed_edges)]
             bin_count = len(observed_edges) + 1
-            scores = observed["scores"][0, :bin_count]
-            valid = observed["valid"][0, :bin_count]
+            scores = observed.bin_score[0, :bin_count]
+            valid = observed.score_supported[0, :bin_count]
             labels = barrier.bin_labels(observed_edges)
             identities = [
                 {"node": node["id"], "family": node["family"],
@@ -136,21 +144,27 @@ def cmd_validation(ws: Workspace) -> None:
             progress.advance()
 
         if pending:
-            simulated_paths = validation.simulated_ohlc_tensor(data, N_PATHS, SEED)
-            null_steps = math.ceil(len(simulated_paths) / validation.HISTORY_BATCH_SIZE)
+            simulated_paths = validation.simulated_ohlc_tensor(
+                data, N_NULL_REPLICATES, SEED
+            )
+            null_steps = math.ceil(
+                len(simulated_paths) / validation.REPLICATE_BATCH_SIZE
+            )
             nulls = validation.score_histories_many(
                 simulated_paths, [item[3] for item in pending],
                 progress=MilestoneProgress(report, "scoring null matrices", null_steps),
             )
             for (identities, scores, valid, _), null in zip(pending, nulls):
                 for b in np.flatnonzero(valid):
-                    sample = null["scores"][:, b]
+                    sample = null.bin_score[:, b]
                     p_value = float((1 + (sample >= scores[b]).sum()) / (1 + len(sample)))
                     records.append({
                         **identities[b], "bin_score": float(scores[b]),
-                        "peak_p": p_value, "cleared": p_value < RAW_P_THRESHOLD,
+                        "monte_carlo_p_value": p_value,
+                        "cleared": p_value < RAW_P_THRESHOLD,
                         "null_p95": float(np.percentile(sample, 95)),
-                        "n_paths": len(sample), "n_valid_null": int(null["valid"][:, b].sum()),
+                        "n_null_replicates": len(sample),
+                        "n_supported_null": int(null.score_supported[:, b].sum()),
                         "null_scores": sample.tolist(),
                     })
             del simulated_paths

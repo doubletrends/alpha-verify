@@ -58,18 +58,19 @@ def write_bin_score_null_histograms(ws, summary: dict, progress=None) -> list[Pa
                 label="observed bin score",
             )
             ax.set_xlabel("two-sided bin score (pp)")
-            ax.set_ylabel("synthetic OHLC paths")
+            ax.set_ylabel("synthetic OHLC replicates")
             _frame(ax, grid_axis="y")
             ax.legend(fontsize=8, frameon=False)
             _title(
                 fig,
                 f'{feature_label(row["node"])} bin {int(row["bin_number"])} — score vs synthetic null',
                 f'observed {observed:.2f}pp · null p95 {p95:.2f}pp · '
-                f'p={row["peak_p"]:.4f} · {"CLEARED" if row.get("cleared") else "NOT CLEARED"}',
+                f'p={row["monte_carlo_p_value"]:.4f} · '
+                f'{"CLEARED" if row.get("cleared") else "NOT CLEARED"}',
             )
             _note(
                 fig,
-                f'{ws.dir.name} · {len(null)} shared synthetic OHLC paths · '
+                f'{ws.dir.name} · {len(null)} shared synthetic OHLC replicates · '
                 "external condition histories held fixed",
             )
             fig.subplots_adjust(top=0.78, bottom=0.18)

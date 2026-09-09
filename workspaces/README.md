@@ -29,7 +29,7 @@ The document contains `meta` and `families` objects.
 | `asset` | Provider label, ticker, and bar interval |
 | `start_date` | Earliest requested observation |
 | `min_obs` | Minimum valid feature observations required for a node |
-| `Δ` or `Delta` | Inclusive signed barrier grid: `min`, `max`, and `step` |
+| `barriers` | Inclusive signed barrier grid: `min`, `max`, and `step` |
 | `horizons` | Inclusive forward-bar range: `min` and `max` |
 | `n_bins` | Quantile-bin count for conditional features |
 | `evaluate` | `min_dev`, `min_bin_n`, and `min_run` used by detailed node status inspection |
@@ -81,6 +81,12 @@ Current examples:
 | `04_selection` | `select` | `selection.json` containing every validation-cleared bin | Per-selected-bin shift heatmap and copied null-distribution PNG |
 
 Stage 3 uses Stage 2 as its completion gate and reads histories and observed condition data from the referenced Stage 1 artifacts, with no provider calls. Observed excursions, touches, baselines, and bin assignments come from the versioned source cache. Synthetic batches generate one touch matrix per horizon and share it across every node. `validation.json` fingerprints both Stage 1 and Stage 2 source bytes, node declarations, bin count, measurement version, and simulation settings.
+
+Array artifacts use schema version 2 and descriptive ASCII field names such as
+`barriers`, `conditional_probability`, `baseline_probability`,
+`probability_shift_pp`, `bin_observation_counts`, and `bin_edges`. Readers
+normalize version-1 names, including `Δs`, so existing generated workspaces can
+still be consumed and regenerated.
 
 Do not copy generated artifacts between workspaces. Paths may look compatible while grids, histories, features, or fingerprints disagree.
 

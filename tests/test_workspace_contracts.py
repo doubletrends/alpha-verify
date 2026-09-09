@@ -76,7 +76,7 @@ class WorkspaceContractTests(unittest.TestCase):
             first = context.observed_outcomes(data)
             cache_files = list((ws.dir / "00_cache").glob("*.safetensors"))
             self.assertEqual(len(cache_files), 1)
-            self.assertEqual(first["touches"].shape, (3, 40, 3))
+            self.assertEqual(first["touch_mask"].shape, (3, 40, 3))
             with patch.object(barrier, "forward_extremes_upto", side_effect=AssertionError("rebuilt")):
                 second = RunContext(ws).observed_outcomes(data)
-            np.testing.assert_array_equal(second["touches"], first["touches"])
+            np.testing.assert_array_equal(second["touch_mask"], first["touch_mask"])

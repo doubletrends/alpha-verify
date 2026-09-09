@@ -23,11 +23,11 @@ class WorkspaceConfig:
     min_obs: int
     t_min: int
     t_max: int
-    delta_min: float
-    delta_max: float
-    delta_step: float
+    barrier_min: float
+    barrier_max: float
+    barrier_step: float
     n_bins: int
-    target_delta: float | None
+    target_barrier: float | None
     target_horizon: int | None
     min_dev: float
     min_bin_n: int
@@ -37,22 +37,22 @@ class WorkspaceConfig:
     def from_meta(cls, meta: dict) -> "WorkspaceConfig":
         asset = meta["asset"]
         horizons = meta.get("horizons", {})
-        barriers = meta.get("Delta", meta.get("\u0394", {}))
+        barriers = meta.get("barriers", meta.get("Delta", meta.get("\u0394", {})))
         target = meta.get("target", {})
         evaluate = meta.get("evaluate", {})
-        target_delta = target.get("Delta", target.get("\u0394"))
+        target_barrier = target.get("barrier", target.get("Delta", target.get("\u0394")))
         return cls(
             asset=dict(asset),
             start_date=meta["start_date"],
             min_obs=int(meta.get("min_obs", 100)),
             t_min=int(horizons.get("min", 1)),
             t_max=int(horizons.get("max", 30)),
-            delta_min=float(barriers.get("min", -0.20)),
-            delta_max=float(barriers.get("max", 0.20)),
-            delta_step=float(barriers.get("step", 0.01)),
+            barrier_min=float(barriers.get("min", -0.20)),
+            barrier_max=float(barriers.get("max", 0.20)),
+            barrier_step=float(barriers.get("step", 0.01)),
             n_bins=int(meta.get("n_bins", 10)),
-            target_delta=(
-                None if target_delta is None else float(target_delta)
+            target_barrier=(
+                None if target_barrier is None else float(target_barrier)
             ),
             target_horizon=(
                 None
@@ -73,9 +73,11 @@ class WorkspaceConfig:
         return np.arange(self.t_min, self.t_max + 1)
 
     @property
-    def deltas(self) -> np.ndarray:
-        count = int(round((self.delta_max - self.delta_min) / self.delta_step)) + 1
-        return np.round(np.linspace(self.delta_min, self.delta_max, count), 10)
+    def barriers(self) -> np.ndarray:
+        count = int(round(
+            (self.barrier_max - self.barrier_min) / self.barrier_step
+        )) + 1
+        return np.round(np.linspace(self.barrier_min, self.barrier_max, count), 10)
 
 
 @dataclass(frozen=True)
@@ -140,20 +142,35 @@ class Workspace:
         return self.config.horizons
 
     @property
+    def barriers(self) -> np.ndarray:
+        return self.config.barriers
+
+    @property
     def deltas(self) -> np.ndarray:
-        return self.config.deltas
+        """Compatibility alias for the pre-v2 Python API."""
+        return self.barriers
+
+    @property
+    def barrier_step(self) -> float:
+        return self.config.barrier_step
 
     @property
     def delta_step(self) -> float:
-        return self.config.delta_step
+        """Compatibility alias for the pre-v2 Python API."""
+        return self.barrier_step
 
     @property
     def n_bins(self) -> int:
         return self.config.n_bins
 
     @property
+    def target_barrier(self) -> float | None:
+        return self.config.target_barrier
+
+    @property
     def target_delta(self) -> float | None:
-        return self.config.target_delta
+        """Compatibility alias for the pre-v2 Python API."""
+        return self.target_barrier
 
     @property
     def target_horizon(self) -> int | None:
@@ -214,14 +231,14 @@ class Workspace:
         """Return an optional inspection target; validation scores the full grid."""
         horizons = self.horizons
         horizon = self.target_horizon or int(horizons[len(horizons) // 2])
-        if self.target_delta is not None:
-            return self.target_delta, horizon
+        if self.target_barrier is not None:
+            return self.target_barrier, horizon
         horizon_index = int(np.flatnonzero(horizons == horizon)[0])
-        deltas = self.deltas
-        downside = np.flatnonzero(deltas < 0)
+        barriers = self.barriers
+        downside = np.flatnonzero(barriers < 0)
         rates = baseline[downside, horizon_index]
         delta_index = int(downside[int(np.nanargmin(np.abs(rates - 0.30)))])
-        return float(deltas[delta_index]), horizon
+        return float(barriers[delta_index]), horizon
 
     @staticmethod
     def read_json(path: Path) -> dict:

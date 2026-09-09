@@ -8,35 +8,38 @@ from barrierlab.domain import tensor_runtime
 from barrierlab.domain.scoring import baseline_shifts
 
 
-def from_cube(cube: dict, baseline: np.ndarray) -> dict:
+def from_cube(cube: dict, baseline_probability: np.ndarray) -> dict:
     """
     Convert a raw probability cube into a baseline-subtracted shift cube.
 
     `shift` is stored in percentage points:
 
-        100 * (P(touch Δ in t | bin) - P(touch Δ in t))
+        100 * (conditional_probability - baseline_probability)
 
     The conditional probabilities and baseline are carried too, so inspection and
     later derived artifacts can show the rate behind a shift without reloading stage 1.
     """
-    prob = tensor_runtime.tensor(cube["prob"])
-    base = tensor_runtime.tensor(baseline)
-    if prob.shape[0] != base.shape[0] or prob.shape[2] != base.shape[1]:
+    conditional_probability = tensor_runtime.tensor(cube["conditional_probability"])
+    baseline_probability = tensor_runtime.tensor(baseline_probability)
+    if (conditional_probability.shape[0] != baseline_probability.shape[0]
+            or conditional_probability.shape[2] != baseline_probability.shape[1]):
         raise ValueError(
-            "baseline shape does not match cube Δ/horizon axes: "
-            f"{base.shape} vs {prob.shape}"
+            "baseline shape does not match cube barrier/horizon axes: "
+            f"{baseline_probability.shape} vs {conditional_probability.shape}"
         )
 
     out = {
-        "shift": baseline_shifts(prob, base).cpu().numpy(),
-        "prob": prob.cpu().numpy(),
-        "base": base.cpu().numpy(),
-        "hits": cube["hits"],
-        "bin_n": cube["bin_n"],
-        "n_obs": cube["n_obs"],
-        "Δs": cube["Δs"],
+        "probability_shift_pp": baseline_shifts(
+            conditional_probability, baseline_probability
+        ).cpu().numpy(),
+        "conditional_probability": conditional_probability.cpu().numpy(),
+        "baseline_probability": baseline_probability.cpu().numpy(),
+        "bin_hit_counts": cube["bin_hit_counts"],
+        "bin_observation_counts": cube["bin_observation_counts"],
+        "eligible_observation_count": cube["eligible_observation_count"],
+        "barriers": cube["barriers"],
         "horizons": cube["horizons"],
-        "edges": cube["edges"],
+        "bin_edges": cube["bin_edges"],
         "meta": cube.get("meta", {}),
     }
     for key in ("index", "feature_values", "open", "high", "low", "close", "volume"):
@@ -54,26 +57,26 @@ def evaluate(
     """
     Economic filter over a shift cube.
 
-    A node passes when at least one bin/horizon has `min_run` adjacent Δ rows with
+    A node passes when at least one bin/horizon has `min_run` adjacent barrier rows with
     the same-signed deviation from baseline, each at least `min_dev` percentage points.
     """
-    dev = np.asarray(cube["shift"], dtype=float)
-    prob = np.asarray(cube["prob"], dtype=float)
-    base = np.asarray(cube["base"], dtype=float)
-    bin_n = cube["bin_n"]
-    Δs, horizons = cube["Δs"], cube["horizons"]
-    n_th, n_bins, n_t = dev.shape
+    dev = np.asarray(cube["probability_shift_pp"], dtype=float)
+    conditional_probability = np.asarray(cube["conditional_probability"], dtype=float)
+    baseline_probability = np.asarray(cube["baseline_probability"], dtype=float)
+    bin_observation_counts = cube["bin_observation_counts"]
+    barriers, horizons = cube["barriers"], cube["horizons"]
+    barrier_count, effective_bin_count, horizon_count = dev.shape
 
     per_t, best_overall = {}, None
-    for j in range(n_t):
+    for j in range(horizon_count):
         t = int(horizons[j])
         best = None
-        for b in range(n_bins):
-            if bin_n[b, j] < min_bin_n:
+        for b in range(effective_bin_count):
+            if bin_observation_counts[b, j] < min_bin_n:
                 continue
             col = dev[:, b, j]
             run, start = 0, None
-            for i in range(n_th):
+            for i in range(barrier_count):
                 v = col[i]
                 if np.isnan(v) or abs(v) < min_dev:
                     run, start = 0, None
@@ -89,13 +92,13 @@ def evaluate(
                     cand = {
                         "horizon": t,
                         "bin": b,
-                        "Δ": float(Δs[k]),
+                        "barrier": float(barriers[k]),
                         "dev": float(col[k]),
                         "run": run,
-                        "prob": float(prob[k, b, j]),
-                        "base": float(base[k, j]),
-                        "bin_n": int(bin_n[b, j]),
-                        "hits": int(cube["hits"][k, b, j]),
+                        "conditional_probability": float(conditional_probability[k, b, j]),
+                        "baseline_probability": float(baseline_probability[k, j]),
+                        "bin_observation_count": int(bin_observation_counts[b, j]),
+                        "bin_hit_count": int(cube["bin_hit_counts"][k, b, j]),
                     }
                     if best is None or abs(cand["dev"]) > abs(best["dev"]):
                         best = cand

@@ -17,6 +17,7 @@
 \DeclareMathOperator{\High}{High}
 \DeclareMathOperator{\Low}{Low}
 \DeclareMathOperator{\chol}{chol}
+\DeclareMathOperator{\quantile}{quantile}
 \DeclareMathOperator{\searchsorted}{searchsorted}
 
 \title{BarrierLab: Mathematical Specification}
@@ -29,78 +30,84 @@
 
 \section{Scope}
 
-This document specifies the numerical procedure implemented by the three-stage
+This document specifies the numerical procedure implemented by the four-stage
 BarrierLab pipeline. Caching and artifact references change where a tensor is
 obtained, but they do not change any equation below.
 
 \section{Notation and tensor axes}
 
-Let
+Indices, sets, and sizes have one meaning throughout this document:
 \begin{itemize}[nosep]
-  \item $p\in\{1,\ldots,P\}$ identify a price history;
+  \item $r\in\mathcal R$ identifies a price-history replicate; $r=0$ is the
+        observed history and $r=1,\ldots,R$ identify null replicates;
   \item $i\in\{1,\ldots,N\}$ identify an observation date;
   \item $t\in\mathcal T$ identify a forward horizon;
   \item $\delta\in\mathcal D$ identify a signed return barrier;
-  \item $b\in\{1,\ldots,B\}$ identify a condition bin; and
-  \item $x_{p,i}$ denote a condition-feature value.
+  \item $k\in\{1,\ldots,K_{\mathrm{req}}\}$ identifies a requested bin
+        position, while $K_r\leq K_{\mathrm{req}}$ is replicate $r$'s
+        effective bin count; and
+  \item $X_{r,i}$ denote a condition-feature value.
 \end{itemize}
 
 The default NASDAQ grid currently has $|\mathcal D|=41$,
-$|\mathcal T|=30$, and requests $B=10$ quantile bins. Stage~3 currently
-uses $P=1{,}000$ null histories.
+$|\mathcal T|=30$, and requests $K_{\mathrm{req}}=10$ quantile bins.
+Duplicate quantiles can make the effective count $K_r$ smaller than
+$K_{\mathrm{req}}$. Batched tensors retain $K_{\mathrm{req}}$ positions and
+mark positions above $K_r$ unsupported; compact observed artifacts retain
+only $K_0$ bins. Stage~3 currently uses $R=1{,}000$ null replicates.
 
 \begin{table}[ht]
 \centering
-\caption{Principal tensor axes. An observed history has $P=1$.}
+\caption{Canonical tensor axes. An observed role batch has $|\mathcal R|=1$.}
 \begin{tabular}{ll}
 \toprule
 Quantity & Axes \\
 \midrule
-OHLCV histories & $P\times N\times 5$ \\
-Forward low/high excursions, one horizon & $P\times N$ \\
-Barrier touches, one horizon & $P\times N\times|\mathcal D|$ \\
-Conditional probabilities & $P\times|\mathcal D|\times B\times|\mathcal T|$ \\
-Baseline probabilities & $P\times|\mathcal D|\times|\mathcal T|$ \\
-Bin scores & $P\times B$ \\
+OHLCV histories & $|\mathcal R|\times N\times 5$ \\
+Forward downside/upside excursions & $|\mathcal R|\times N\times|\mathcal T|$ \\
+Barrier touches & $|\mathcal R|\times N\times|\mathcal D|\times|\mathcal T|$ \\
+Conditional probabilities & $|\mathcal R|\times|\mathcal D|\times K_{\mathrm{req}}\times|\mathcal T|$ \\
+Baseline probabilities & $|\mathcal R|\times|\mathcal D|\times|\mathcal T|$ \\
+Bin scores & $|\mathcal R|\times K_{\mathrm{req}}$ \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 Synthetic histories are evaluated in memory-bounded path batches. The batch
-axis is mathematically part of $P$ and does not alter the statistic.
+axis is mathematically part of $\mathcal R$ and does not alter the statistic.
 
 \section{Forward price excursions}
 
 For every path, starting date, and horizon, define the greatest downside and
 upside excursion reached by future intrabar prices:
 \begin{align}
-L_{p,i,t}
-  &= \frac{\min_{1\leq k\leq t}\Low_{p,i+k}}
-           {\Close_{p,i}}-1, \\
-H_{p,i,t}
-  &= \frac{\max_{1\leq k\leq t}\High_{p,i+k}}
-           {\Close_{p,i}}-1.
+R^-_{r,i,t}
+  &= \frac{\min_{1\leq j\leq t}\Low_{r,i+j}}
+           {\Close_{r,i}}-1, \\
+R^+_{r,i,t}
+  &= \frac{\max_{1\leq j\leq t}\High_{r,i+j}}
+           {\Close_{r,i}}-1.
 \end{align}
 
 Dates without $t$ future observations are non-finite and therefore
 ineligible. Horizons are traversed incrementally: the running future minimum
 and maximum for horizon $t$ extend the state calculated for shorter horizons.
 
-\section{Signed-delta touch matrix}
+\section{Signed-barrier touch matrix}
 
 All barriers are broadcast over the excursion tensor. Define
 \begin{equation}
-T_{p,i,t,\delta}
+Y_{r,i,t,\delta}
 =
 \begin{cases}
-\ind\!\left[L_{p,i,t}\leq\delta\right], & \delta<0,\\[2pt]
-\ind\!\left[H_{p,i,t}\geq\delta\right], & \delta\geq0.
+\ind\!\left[R^-_{r,i,t}\leq\delta\right], & \delta<0,\\[2pt]
+\ind\!\left[R^+_{r,i,t}\geq\delta\right], & \delta\geq0.
 \end{cases}
 \end{equation}
 
-For one path batch and horizon, $T$ is a Boolean
-$P\times N\times|\mathcal D|$ matrix. It depends only on prices, horizon,
-and the delta grid; it does not depend on a feature, node, or condition bin.
+For one replicate batch and horizon, $Y$ is a Boolean
+$|\mathcal R|\times N\times|\mathcal D|$ matrix. It depends only on prices, horizon,
+and the signed-barrier grid; it does not depend on a feature, node, or condition bin.
 The implementation constructs it once and reuses it for the baseline and every
 node. The zero barrier belongs to the measured probability surface but is
 excluded from the paired-barrier score in Section~\ref{sec:score}.
@@ -109,18 +116,19 @@ excluded from the paired-barrier score in Section~\ref{sec:score}.
 
 For a continuous feature, the requested interior quantile edges are
 \begin{equation}
-e_j
-=Q_{j/B}\!\left(\{x_i:x_i\text{ is finite}\}\right),
-\qquad j=1,\ldots,B-1.
+e_{r,j}
+=\quantile_{j/K_{\mathrm{req}}}\!\left(
+  \{X_{r,i}:X_{r,i}\text{ is finite}\}\right),
+\qquad j=1,\ldots,K_{\mathrm{req}}-1.
 \end{equation}
 
 Non-finite and duplicate edges are removed. Edges outside
-$\min(x)<e_j\leq\max(x)$ are also removed. Heavy ties can therefore produce
-fewer than $B$ effective bins.
+$\min(X_r)<e_{r,j}\leq\max(X_r)$ are also removed. Heavy ties can therefore
+produce $K_r<K_{\mathrm{req}}$ effective bins.
 
 Bin assignment uses left insertion:
 \begin{equation}
-b_i=\searchsorted(e,x_i,\mathrm{left}).
+\kappa_{r,i}=\searchsorted(e_r,X_{r,i},\mathrm{left}).
 \end{equation}
 Consequently, an observation equal to an edge enters the lower bin. Stage~1
 stores feature values, edges, and the resulting integer bin assignments.
@@ -134,45 +142,48 @@ OHLCV use their observed feature values and observed edges for every null path.
 
 Define price and condition eligibility by
 \begin{align}
-E^{\mathrm{price}}_{p,i,t}
-  &=\ind\!\left[L_{p,i,t},H_{p,i,t}\text{ are finite}\right],\\
-E^{\mathrm{condition}}_{p,i,t}
-  &=E^{\mathrm{price}}_{p,i,t}
-    \ind\!\left[x_{p,i}\text{ is finite}\right].
+M^{\mathrm{price}}_{r,i,t}
+  &=\ind\!\left[R^-_{r,i,t},R^+_{r,i,t}\text{ are finite}\right],\\
+M^{\mathrm{condition}}_{r,i,t}
+  &=M^{\mathrm{price}}_{r,i,t}
+    \ind\!\left[X_{r,i}\text{ is finite}\right].
 \end{align}
 
-For condition bin $b$, horizon $t$, and barrier $\delta$, define
+For condition bin $k$, horizon $t$, and barrier $\delta$, define
 \begin{align}
-n_{p,b,t}
-  &=\sum_i E^{\mathrm{condition}}_{p,i,t}
-    \ind[b_{p,i}=b],\\
-h_{p,\delta,b,t}
-  &=\sum_i T_{p,i,t,\delta}
-    E^{\mathrm{condition}}_{p,i,t}\ind[b_{p,i}=b],\\
-C_{p,\delta,b,t}
-  &=\frac{h_{p,\delta,b,t}}{n_{p,b,t}}.
+N^{\mathrm{condition}}_{r,k,t}
+  &=\sum_i M^{\mathrm{condition}}_{r,i,t}
+    \ind[\kappa_{r,i}=k],\\
+N^{\mathrm{hit}}_{r,\delta,k,t}
+  &=\sum_i Y_{r,i,t,\delta}
+    M^{\mathrm{condition}}_{r,i,t}\ind[\kappa_{r,i}=k],\\
+\pi^{\mathrm{condition}}_{r,\delta,k,t}
+  &=\frac{N^{\mathrm{hit}}_{r,\delta,k,t}}
+          {N^{\mathrm{condition}}_{r,k,t}}.
 \end{align}
-The conditional probability $C_{p,\delta,b,t}$ is non-finite when
-$n_{p,b,t}<30$.
+The conditional probability is non-finite when
+$N^{\mathrm{condition}}_{r,k,t}<30$.
 
 The unconditional market baseline includes every price-eligible date and is
 independent of feature warm-up:
 \begin{align}
-n^{\mathrm{base}}_{p,t}
-  &=\sum_i E^{\mathrm{price}}_{p,i,t},\\
-B_{p,\delta,t}
-  &=\frac{\sum_iT_{p,i,t,\delta}E^{\mathrm{price}}_{p,i,t}}
-          {n^{\mathrm{base}}_{p,t}}.
+N^{\mathrm{baseline}}_{r,t}
+  &=\sum_i M^{\mathrm{price}}_{r,i,t},\\
+\pi^{\mathrm{baseline}}_{r,\delta,t}
+  &=\frac{\sum_iY_{r,i,t,\delta}M^{\mathrm{price}}_{r,i,t}}
+          {N^{\mathrm{baseline}}_{r,t}}.
 \end{align}
-The baseline is non-finite when $n^{\mathrm{base}}_{p,t}<30$. Every synthetic
+The baseline is non-finite when $N^{\mathrm{baseline}}_{r,t}<30$. Every synthetic
 path uses its own baseline; null histories are never compared with the
 observed market's baseline.
 
 \section{Stage 1: measurement}
 
 Stage~1 measures the complete conditional surface
-$C_{\delta,b,t}$, hit counts $h_{\delta,b,t}$, observation counts $n_{b,t}$,
-and the unconditional surface $B_{\delta,t}$. Observed forward excursions,
+$\pi^{\mathrm{condition}}_{0,\delta,k,t}$, hit counts
+$N^{\mathrm{hit}}_{0,\delta,k,t}$, observation counts
+$N^{\mathrm{condition}}_{0,k,t}$, and the unconditional surface
+$\pi^{\mathrm{baseline}}_{0,\delta,t}$. Observed forward excursions,
 touches, and baseline probabilities are retained as float64 source-level cache
 tensors. Feature values, quantile edges, and bin assignments are retained in
 the node artifact.
@@ -181,22 +192,23 @@ the node artifact.
 
 Stage~2 calculates the percentage-point deviation from the market baseline:
 \begin{equation}
-S_{p,\delta,b,t}
-=100\left(C_{p,\delta,b,t}-B_{p,\delta,t}\right).
+G_{r,\delta,k,t}
+=100\left(\pi^{\mathrm{condition}}_{r,\delta,k,t}
+          -\pi^{\mathrm{baseline}}_{r,\delta,t}\right).
 \end{equation}
 
-It stores only $S$ plus cryptographic references to the node and baseline
+It stores only $G$ plus cryptographic references to the node and baseline
 Stage~1 artifacts. Probabilities, counts, axes, conditions, and market history
 are materialized from those referenced artifacts when required.
 
 \section{Full-grid bin score}\label{sec:score}
 
-Let $\mathcal M$ be the set of nonzero magnitudes $d$ for which the delta grid
+Let $\mathcal M$ be the set of nonzero magnitudes $d$ for which the barrier grid
 contains exactly one $+d$ barrier and one $-d$ barrier. For each pair, bin, and
 horizon, define the signed-barrier asymmetry
 \begin{equation}
-A_{p,d,b,t}
-=\left|S_{p,+d,b,t}-S_{p,-d,b,t}\right|.
+A_{r,d,k,t}
+=\left|G_{r,+d,k,t}-G_{r,-d,k,t}\right|.
 \end{equation}
 Each magnitude receives the linear weight
 \begin{equation}
@@ -210,12 +222,12 @@ A contribution is usable only if
   \item at least two bins are usable for that magnitude and horizon.
 \end{enumerate}
 
-Let $U_{p,d,b,t}$ be the corresponding Boolean usability indicator. The full
+Let $U_{r,d,k,t}$ be the corresponding Boolean usability indicator. The full
 score for a condition bin is
 \begin{equation}
-Q_{p,b}
+Q_{r,k}
 =\sum_{t\in\mathcal T}\sum_{d\in\mathcal M}
- U_{p,d,b,t}\,w_d\,A_{p,d,b,t}.
+ U_{r,d,k,t}\,w_d\,A_{r,d,k,t}.
 \end{equation}
 
 An unsupported bin has score zero and a separate false-validity flag. A
@@ -225,13 +237,13 @@ supported bin whose contributions genuinely sum to zero remains valid.
 
 For the observed history, define the four per-bar log components
 \begin{align}
-r^{\mathrm{open}}_i
+g^{\mathrm{open}}_i
   &=\log\!\left(\frac{\Open_i}{\Close_{i-1}}\right), &
-r^{\mathrm{close}}_i
+g^{\mathrm{close}}_i
   &=\log\!\left(\frac{\Close_i}{\Open_i}\right),\\
-r^{\mathrm{high}}_i
+g^{\mathrm{high}}_i
   &=\log\!\left(\frac{\High_i}{\max(\Open_i,\Close_i)}\right), &
-r^{\mathrm{low}}_i
+g^{\mathrm{low}}_i
   &=\log\!\left(\frac{\Low_i}{\min(\Open_i,\Close_i)}\right).
 \end{align}
 
@@ -241,30 +253,30 @@ Cholesky factorization:
 \begin{align}
 \epsilon
   &=10^{-12}\max\!\left(1,\max_j|\Sigma_{jj}|\right),\\
-F&=\chol(\Sigma+\epsilon I).
+L_{\Sigma}&=\chol(\Sigma+\epsilon I_4).
 \end{align}
 
 Using deterministic seed \texttt{20260907}, each null innovation is
 \begin{equation}
-z_{p,i}\sim\mathcal N(0,I_4),
+z_{r,i}\sim\mathcal N(0,I_4),
 \qquad
-r_{p,i}=z_{p,i}F^\mathsf{T}+\mu.
+g_{r,i}=z_{r,i}L_{\Sigma}^\mathsf{T}+\mu.
 \end{equation}
 The draws preserve contemporaneous covariance among the four OHLC components,
 but they are independent across time.
 
 Synthetic prices are reconstructed by
 \begin{align}
-\Close_{p,i}
+\Close_{r,i}
   &=\Close_0\exp\!\left(
-      \sum_{j\leq i}(r^{\mathrm{open}}_{p,j}+r^{\mathrm{close}}_{p,j})
+      \sum_{j\leq i}(g^{\mathrm{open}}_{r,j}+g^{\mathrm{close}}_{r,j})
     \right),\\
-\Open_{p,i}
-  &=\Close_{p,i-1}\exp(r^{\mathrm{open}}_{p,i}),\\
-\High_{p,i}
-  &=\max(\Open_{p,i},\Close_{p,i})\exp(r^{\mathrm{high}}_{p,i}),\\
-\Low_{p,i}
-  &=\min(\Open_{p,i},\Close_{p,i})\exp(r^{\mathrm{low}}_{p,i}).
+\Open_{r,i}
+  &=\Close_{r,i-1}\exp(g^{\mathrm{open}}_{r,i}),\\
+\High_{r,i}
+  &=\max(\Open_{r,i},\Close_{r,i})\exp(g^{\mathrm{high}}_{r,i}),\\
+\Low_{r,i}
+  &=\min(\Open_{r,i},\Close_{r,i})\exp(g^{\mathrm{low}}_{r,i}).
 \end{align}
 
 Observed volume is broadcast across synthetic histories. The null does not
@@ -278,21 +290,21 @@ probability, baseline-shift, and bin-score equations used for the observation.
 Within a path batch and horizon, the touch matrix is generated once; baseline
 reduction and every node-specific bin reduction consume that same matrix.
 
-For observed score $Q_b^{\mathrm{obs}}$ and $P$ null scores
-$Q_{1,b}^{\mathrm{null}},\ldots,Q_{P,b}^{\mathrm{null}}$, the one-sided
+For observed score $Q_{0,k}$ and $R$ null scores
+$Q_{1,k},\ldots,Q_{R,k}$, the one-sided
 Monte Carlo p-value is
 \begin{equation}
-p_b
+\widehat p_k
 =\frac{
-  1+\sum_{p=1}^{P}
-  \ind\!\left[Q_{p,b}^{\mathrm{null}}\geq Q_b^{\mathrm{obs}}\right]
-}{P+1}.
+  1+\sum_{r=1}^{R}
+  \ind\!\left[Q_{r,k}\geq Q_{0,k}\right]
+}{R+1}.
 \end{equation}
 
-With the current $P=1{,}000$, the denominator is $1{,}001$. A bin clears the
+With the current $R=1{,}000$, the denominator is $1{,}001$. A bin clears the
 current raw threshold precisely when
 \begin{equation}
-p_b<0.05.
+\widehat p_k<0.05.
 \end{equation}
 
 Invalid null bins retain zero scores in the complete null ensemble. The output
@@ -302,22 +314,24 @@ across bins.
 
 \section{Stage 4 selection}
 
-Stage~4 introduces no new statistical score. Let $c_b$ be the Stage~3
-\texttt{cleared} indicator for condition bin $b$. The selected set is exactly
+Stage~4 introduces no new statistical score. Let $C_k$ be the Stage~3
+\texttt{cleared} indicator for condition bin $k$. The selected-bin set is exactly
 \begin{equation}
-\mathcal S=\{b:c_b=\mathrm{true}\}=\{b:p_b<0.05\}.
+\mathcal K_{\mathrm{sel}}
+=\{k:C_k=\mathrm{true}\}=\{k:\widehat p_k<0.05\}.
 \end{equation}
 No top-$k$ truncation, family quota, effect-size gate, or representative-cell
-rule is applied. Ordering by ascending $p_b$ and descending $Q_b^{\mathrm{obs}}$
-is presentational only. For every $b\in\mathcal S$, Stage~4 renders the complete
-surface $S_{\delta,b,t}$ as a signed-barrier-by-horizon heatmap.
+rule is applied. Ordering by ascending $\widehat p_k$ and descending $Q_{0,k}$
+is presentational only. For every $k\in\mathcal K_{\mathrm{sel}}$, Stage~4
+renders the complete surface $G_{0,\delta,k,t}$ as a
+signed-barrier-by-horizon heatmap.
 
 \section{Cached mathematical identities}
 
 The following quantities are reused exactly rather than approximated:
 \begin{itemize}[nosep]
   \item observed forward-excursion tensors;
-  \item observed signed-delta touch matrices;
+  \item observed signed-barrier touch matrices;
   \item observed unconditional baseline probabilities;
   \item observed feature values, quantile edges, and bin assignments;
   \item one synthetic touch matrix across the baseline and every node in a batch;
@@ -325,7 +339,7 @@ The following quantities are reused exactly rather than approximated:
 \end{itemize}
 
 Observed caches are keyed by ordered market-history content and validated
-against the measurement version, delta grid, and horizon grid. Stage~2
+against the measurement version, barrier grid, and horizon grid. Stage~2
 references are protected by SHA-256 hashes. A changed history, grid, numerical
 version, or referenced Stage~1 artifact invalidates reuse.
 

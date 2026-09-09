@@ -21,10 +21,11 @@ def _build_cube(context: RunContext, node: dict) -> None:
         data,
         feature,
         workspace.horizons,
-        workspace.deltas,
+        workspace.barriers,
         edges,
-        excursions=(outcomes["forward_low"], outcomes["forward_high"]),
-        touches=outcomes["touches"], baseline=outcomes["baseline"],
+        excursions=(outcomes["downside_excursion"], outcomes["upside_excursion"]),
+        touch_mask=outcomes["touch_mask"],
+        baseline_probability=outcomes["baseline_probability"],
     )
     cube["index"] = data.index.astype(str).to_numpy()
     cube["feature_values"] = feature.reindex(data.index).to_numpy(float)
@@ -95,7 +96,7 @@ def cmd_surface(workspace: Workspace) -> None:
     report = StageReport(1, "measure", workspace.dir.name)
     nodes = workspace.catalog.all_nodes()
     report.line(
-        f"measuring {len(nodes)} nodes · {len(workspace.deltas)} Δ × "
+        f"measuring {len(nodes)} nodes · {len(workspace.barriers)} barriers × "
         f"{workspace.n_bins} bins × {len(workspace.horizons)} horizons"
     )
     warnings = _write_surface_arrays(

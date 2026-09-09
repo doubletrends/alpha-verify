@@ -62,10 +62,10 @@ Each pipeline command also accepts `--cuda` when a CUDA-capable PyTorch installa
 
 | Stage | CLI Command | What it does | Mathematical form |
 |---|---|---|---|
-| 1 | measure | Measure raw conditional probabilities | `P(price touch Δ within t bars \| condition)` |
-| 2 | compare | Compare raw probabilities to baseline | `P(price touch Δ within t bars \| condition) − P(price touch Δ within t bars)` |
-| 3 | validate | Validate every eligible bin against the null | `p < 0.05 or p >= 0.05` |
-| 4 | select | Retain cleared bins and render their shift heatmaps | `selected = (p < 0.05)` |
+| 1 | measure | Measure conditional probabilities | `π_condition(r, δ, k, t)` |
+| 2 | compare | Compare them with the baseline | `G = 100 × (π_condition − π_baseline)` |
+| 3 | validate | Validate every supported bin against the null | `p̂_k < 0.05 or p̂_k ≥ 0.05` |
+| 4 | select | Retain cleared bins and render their shift heatmaps | `K_selected = {k : p̂_k < 0.05}` |
 
 
 Validation writes `03_validation/`; selection consumes only a current validation result and writes `04_selection/`. Every cleared bin is retained—there is no top-k ranking or secondary economic gate.

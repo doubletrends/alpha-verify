@@ -27,7 +27,6 @@ def _write_shift_array(ws: Workspace, progress: MilestoneProgress) -> list[str]:
     nodes = [node for node in nodes if node["id"] == BASELINE_NODE] + [
         node for node in nodes if node["id"] != BASELINE_NODE
     ]
-    deltas, horizons = ws.deltas, ws.horizons
     skipped = {}
     for node in nodes:
         try:
@@ -36,7 +35,7 @@ def _write_shift_array(ws: Workspace, progress: MilestoneProgress) -> list[str]:
             artifact_io.save_shift(
                 shifted,
                 ws.shift_cube_path(node["id"]),
-                {**full["meta"], "grid": "shift", "value": "conditional_minus_baseline_pp",
+                {**full["meta"], "grid": "shift", "value": "probability_shift_pp",
                  "source_artifact": str(ws.cube_path(node["id"]).relative_to(ws.dir)),
                  "source_sha256": hashlib.sha256(ws.cube_path(node["id"]).read_bytes()).hexdigest(),
                  "baseline_artifact": str(ws.baseline_cube.relative_to(ws.dir)),
@@ -85,7 +84,7 @@ def cmd_shift(ws: Workspace) -> None:
     nodes = [node for node in ws.catalog.all_nodes() if ws.has_cube(node["id"])]
     report.line(
         f"shifting {len(nodes)} nodes against baseline · "
-        f"{len(ws.deltas) * ws.n_bins * len(ws.horizons):,} cells per full-bin node"
+        f"{len(ws.barriers) * ws.n_bins * len(ws.horizons):,} cells per full-bin node"
     )
     warnings = _write_shift_array(
         ws, MilestoneProgress(report, "calculating arrays", len(nodes))

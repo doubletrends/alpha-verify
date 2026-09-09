@@ -34,15 +34,17 @@ def write_selected_shift_heatmaps(
         try:
             cube = cubes[row["node"]]
             bin_index = int(row["bin"])
-            deltas = np.asarray(cube["Δs"], dtype=float)
+            barriers = np.asarray(cube["barriers"], dtype=float)
             horizons = np.asarray(cube["horizons"], dtype=int)
-            keep = np.abs(deltas) > 1e-12
-            surface = np.asarray(cube["shift"][:, bin_index, :], dtype=float)[keep]
-            shown_deltas = deltas[keep]
+            keep = np.abs(barriers) > 1e-12
+            surface = np.asarray(
+                cube["probability_shift_pp"][:, bin_index, :], dtype=float
+            )[keep]
+            shown_barriers = barriers[keep]
 
             fig, ax = plt.subplots(figsize=(8.4, 5.0))
             mesh = ax.pcolormesh(
-                horizons, shown_deltas * 100.0, surface,
+                horizons, shown_barriers * 100.0, surface,
                 cmap=CMAP_DIV,
                 norm=TwoSlopeNorm(vcenter=0.0, vmin=-SHIFT_LIMIT_PP, vmax=SHIFT_LIMIT_PP),
                 shading="nearest",
@@ -60,7 +62,7 @@ def write_selected_shift_heatmaps(
                 fig,
                 f'{feature_label(row["node"])} bin {int(row["bin_number"])}: {_condition(row)}',
                 f'full baseline-relative surface · validation score {float(row["bin_score"]):.2f}pp '
-                f'· raw p={float(row["peak_p"]):.4f}',
+                f'· raw p={float(row["monte_carlo_p_value"]):.4f}',
             )
             _note(
                 fig,

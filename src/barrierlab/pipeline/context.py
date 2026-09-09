@@ -61,43 +61,52 @@ class RunContext:
             self._excursions[key] = barrier.forward_extremes_upto(data, int(t_max))
         return self._excursions[key]
 
-    def observed_outcomes(self, data: pd.DataFrame, deltas=None, horizons=None) -> dict:
+    def observed_outcomes(self, data: pd.DataFrame, barriers=None, horizons=None) -> dict:
         """Load or build the versioned source-level observed outcome cache."""
-        deltas = self.workspace.deltas if deltas is None else np.asarray(deltas, dtype=float)
+        barriers = (
+            self.workspace.barriers if barriers is None
+            else np.asarray(barriers, dtype=float)
+        )
         horizons = self.workspace.horizons if horizons is None else np.asarray(horizons, dtype=int)
         key = market_history_key(data)
-        memory_key = (key, tuple(deltas), tuple(horizons))
+        memory_key = (key, tuple(barriers), tuple(horizons))
         if memory_key in self._outcomes:
             return self._outcomes[memory_key]
         path = self.workspace.observed_cache_path(key)
         expected = {
+            "artifact_schema_version": artifact_io.ARTIFACT_SCHEMA_VERSION,
             "history_key": key,
             "measurement_version": barrier.MEASUREMENT_VERSION,
-            "deltas": deltas.tolist(),
+            "barriers": barriers.tolist(),
             "horizons": horizons.tolist(),
         }
         cached = artifact_io.load_observed_cache(path) if path.exists() else {}
         if cached.get("meta") != expected:
-            low, high = barrier.forward_extremes_upto(
+            downside_excursion, upside_excursion = barrier.forward_extremes_upto(
                 data, int(horizons.max())
             )
             selected = horizons - 1
-            lo, hi = low[selected], high[selected]
-            price_ok = np.isfinite(lo) & np.isfinite(hi)
-            delta_matrix = deltas.reshape(1, 1, -1)
-            touches = np.where(
-                delta_matrix < 0, lo[:, :, None] <= delta_matrix, hi[:, :, None] >= delta_matrix,
-            ) & price_ok[:, :, None]
-            counts = price_ok.sum(axis=1)
-            hits = touches.sum(axis=1)
-            baseline = np.where(
-                counts[:, None] >= barrier.MIN_BIN_N,
-                hits / np.maximum(counts[:, None], 1),
+            downside_selected = downside_excursion[selected]
+            upside_selected = upside_excursion[selected]
+            price_eligible = np.isfinite(downside_selected) & np.isfinite(upside_selected)
+            barrier_axis = barriers.reshape(1, 1, -1)
+            touch_mask = np.where(
+                barrier_axis < 0,
+                downside_selected[:, :, None] <= barrier_axis,
+                upside_selected[:, :, None] >= barrier_axis,
+            ) & price_eligible[:, :, None]
+            eligible_observation_count = price_eligible.sum(axis=1)
+            hit_count = touch_mask.sum(axis=1)
+            baseline_probability = np.where(
+                eligible_observation_count[:, None] >= barrier.MIN_BIN_N,
+                hit_count / np.maximum(eligible_observation_count[:, None], 1),
                 np.nan,
             ).T
             cached = {
-                "forward_low": low, "forward_high": high,
-                "touches": touches, "baseline": baseline,
+                "downside_excursion": downside_excursion,
+                "upside_excursion": upside_excursion,
+                "touch_mask": touch_mask,
+                "baseline_probability": baseline_probability,
             }
             artifact_io.save_observed_cache(cached, path, expected)
             cached["meta"] = expected
@@ -106,17 +115,17 @@ class RunContext:
 
 
 def baseline_surface(ws: Workspace) -> np.ndarray | None:
-    """The full baseline node's unconditional probability surface, shaped ``Δ x horizon``."""
+    """Unconditional probability surface, shaped ``barrier × horizon``."""
     path = ws.baseline_cube
     if not path.exists():
         return None
-    return artifact_io.load_surface(path)["prob"][:, 0, :]
+    return artifact_io.load_surface(path)["conditional_probability"][:, 0, :]
 
 
 def materialized_shift(ws: Workspace, node_id: str) -> dict:
     """Hydrate a thin Stage 2 result from its referenced Stage 1 arrays."""
     stored = artifact_io.load_shift(ws.shift_cube_path(node_id))
-    if "prob" in stored:
+    if "conditional_probability" in stored:
         return stored
     meta = stored.get("meta", {})
     for artifact, expected in (
@@ -129,4 +138,7 @@ def materialized_shift(ws: Workspace, node_id: str) -> dict:
     baseline = baseline_surface(ws)
     if baseline is None:
         raise ValueError("baseline surface is unavailable")
-    return {**surface, **stored, "base": baseline, "meta": meta or surface.get("meta", {})}
+    return {
+        **surface, **stored, "baseline_probability": baseline,
+        "meta": meta or surface.get("meta", {}),
+    }

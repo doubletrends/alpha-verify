@@ -56,6 +56,11 @@ Owns sequencing, progress reporting, failure isolation by node, timestamps, prov
 
 `RunContext` creates fresh source and feature registries for one command, loads the workspace plugin, caches source panels, and reuses forward excursions for nodes sharing a source set.
 
+`domain/notation.py` is the code-level notation contract. It names canonical
+tensor axes, fixes the OHLCV component order, and provides typed measurement
+and scoring results. Public numerical boundaries use descriptive ASCII names;
+short symbols are confined to `docs/mathematics.tex`.
+
 ### `presentation/`
 
 Owns human-readable workbooks and plots. It consumes artifact data and may use domain helpers, but must not invoke pipeline commands or depend on the CLI. Presentation files are derived views; arrays and JSON remain the machine-readable contract.
@@ -84,7 +89,7 @@ Stages are restartable but ordered. A missing prerequisite produces a compact re
 For every declared node, load its requested data sources, compute the feature, create quantile bins, and calculate:
 
 ```text
-P(price touches signed barrier Δ within horizon t | feature bin)
+conditional_probability[barrier, bin, horizon]
 ```
 
 The SafeTensors cube includes probabilities, hit counts, bin counts, barrier and horizon axes, bin edges, bin assignments, metadata, and the ordered market/feature history needed downstream. A versioned `00_cache` artifact stores each unique market history's float64 forward excursions, shared boolean touch matrix, and unconditional baseline.
@@ -94,7 +99,8 @@ The SafeTensors cube includes probabilities, hit counts, bin counts, barrier and
 Subtract the baseline for the same signed barrier and horizon:
 
 ```text
-shift[Δ, bin, t] = 100 × (P(touch Δ by t | bin) − P(touch Δ by t))
+probability_shift_pp[barrier, bin, horizon]
+    = 100 × (conditional_probability − baseline_probability)
 ```
 
 The unit is percentage points. Stage 2 owns only the derived shift tensor and fingerprints/references its node and baseline Stage 1 artifacts. Readers materialize the remaining arrays from Stage 1, avoiding a second copy of every probability cube and history.
@@ -114,7 +120,12 @@ observed stored OHLCV / generated null OHLCV
   -> accumulated scores, validity, and actual bin edges
 ```
 
-`scoring.bin_scores(prob, base, bin_n, deltas)` is the shared bin-scoring kernel. Inputs are in-memory arrays or tensors. Probability axes are `(..., signed_barrier, bin, horizon)`; baseline omits bin and counts omit barrier. Results contain only `scores` and `valid`, each shaped `(..., bin)`.
+`scoring.bin_scores(conditional_probability, baseline_probability,
+bin_observation_counts, barriers)` is the shared bin-scoring kernel. Inputs are
+in-memory arrays or tensors. Probability axes are `(..., barrier, bin,
+horizon)`; baseline omits bin and counts omit barrier. It returns a typed
+`BinScoreResult` whose `bin_score` and `score_supported` fields are both shaped
+`(..., bin)`.
 
 ```text
 shift      = 100 * (conditional probability - baseline)
@@ -145,9 +156,9 @@ For each eligible condition bin, validation recomputes the complete linearly bar
 - `bin_score`: observed full-grid score;
 - `null_scores`: all 1,000 synthetic scores;
 - `null_p95`: their 95th percentile;
-- `peak_p`: `(1 + count(null_score >= observed)) / (1 + 1000)`;
-- `cleared`: whether raw `peak_p < 0.05`;
-- `n_paths`, `n_valid_null`: ensemble size and number of supported null bins. Unsupported null bins retain zero contributions in the full ensemble, preserving the scoring rule.
+- `monte_carlo_p_value`: `(1 + count(null_score >= observed)) / (1 + 1000)`;
+- `cleared`: whether the raw Monte Carlo p-value is below `0.05`;
+- `n_null_replicates`, `n_supported_null`: ensemble size and number of supported null bins. Unsupported null bins retain zero contributions in the full ensemble, preserving the scoring rule.
 
 `skipped_bins` records observed bins without eligible cells. Missing declared Stage 2 nodes are listed in `missing_nodes` and make the summary incomplete.
 

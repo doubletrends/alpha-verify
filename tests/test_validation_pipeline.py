@@ -40,12 +40,14 @@ def workspace(tmp_path, monkeypatch):
                             index=data.index)
         cube = barrier.touch_tensor(data, feature, horizons, deltas, barrier.bin_edges(feature, 2))
         baseline = barrier.touch_tensor(data, pd.Series(1., index=data.index),
-                                        horizons, deltas, np.array([]))["prob"][:, 0, :]
+                                        horizons, deltas, np.array([]))[
+                                            "conditional_probability"
+                                        ][:, 0, :]
         cube = shift.from_cube(cube, baseline)
         cube.update({key: data[key].to_numpy() for key in data})
         cube.update(index=data.index.astype(str).to_numpy(), feature_values=feature.to_numpy())
         artifact_io.save_shift(cube, ws.shift_cube_path(node["id"]), {"bin_labels": ["low", "high"]})
-    monkeypatch.setattr(stage, "N_PATHS", 16)
+    monkeypatch.setattr(stage, "N_NULL_REPLICATES", 16)
     monkeypatch.setattr(validation_plots, "write_bin_score_null_histograms", Mock(return_value=[]))
     return ws
 
@@ -72,7 +74,7 @@ def test_all_bins_are_validated_without_selection(workspace, monkeypatch, capsys
         assert "rank" not in row and "best_cell" not in row
         assert len(row["null_scores"]) == 16
         expected = (1 + sum(score >= row["bin_score"] for score in row["null_scores"])) / 17
-        assert row["peak_p"] == expected
+        assert row["monte_carlo_p_value"] == expected
     assert stage.validation_summary_is_current(workspace, summary)
     cmd_status(workspace)
     assert "4 condition bins" in capsys.readouterr().out
@@ -93,7 +95,10 @@ def test_different_market_histories_get_separate_nulls(workspace, monkeypatch):
 def test_freshness_tracks_artifact_bytes_catalog_and_settings(workspace, monkeypatch):
     stage.cmd_validation(workspace)
     summary = workspace.read_json(workspace.validation_summary_path)
-    for key in ("seed", "n_paths", "scoring_version", "measurement_version", "null_version"):
+    for key in (
+        "seed", "n_null_replicates", "scoring_version",
+        "measurement_version", "null_version",
+    ):
         changed = deepcopy(summary)
         changed["method"][key] = "old"
         assert not stage.validation_summary_is_current(workspace, changed)
@@ -109,7 +114,7 @@ def test_freshness_tracks_artifact_bytes_catalog_and_settings(workspace, monkeyp
     workspace.catalog.raw["families"]["test"][0]["params"].clear()
     path = workspace.shift_cube_path("a")
     cube = artifact_io.load_shift(path)
-    cube["prob"][0, 0, 0] += .01
+    cube["conditional_probability"][0, 0, 0] += .01
     artifact_io.save_shift(cube, path, cube["meta"])
     assert not stage.validation_summary_is_current(workspace, summary)
 
@@ -136,7 +141,10 @@ def test_valid_zero_bins_are_tested(workspace):
     stage.cmd_validation(workspace)
     summary = workspace.read_json(workspace.validation_summary_path)
     assert len(summary["tests"]) == 4
-    assert all(row["bin_score"] == 0 and row["peak_p"] == 1 for row in summary["tests"])
+    assert all(
+        row["bin_score"] == 0 and row["monte_carlo_p_value"] == 1
+        for row in summary["tests"]
+    )
 
 
 @pytest.mark.parametrize("feature_name", ["roc", "day_of_week"])
@@ -154,17 +162,17 @@ def test_identical_history_has_same_score_and_validity_as_observed_or_null(
     node.update(feature=feature_name, params={"period": 5} if feature_name == "roc" else {})
     path = workspace.shift_cube_path("a")
     cube = artifact_io.load_shift(path)
-    cube["prob"][:] = np.nan
-    cube["base"][:] = np.nan
-    cube["shift"][:] = 999
-    cube["bin_n"][:] = 0
+    cube["conditional_probability"][:] = np.nan
+    cube["baseline_probability"][:] = np.nan
+    cube["probability_shift_pp"][:] = 999
+    cube["bin_observation_counts"][:] = 0
     if feature_name == "roc":
         cube["feature_values"] = np.full(len(cube["feature_values"]), np.nan)
-        cube["edges"] = np.array([-999., 999.])
+        cube["bin_edges"] = np.array([-999., 999.])
     else:
         cube["feature_values"] = cube["feature_values"].astype(float)
         cube["feature_values"][:40] = np.nan
-        cube["edges"] = np.array([0., 1.])  # Ties plus an unsupported final bin.
+        cube["bin_edges"] = np.array([0., 1.])  # Ties plus an unsupported final bin.
     artifact_io.save_shift(cube, path, {"bin_labels": ["STALE LABEL"] * 3})
 
     def null_with_observed_history(data, n_paths, seed):
@@ -197,17 +205,21 @@ def test_identical_history_has_same_score_and_validity_as_observed_or_null(
     assert len(calls) == 1 and len(batch_calls) == 1
     observed, null = calls[0][0], batch_calls[0][0]
     for position in (0, -1):
-        np.testing.assert_allclose(observed["scores"][0], null["scores"][position], rtol=0, atol=1e-10)
-        np.testing.assert_array_equal(observed["valid"][0], null["valid"][position])
-        np.testing.assert_array_equal(observed["edges"][0], null["edges"][position])
-    assert observed["valid"].any()
+        np.testing.assert_allclose(
+            observed.bin_score[0], null.bin_score[position], rtol=0, atol=1e-10
+        )
+        np.testing.assert_array_equal(
+            observed.score_supported[0], null.score_supported[position]
+        )
+        np.testing.assert_array_equal(observed.bin_edges[0], null.bin_edges[position])
+    assert observed.score_supported.any()
     if feature_name == "day_of_week":
-        assert observed["valid"].tolist() == [[True, True, False]]
+        assert observed.score_supported.tolist() == [[True, True, False]]
     summary = workspace.read_json(workspace.validation_summary_path)
     assert summary["tests"]
     assert all(row["bin_label"] != "STALE LABEL" for row in summary["tests"])
     for row in summary["tests"]:
-        assert row["bin_score"] == observed["scores"][0, row["bin"]]
+        assert row["bin_score"] == observed.bin_score[0, row["bin"]]
 
 
 def test_plot_uses_node_bin_identity_without_rank(workspace, monkeypatch):
