@@ -8,7 +8,7 @@ import pandas as pd
 from barrierlab.domain import barrier, scoring
 
 
-def simulated_ohlc_tensor(data: pd.DataFrame, n_paths: int = 10_000, seed: int = 20260907):
+def simulated_ohlc_tensor(data: pd.DataFrame, n_paths: int = 1_000, seed: int = 20260907):
     """Fit and draw the shared OHLC ensemble on the configured Torch device."""
     import torch
 
@@ -52,7 +52,7 @@ def simulated_ohlc_tensor(data: pd.DataFrame, n_paths: int = 10_000, seed: int =
 def score_histories(
     paths, features: np.ndarray | None, deltas: np.ndarray, horizons: np.ndarray, n_bins: int,
     feature_name: str | None = None, params: dict | None = None, progress=None,
-    *, edges: np.ndarray | None = None,
+    *, edges: np.ndarray | None = None, touches=None, baseline=None, bin_indices=None,
 ) -> dict[str, np.ndarray]:
     """Common observed/null calculation, with no distinction based on role.
 
@@ -69,6 +69,8 @@ def score_histories(
     x = torch_features.compute(ohlcv, feature_name, params or {}) if features is None else features
     edges_t, measurements = barrier.measure_histories(
         ohlcv, x, deltas, horizons, n_bins, edges=edges,
+        touches=touches, baselines=baseline,
+        bin_indices_cache=bin_indices,
     )
     total = ohlcv.new_zeros((ohlcv.shape[0], edges_t.shape[1] + 1))
     valid = torch.zeros_like(total, dtype=torch.bool)
@@ -80,3 +82,96 @@ def score_histories(
             progress.advance()
     return {"scores": total.cpu().numpy(), "valid": valid.cpu().numpy(),
             "edges": edges_t.cpu().numpy()}
+
+
+HISTORY_BATCH_SIZE = 256
+
+
+def _score_histories_many_batch(paths, policies: list[dict]) -> list[dict[str, np.ndarray]]:
+    """Score several conditions while traversing shared price outcomes once.
+
+    Feature calculation, quantiles, and conditional counts remain specific to
+    each condition. Forward extremes and unconditional barrier rates depend
+    only on the market histories, so Stage 3 computes those once per group.
+    """
+    import torch
+
+    from barrierlab.domain import tensor_runtime, torch_features
+
+    if not policies:
+        return []
+    ohlcv = paths.to(dtype=torch.float64) if isinstance(paths, torch.Tensor) else tensor_runtime.tensor(paths)
+    prepared = []
+    feature_cache = {}
+    for policy in policies:
+        features = policy.get("features")
+        x = (torch_features.compute(
+            ohlcv, policy.get("feature_name"), policy.get("params") or {}, feature_cache,
+        )
+             if features is None else tensor_runtime.tensor(features))
+        x = x.expand(ohlcv.shape[:2])
+        supplied_edges = policy.get("edges")
+        if supplied_edges is None:
+            edges = barrier.batched_bin_edges(x, policy["n_bins"])
+        else:
+            edges = tensor_runtime.tensor(supplied_edges).expand(ohlcv.shape[0], -1).contiguous()
+        prepared.append({
+            "x": x, "edges_t": edges,
+            "indices": barrier.bin_indices(x, edges),
+            "scores": ohlcv.new_zeros((ohlcv.shape[0], edges.shape[1] + 1)),
+            "valid": torch.zeros((ohlcv.shape[0], edges.shape[1] + 1), dtype=torch.bool,
+                                 device=ohlcv.device),
+        })
+
+    deltas = np.asarray(policies[0]["deltas"], dtype=float)
+    horizons = np.asarray(policies[0]["horizons"], dtype=int)
+    if any(not np.array_equal(deltas, np.asarray(policy["deltas"], dtype=float))
+           or not np.array_equal(horizons, np.asarray(policy["horizons"], dtype=int))
+           for policy in policies[1:]):
+        raise ValueError("shared scoring policies must use identical barrier and horizon grids")
+
+    for horizon_index, (lo, hi) in enumerate(barrier.iter_extremes(ohlcv, horizons)):
+        touched, price_ok = barrier.barrier_touch_matrix(lo, hi, deltas)
+        base = barrier.reduce_baseline_touch_matrix(touched, price_ok, ohlcv.dtype)[0].unsqueeze(-1)
+        for item in prepared:
+            prob, _, counts, _ = barrier.reduce_touch_matrix(
+                touched, price_ok, item["x"], item["indices"], item["scores"].shape[1],
+            )
+            prob = prob.unsqueeze(-1)
+            result = scoring.bin_scores(prob, base, counts.unsqueeze(-1), deltas)
+            item["scores"] += result["scores"]
+            item["valid"] |= result["valid"]
+
+    return [
+        {"scores": item["scores"].cpu().numpy(), "valid": item["valid"].cpu().numpy(),
+         "edges": item["edges_t"].cpu().numpy()}
+        for item in prepared
+    ]
+
+
+def score_histories_many(
+    paths, policies: list[dict], *, batch_size: int = HISTORY_BATCH_SIZE, progress=None,
+) -> list[dict[str, np.ndarray]]:
+    """Score conditions together in bounded batches of market histories."""
+    if batch_size < 1:
+        raise ValueError("batch_size must be positive")
+    if not policies:
+        return []
+    deltas = np.asarray(policies[0]["deltas"], dtype=float)
+    horizons = np.asarray(policies[0]["horizons"], dtype=int)
+    if any(not np.array_equal(deltas, np.asarray(policy["deltas"], dtype=float))
+           or not np.array_equal(horizons, np.asarray(policy["horizons"], dtype=int))
+           for policy in policies[1:]):
+        raise ValueError("shared scoring policies must use identical barrier and horizon grids")
+    parts = [[] for _ in policies]
+    for start in range(0, len(paths), batch_size):
+        batch = _score_histories_many_batch(paths[start:start + batch_size], policies)
+        for destination, result in zip(parts, batch):
+            destination.append(result)
+        if progress is not None:
+            progress.advance()
+    return [
+        {key: np.concatenate([part[key] for part in results], axis=0)
+         for key in ("scores", "valid", "edges")}
+        for results in parts
+    ]

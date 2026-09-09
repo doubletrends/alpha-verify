@@ -51,19 +51,24 @@ class FeatureRegistry:
         self._features[name] = None
         self._torch_features[name] = feature
 
-    def compute(self, data: pd.DataFrame, feature: str, params: dict) -> pd.Series:
+    def compute(self, data: pd.DataFrame, feature: str, params: dict, cache=None) -> pd.Series:
         if feature not in self._features:
             raise ValueError(f"Unknown feature: '{feature}'. Available: {sorted(self._features)}")
         if feature in self._torch_features:
             values = self._torch_features[feature](data, params)
         elif feature in _TORCH_OHLCV_FEATURES:
-            close = data['close'].to_numpy(float)
-            open_ = data['open'].to_numpy(float) if 'open' in data else close
-            high = data['high'].to_numpy(float) if 'high' in data else np.maximum(open_, close)
-            low = data['low'].to_numpy(float) if 'low' in data else np.minimum(open_, close)
-            volume = data['volume'].to_numpy(float) if 'volume' in data else np.ones(len(data))
-            ohlcv = torch.stack(tuple(tensor_runtime.tensor(v) for v in (open_, high, low, close, volume)), dim=-1).unsqueeze(0)
-            values = torch_features.compute(ohlcv, feature, params).squeeze(0)
+            if cache is not None and ("ohlcv",) in cache:
+                ohlcv = cache[("ohlcv",)]
+            else:
+                close = data['close'].to_numpy(float)
+                open_ = data['open'].to_numpy(float) if 'open' in data else close
+                high = data['high'].to_numpy(float) if 'high' in data else np.maximum(open_, close)
+                low = data['low'].to_numpy(float) if 'low' in data else np.minimum(open_, close)
+                volume = data['volume'].to_numpy(float) if 'volume' in data else np.ones(len(data))
+                ohlcv = torch.stack(tuple(tensor_runtime.tensor(v) for v in (open_, high, low, close, volume)), dim=-1).unsqueeze(0)
+                if cache is not None:
+                    cache[("ohlcv",)] = ohlcv
+            values = torch_features.compute(ohlcv, feature, params, cache).squeeze(0)
         elif feature in _TORCH_EXTERNAL_FEATURES:
             values = _external(data, feature, params)
         elif feature == 'day_of_week':

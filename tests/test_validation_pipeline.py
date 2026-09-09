@@ -177,8 +177,9 @@ def test_identical_history_has_same_score_and_validity_as_observed_or_null(
         return batch
 
     monkeypatch.setattr(validation, "simulated_ohlc_tensor", null_with_observed_history)
-    calls = []
+    calls, batch_calls = [], []
     score_histories = validation.score_histories
+    score_histories_many = validation.score_histories_many
 
     def capture(paths, **policy):
         result = score_histories(paths, **policy)
@@ -186,9 +187,15 @@ def test_identical_history_has_same_score_and_validity_as_observed_or_null(
         return result
 
     monkeypatch.setattr(validation, "score_histories", capture)
+    def capture_many(paths, policies, **kwargs):
+        result = score_histories_many(paths, policies, **kwargs)
+        batch_calls.extend(zip(result, policies))
+        return result
+
+    monkeypatch.setattr(validation, "score_histories_many", capture_many)
     stage.cmd_validation(workspace)
-    assert len(calls) == 2  # Observed batch of one, then the mixed null batch.
-    observed, null = calls[0][0], calls[1][0]
+    assert len(calls) == 1 and len(batch_calls) == 1
+    observed, null = calls[0][0], batch_calls[0][0]
     for position in (0, -1):
         np.testing.assert_allclose(observed["scores"][0], null["scores"][position], rtol=0, atol=1e-10)
         np.testing.assert_array_equal(observed["valid"][0], null["valid"][position])

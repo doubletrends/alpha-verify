@@ -20,6 +20,7 @@ class WorkspaceContractTests(unittest.TestCase):
         self.assertEqual(workspace.cube_path("vix_level").parts[-3:], ("01_surface", "array", "vix_level.safetensors"))
         self.assertEqual(workspace.shift_cube_path("vix_level").parts[-3:], ("02_shift", "array", "vix_level.safetensors"))
         self.assertEqual(workspace.validation_summary_path.parts[-2:], ("03_validation", "validation.json"))
+        self.assertEqual(workspace.selection_summary_path.parts[-2:], ("04_selection", "selection.json"))
 
     def test_artifact_history_helpers_align_feature_to_valid_prices(self) -> None:
         artifact = {
@@ -51,3 +52,31 @@ class WorkspaceContractTests(unittest.TestCase):
         with patch("pandas.read_csv", return_value=source_frame):
             data = context.sources.fetch(["ohlcv"], workspace.start_date, workspace.asset)
         self.assertEqual(data.columns.tolist(), ["open", "high", "low", "close", "volume"])
+
+    def test_observed_outcomes_are_persisted_and_reused(self) -> None:
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
+        from barrierlab.infrastructure import artifact_io
+        from barrierlab.domain import barrier
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory) / "workspaces"
+            declaration = root / "example" / "universe.json"
+            artifact_io.write_json(declaration, {
+                "meta": {"asset": {"ticker": "TEST"}, "start_date": "2024-01-01",
+                         "Delta": {"min": -.02, "max": .02, "step": .02},
+                         "horizons": {"min": 1, "max": 3}},
+                "families": {},
+            })
+            ws = Workspace("example", root)
+            close = np.linspace(100., 110., 40)
+            data = pd.DataFrame({"high": close * 1.01, "low": close * .99, "close": close},
+                                index=pd.date_range("2024-01-01", periods=40))
+            context = RunContext(ws)
+            first = context.observed_outcomes(data)
+            cache_files = list((ws.dir / "00_cache").glob("*.safetensors"))
+            self.assertEqual(len(cache_files), 1)
+            self.assertEqual(first["touches"].shape, (3, 40, 3))
+            with patch.object(barrier, "forward_extremes_upto", side_effect=AssertionError("rebuilt")):
+                second = RunContext(ws).observed_outcomes(data)
+            np.testing.assert_array_equal(second["touches"], first["touches"])

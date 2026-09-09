@@ -92,7 +92,8 @@ def _read_npz(path: Path, float64_keys: tuple[str, ...] = ()) -> dict:
             }
             artifact["meta"] = json.loads(str(stored["meta"]))
     for key in float64_keys:
-        artifact[key] = artifact[key].astype(np.float64)
+        if key in artifact:
+            artifact[key] = artifact[key].astype(np.float64)
     return artifact
 
 
@@ -106,6 +107,7 @@ def save_surface(cube: dict, path: Path, meta: dict) -> None:
         "Δs": cube["Δs"],
         "horizons": cube["horizons"],
         "edges": cube["edges"],
+        **({"bin_indices": cube["bin_indices"]} if "bin_indices" in cube else {}),
         **_history_payload(cube),
     }
     _write_npz(path, payload, meta)
@@ -116,8 +118,20 @@ def load_surface(path: Path) -> dict:
     return _read_npz(path, ("prob",))
 
 
-def save_shift(cube: dict, path: Path, meta: dict) -> None:
+def save_observed_cache(cache: dict, path: Path, meta: dict) -> None:
+    """Persist source-level observed outcomes shared by every condition node."""
+    _write_npz(path, cache, meta)
+
+
+def load_observed_cache(path: Path) -> dict:
+    return _read_npz(path, ("forward_low", "forward_high", "baseline"))
+
+
+def save_shift(cube: dict, path: Path, meta: dict, *, thin: bool = False) -> None:
     """Write a complete Stage 2 baseline-subtracted shift cube."""
+    if thin:
+        _write_npz(path, {"shift": cube["shift"].astype(np.float32)}, meta)
+        return
     payload = {
         "shift": cube["shift"].astype(np.float32),
         "prob": cube["prob"].astype(np.float32),

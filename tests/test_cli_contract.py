@@ -18,15 +18,13 @@ class CliContractTests(unittest.TestCase):
             "measure",
             "compare",
             "validate",
+            "select",
             "status",
         ):
             self.assertIn(command, help_text)
         for removed in ("--gate", "--family", "--rerun", "--read", "--fdr"):
             self.assertNotIn(removed, help_text)
         self.assertNotIn("--verbose", help_text)
-        with redirect_stderr(StringIO()), self.assertRaises(SystemExit):
-            parser.parse_args(["select"])
-
         args = parser.parse_args(["measure", "--workspace", "btc_daily"])
         self.assertEqual(args.command, "measure")
         self.assertEqual(args.workspace, "btc_daily")
@@ -36,7 +34,7 @@ class CliContractTests(unittest.TestCase):
     def test_commands_preserve_pipeline_order(self) -> None:
         self.assertEqual(
             [command.name for command in COMMANDS],
-            ["measure", "compare", "validate", "status"],
+            ["measure", "compare", "validate", "select", "status"],
         )
 
     def test_validation_has_no_stage_specific_options(self) -> None:

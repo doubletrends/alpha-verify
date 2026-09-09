@@ -4,17 +4,21 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import hashlib
+import math
 
 import numpy as np
 
 from barrierlab.domain import barrier, scoring, validation
 from barrierlab.domain.features import is_ohlcv_feature
 from barrierlab.infrastructure import artifact_io
-from barrierlab.infrastructure.artifacts import feature_from_artifact, market_data_from_artifact
+from barrierlab.infrastructure.artifacts import (
+    feature_from_artifact, market_data_from_artifact, market_history_key,
+)
 from barrierlab.infrastructure.workspace import BASELINE_NODE, Workspace
+from barrierlab.pipeline.context import RunContext, materialized_shift
 from barrierlab.pipeline.reporting import MilestoneProgress, StageReport
 
-N_PATHS = 10_000
+N_PATHS = 1_000
 SEED = 20260907
 RAW_P_THRESHOLD = 0.05
 NULL_VERSION = "gaussian-log-ohlc-v1"
@@ -25,7 +29,7 @@ def _method() -> dict:
         "scoring_version": scoring.SCORING_VERSION,
         "measurement_version": barrier.MEASUREMENT_VERSION,
         "observed_source": "stored OHLCV history remeasured in float64",
-        "feature_policy": "core features and quantiles recomputed; external values and edges fixed for both roles",
+        "feature_policy": "observed feature bins cached by Stage 1; core null features recomputed; external null bins fixed",
         "null_version": NULL_VERSION,
         "n_paths": N_PATHS, "seed": SEED,
         "threshold": {"raw_p": RAW_P_THRESHOLD},
@@ -46,7 +50,12 @@ def input_fingerprint(ws: Workspace) -> dict:
         if path.exists():
             with path.open("rb") as source:
                 digest = hashlib.file_digest(source, "sha256").hexdigest()
-        nodes.append({"node": node, "sha256": digest})
+        surface_digest = None
+        surface_path = ws.cube_path(node["id"])
+        if surface_path.exists():
+            with surface_path.open("rb") as source:
+                surface_digest = hashlib.file_digest(source, "sha256").hexdigest()
+        nodes.append({"node": node, "sha256": digest, "source_sha256": surface_digest})
     return {"n_bins": ws.n_bins, "nodes": nodes}
 
 
@@ -59,17 +68,15 @@ def validation_summary_is_current(ws: Workspace, summary: dict) -> bool:
     return summary.get("input_fingerprint") == input_fingerprint(ws)
 
 
-def _history_key(data) -> str:
-    digest = hashlib.sha256()
-    digest.update(str(tuple(data.columns)).encode())
-    digest.update(data.index.asi8.tobytes())
-    digest.update(np.ascontiguousarray(data.to_numpy(dtype=float)).tobytes())
-    return digest.hexdigest()
+def _input_cube(ws: Workspace, node_id: str) -> dict:
+    """Read legacy rich shifts or hydrate a thin shift from its Stage 1 source."""
+    return materialized_shift(ws, node_id)
 
 
 def cmd_validation(ws: Workspace) -> None:
     """Validate all available non-baseline nodes without ranking or preselection."""
     report = StageReport(3, "validate", ws.dir.name)
+    context = RunContext(ws)
     fingerprint = input_fingerprint(ws)
     missing = [entry["node"]["id"] for entry in fingerprint["nodes"] if entry["sha256"] is None]
     available = [entry["node"] for entry in fingerprint["nodes"] if entry["sha256"] is not None]
@@ -79,16 +86,17 @@ def cmd_validation(ws: Workspace) -> None:
     # ensemble at a time, and never apply one market's null to another history.
     groups = {}
     for node in available:
-        cube = artifact_io.load_shift(ws.shift_cube_path(node["id"]))
+        cube = _input_cube(ws, node["id"])
         data = market_data_from_artifact(cube)
-        groups.setdefault(_history_key(data), []).append(node)
+        groups.setdefault(market_history_key(data), []).append(node)
     records, skipped = [], []
     progress = MilestoneProgress(report, "validating nodes", len(available))
     for nodes in groups.values():
-        simulated_paths = None
+        pending = []
         for node in nodes:
-            cube = artifact_io.load_shift(ws.shift_cube_path(node["id"]))
+            cube = _input_cube(ws, node["id"])
             data = market_data_from_artifact(cube)
+            outcomes = context.observed_outcomes(data, cube["Δs"], cube["horizons"])
             fixed = not is_ohlcv_feature(node["feature"])
             # Choose the policy once and pass it unchanged to both roles.
             policy = {
@@ -97,7 +105,17 @@ def cmd_validation(ws: Workspace) -> None:
                 "feature_name": node["feature"], "params": node["params"],
                 "deltas": cube["Δs"], "horizons": cube["horizons"], "n_bins": ws.n_bins,
             }
-            observed = validation.score_histories(barrier.ohlcv_tensor(data), **policy)
+            cached_condition = fixed or "bin_indices" in cube
+            observed = validation.score_histories(
+                barrier.ohlcv_tensor(data),
+                features=(feature_from_artifact(cube, data.index).to_numpy(float)[None]
+                          if cached_condition else None),
+                edges=cube["edges"] if cached_condition else None,
+                feature_name=node["feature"], params=node["params"],
+                deltas=cube["Δs"], horizons=cube["horizons"], n_bins=ws.n_bins,
+                touches=outcomes["touches"], baseline=outcomes["baseline"],
+                bin_indices=cube.get("bin_indices") if cached_condition else None,
+            )
             observed_edges = observed["edges"][0]
             observed_edges = observed_edges[np.isfinite(observed_edges)]
             bin_count = len(observed_edges) + 1
@@ -114,9 +132,17 @@ def cmd_validation(ws: Workspace) -> None:
             skipped.extend({**identities[b], "reason": "no eligible cells"}
                            for b in np.flatnonzero(~valid))
             if valid.any():
-                if simulated_paths is None:
-                    simulated_paths = validation.simulated_ohlc_tensor(data, N_PATHS, SEED)
-                null = validation.score_histories(simulated_paths, **policy)
+                pending.append((identities, scores, valid, policy))
+            progress.advance()
+
+        if pending:
+            simulated_paths = validation.simulated_ohlc_tensor(data, N_PATHS, SEED)
+            null_steps = math.ceil(len(simulated_paths) / validation.HISTORY_BATCH_SIZE)
+            nulls = validation.score_histories_many(
+                simulated_paths, [item[3] for item in pending],
+                progress=MilestoneProgress(report, "scoring null matrices", null_steps),
+            )
+            for (identities, scores, valid, _), null in zip(pending, nulls):
                 for b in np.flatnonzero(valid):
                     sample = null["scores"][:, b]
                     p_value = float((1 + (sample >= scores[b]).sum()) / (1 + len(sample)))
@@ -127,8 +153,7 @@ def cmd_validation(ws: Workspace) -> None:
                         "n_paths": len(sample), "n_valid_null": int(null["valid"][:, b].sum()),
                         "null_scores": sample.tolist(),
                     })
-            progress.advance()
-        del simulated_paths
+            del simulated_paths
 
     if input_fingerprint(ws) != fingerprint:
         raise RuntimeError("Stage 2 inputs changed during validation; rerun validate")

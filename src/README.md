@@ -11,6 +11,7 @@
 | `barrierlab.pipeline.step_01_surface.cmd_surface` | Stage 1 `measure` implementation |
 | `barrierlab.pipeline.step_02_shift.cmd_shift` | Stage 2 `compare` implementation |
 | `barrierlab.pipeline.step_03_validation.cmd_validation` | Stage 3 `validate` implementation |
+| `barrierlab.pipeline.step_04_selection.cmd_selection` | Stage 4 `select` implementation |
 | `barrierlab.pipeline.status.cmd_status` | Read-only workspace and node inspection |
 
 The CLI constructs `Workspace(args.workspace)` relative to `Path.cwd() / "workspaces"`; run it from the repository root unless calling the Python API with an explicit workspace directory.
@@ -66,11 +67,14 @@ flowchart LR
     U[universe.json] --> C[Workspace + RunContext]
     P[optional plugin.py] --> C
     C --> M[measure]
+    M --> C0[00_cache<br/>observed shared tensors]
     M --> A1[01_surface<br/>SafeTensors + XLSX]
     A1 --> X[compare]
     X --> A2[02_shift<br/>SafeTensors + XLSX]
     A2 --> V[validate]
     V --> A3[03_validation<br/>validation.json + null PNGs]
+    A3 --> S[select]
+    S --> A4[04_selection<br/>selection.json + heatmaps]
 ```
 
 Stages are restartable but ordered. A missing prerequisite produces a compact report rather than synthesizing upstream data.
@@ -83,7 +87,7 @@ For every declared node, load its requested data sources, compute the feature, c
 P(price touches signed barrier Δ within horizon t | feature bin)
 ```
 
-The SafeTensors cube includes probabilities, hit counts, bin counts, barrier and horizon axes, bin edges, metadata, and the ordered market/feature history needed downstream. The `baseline` node supplies the unconditional surface.
+The SafeTensors cube includes probabilities, hit counts, bin counts, barrier and horizon axes, bin edges, bin assignments, metadata, and the ordered market/feature history needed downstream. A versioned `00_cache` artifact stores each unique market history's float64 forward excursions, shared boolean touch matrix, and unconditional baseline.
 
 ### Stage 2: `compare`
 
@@ -93,13 +97,13 @@ Subtract the baseline for the same signed barrier and horizon:
 shift[Δ, bin, t] = 100 × (P(touch Δ by t | bin) − P(touch Δ by t))
 ```
 
-The unit is percentage points. Stage 2 carries the original probabilities, baseline, counts, axes, and history forward so later stages do not need Stage 1 files to interpret the shift.
+The unit is percentage points. Stage 2 owns only the derived shift tensor and fingerprints/references its node and baseline Stage 1 artifacts. Readers materialize the remaining arrays from Stage 1, avoiding a second copy of every probability cube and history.
 
 ### Stage 3: `validate`
 
-Validation tests every eligible bin of every available non-baseline node from `02_shift`. There is no selection command, top-k filter, rank, or representative cell. Selection will be designed downstream of validation later.
+Validation tests every eligible bin of every available non-baseline node from `02_shift`. There is no preselection, top-k filter, rank, or representative cell before validation.
 
-`validation.score_histories()` is the common entrypoint for observed and simulated histories. The pipeline constructs one feature policy and passes it unchanged to both calls. The observed input is the embedded OHLCV history as a batch of one; stored probability, baseline, shift, and count arrays are not scoring inputs.
+`validation.score_histories()` is the common measurement entrypoint. Observed histories reuse Stage 1's versioned touches, baseline, feature values, edges, and bin assignments. Synthetic histories recompute path-dependent core features while external conditions remain fixed. Stored float32 probabilities and shifts are not scoring inputs.
 
 ```text
 observed stored OHLCV / generated null OHLCV
@@ -129,25 +133,29 @@ log(high / max(open, close))
 log(low / min(open, close))
 ```
 
-With deterministic seed `20260907`, it draws 10,000 histories of the observed length and rebuilds valid OHLC bars. Nodes with identical stored market histories share one synthetic ensemble; different histories are simulated separately, retaining one ensemble at a time.
+With deterministic seed `20260907`, it currently draws 1,000 histories of the observed length and rebuilds valid OHLC bars. Nodes with identical stored market histories share one synthetic ensemble; different histories are simulated separately, retaining one ensemble at a time.
 
-Core OHLCV features are recomputed for both the observed history and each synthetic path. External, calendar, and workspace-plugin features cannot be derived from synthetic OHLC alone, so the same stored condition values and edges are used for the observed history and broadcast across null paths. Volume is also carried from the observed history.
+Core OHLCV features are computed and cached during Stage 1, then reused for the observed role. They are recomputed for each synthetic path, with shared rolling primitives cached within each path batch. External, calendar, and workspace-plugin conditions use the stored observed values and edges for both roles. Volume is carried from the observed history.
 
-Both validation roles use the same measurement iterator as Stage 1, including its forward-extreme calculation, quantiles, bin assignment, touch rates, and horizon order. Non-finite feature values are excluded from quantiles, ties are deduplicated, and values equal to an edge enter the lower bin. Core features use the workspace's requested quantile count, with collapsed bins padded internally; fixed external features retain the observed edges. Each path supplies its own unconditional probabilities to `scoring.bin_scores`. Both observed and null scores accumulate the same horizon slices in the same order. Observed labels come from the recomputed edges, and trailing padded bins are excluded from observed records.
+Both validation roles use the same reduction and scoring kernels. Non-finite feature values are excluded from quantiles, ties are deduplicated, and values equal to an edge enter the lower bin. Within each synthetic batch and horizon, one price-touch matrix is generated and reused for the baseline and every node; only the bin reduction differs by condition. Each path supplies its own unconditional probabilities to `scoring.bin_scores`.
 
 For each eligible condition bin, validation recomputes the complete linearly barrier-weighted grid score. It records:
 
 - `node`, `bin`, `bin_number`, `bin_label`: stable condition identity, independent of rank;
 - `bin_score`: observed full-grid score;
-- `null_scores`: all 10,000 synthetic scores;
+- `null_scores`: all 1,000 synthetic scores;
 - `null_p95`: their 95th percentile;
-- `peak_p`: `(1 + count(null_score >= observed)) / (1 + 10000)`;
+- `peak_p`: `(1 + count(null_score >= observed)) / (1 + 1000)`;
 - `cleared`: whether raw `peak_p < 0.05`;
 - `n_paths`, `n_valid_null`: ensemble size and number of supported null bins. Unsupported null bins retain zero contributions in the full ensemble, preserving the scoring rule.
 
 `skipped_bins` records observed bins without eligible cells. Missing declared Stage 2 nodes are listed in `missing_nodes` and make the summary incomplete.
 
-`validation.json` fingerprints Stage 2 file contents, node declarations, and requested bin count. Its method records measurement/scoring/null versions, seed, path count, threshold, and invalid-null policy. Status rejects incomplete or mismatched results. The `shared-history-float64-v1` measurement version invalidates results that scored stored probabilities; rerun `validate` to remeasure stored histories. Old `03_selection/` and `04_validation/` outputs are not consumed or migrated. Run `validate` to produce `03_validation/`; rerun `measure` and `compare` first if their inputs or numerical definitions changed. Existing generated directories are left on disk.
+`validation.json` fingerprints Stage 1 and Stage 2 file contents, node declarations, and requested bin count. Its method records measurement/scoring/null versions, seed, path count, threshold, and invalid-null policy. Status rejects incomplete or mismatched results. Run `measure` and `compare` after this cache/schema change before treating a validation result as current.
+
+### Stage 4: `select`
+
+Selection requires a complete, current Stage 3 result and retains every and only row whose `cleared` value is true. The manifest is ordered by raw p-value and observed bin score for readability; ordering is not an additional selection rule. `selection.json` fingerprints the exact validation bytes, and each selected bin receives a complete Stage 2 signed-barrier-by-horizon shift heatmap plus a copy of its Stage 3 null-distribution histogram in `04_selection/plot/`.
 
 
 ## Statistical boundary

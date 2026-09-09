@@ -179,8 +179,15 @@ class Workspace:
     def validation_summary_path(self) -> Path:
         return self.artifacts.validation_summary_path
 
+    @property
+    def selection_summary_path(self) -> Path:
+        return self.artifacts.selection_summary_path
+
     def cube_path(self, node_id: str) -> Path:
         return self.artifacts.cube_path(node_id)
+
+    def observed_cache_path(self, history_key: str) -> Path:
+        return self.artifacts.observed_cache_path(history_key)
 
     def has_cube(self, node_id: str) -> bool:
         return self.cube_path(node_id).exists()

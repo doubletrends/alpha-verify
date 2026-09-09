@@ -10,6 +10,8 @@ from barrierlab.domain import shift
 from barrierlab.infrastructure import artifact_io
 from barrierlab.infrastructure.workspace import Workspace
 from barrierlab.pipeline.step_03_validation import validation_summary_is_current
+from barrierlab.pipeline.step_04_selection import selection_summary_is_current
+from barrierlab.pipeline.context import materialized_shift
 
 
 def _print_node_status(ws: Workspace, node_id: str) -> None:
@@ -20,7 +22,7 @@ def _print_node_status(ws: Workspace, node_id: str) -> None:
         print(f"No shift array for {node_id} - run the compare command first.")
         return
 
-    cube = artifact_io.load_shift(path)
+    cube = materialized_shift(ws, node_id)
     dev = cube["shift"]
     deltas = cube["Δs"]
     horizons = cube["horizons"]
@@ -92,6 +94,9 @@ def cmd_status(ws: Workspace, node_id: str | None = None) -> None:
     validation_current = validation_summary_is_current(ws, validation)
     cleared_rows = validation.get("cleared", []) if validation_current else []
     tests = validation.get("tests", []) if validation_current else []
+    selection = ws.read_json(ws.selection_summary_path)
+    selection_current = selection_summary_is_current(ws, selection)
+    selected_rows = selection.get("selected", []) if selection_current else []
 
     columns = [
         "nodes",
@@ -101,6 +106,7 @@ def cmd_status(ws: Workspace, node_id: str | None = None) -> None:
         "sheet",
         "tested",
         "cleared",
+        "selected",
     ]
     by_family = defaultdict(lambda: [0] * len(columns))
     for node in ws.catalog.all_nodes():
@@ -112,6 +118,7 @@ def cmd_status(ws: Workspace, node_id: str | None = None) -> None:
         counts[4] += bool(ws.has_shift_surface(node["id"]))
         counts[5] += sum(1 for row in tests if row.get("node") == node["id"])
         counts[6] += sum(1 for row in cleared_rows if row.get("node") == node["id"])
+        counts[7] += sum(1 for row in selected_rows if row.get("node") == node["id"])
 
     print(f"\n=== Status [{ws.dir.name}] ===")
     print(
@@ -129,6 +136,10 @@ def cmd_status(ws: Workspace, node_id: str | None = None) -> None:
         missing = validation.get("missing_nodes", [])
         detail = f" ({len(missing)} missing nodes)" if missing else ""
         print(f"  validation: incomplete or stale{detail} - run validate")
+    if selection and selection_current:
+        print(f"  selection: {len(selected_rows)} cleared bins rendered in Stage 4")
+    elif selection:
+        print("  selection: stale - run select")
 
     print()
     header = f"  {'family':<15}" + "".join(

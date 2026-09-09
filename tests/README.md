@@ -1,6 +1,6 @@
 # Test contracts
 
-`tests/` protects the repository's fast, deterministic engineering contracts: package boundaries, CLI shape, workspace and artifact schemas, bin-score semantics, validation provenance, and progress output. It does not certify the economic conclusion of a real market-data run or execute the 10,000-history null simulation end to end.
+`tests/` protects the repository's fast, deterministic engineering contracts: package boundaries, CLI shape, workspace and artifact schemas, bin-score semantics, validation provenance, and progress output. It does not certify the economic conclusion of a real market-data run or execute the full-size null simulation end to end.
 
 ## Run the suite
 
@@ -27,6 +27,7 @@ python -m pytest -q tests/test_validation_pipeline.py
 | `test_artifact_io.py` | JSON fallback and round-trip behavior; SafeTensors keys and metadata; stable stored/runtime dtypes for surface and shift cubes |
 | `test_cli_contract.py` | Supported command set and order; workspace/CUDA option parsing; optional node status; rejection of removed or unsupported flags |
 | `test_validation_pipeline.py` | Observed/null role parity through actual pipeline calls despite corrupted presentation arrays; all-bin validation without selection; shared/distinct history ensembles; input fingerprints; missing artifacts; zero-score bins; rank-free plots |
+| `test_selection_pipeline.py` | Cleared-only Stage 4 selection, validation fingerprint freshness, and selected-bin heatmap rendering |
 | `test_scoring_parity.py` | Full-grid versus streamed score/validity parity; cached versus streamed excursions; per-path baselines; drift regression; quantiles, ties, missing values, thin bins, and fixed external edges |
 | `test_stage_reporting.py` | Stable stage headings, summaries, timing shape, and bounded progress milestones |
 | `test_workspace_contracts.py` | Nasdaq catalog and stage paths; artifact-history alignment; per-run source caching; BTC hourly workspace-local OHLCV override |
@@ -39,7 +40,7 @@ The suite is intentionally offline and small:
 - Provider calls are replaced with small in-memory frames where data-source behavior matters.
 - Numerical fixtures use small deterministic cubes that make score expectations inspectable.
 - Architecture tests parse imports and source text to keep dependency rules executable.
-- Validation tests run small synthetic ensembles through artifact loading, scoring, provenance, and PNG rendering; they do not run 10,000 full-length paths.
+- Validation tests run small synthetic ensembles through artifact loading, scoring, provenance, and PNG rendering; they do not run 1,000 full-length paths.
 
 Consequently, a green suite does not prove that Yahoo, CoinMetrics, or the BTC hourly dataset is currently reachable; that a full CPU/CUDA run fits in memory; that generated XLSX/PNG output looks correct; or that a selected market effect is statistically or economically durable.
 
@@ -55,7 +56,7 @@ Use `TemporaryDirectory` and public persistence helpers. Verify both the stored 
 
 ### CLI or pipeline
 
-Test parsing and routing without downloading data. Preserve the public order `measure`, `compare`, `validate`, `status`. Output assertions should protect useful structure and contracts, not incidental whitespace unless the formatting itself is the interface under test.
+Test parsing and routing without downloading data. Preserve the public order `measure`, `compare`, `validate`, `select`, `status`. Output assertions should protect useful structure and contracts, not incidental whitespace unless the formatting itself is the interface under test.
 
 ### Workspace
 
@@ -73,7 +74,8 @@ Changes to the scientific path require a staged workspace run:
 barrierlab measure  --workspace <name>
 barrierlab compare  --workspace <name>
 barrierlab validate --workspace <name>
+barrierlab select   --workspace <name>
 barrierlab status   --workspace <name>
 ```
 
-Then inspect `validation.json`, representative spreadsheets, and null-histogram plots. Generated artifacts are local and ignored by Git; see the [workspace contract](../workspaces/README.md).
+Then inspect `validation.json`, `selection.json`, representative spreadsheets, null histograms, and selected-bin heatmaps. Generated artifacts are local and ignored by Git; see the [workspace contract](../workspaces/README.md).

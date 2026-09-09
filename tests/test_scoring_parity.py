@@ -123,6 +123,102 @@ def test_batch_uses_each_paths_own_baseline_and_edges():
     assert not np.allclose(actual["scores"][0], actual["scores"][1])
 
 
+def test_delta_matrix_matches_scalar_touch_rates():
+    frames = [history(n=100, seed=seed) for seed in (2, 9)]
+    paths = torch.as_tensor(np.stack([frame.to_numpy() for frame in frames]))
+    feature = torch.stack((torch.arange(100), torch.arange(100).flip(0))).to(torch.float64)
+    edges = barrier.batched_bin_edges(feature, 4)
+    indices = barrier.bin_indices(feature, edges)
+    deltas = np.array([-.07, -.02, 0., .02, .07])
+    lo, hi = next(barrier.iter_extremes(paths, [7]))
+
+    prob, hits, counts, observed = barrier.touch_rate_matrix(
+        lo, hi, feature, indices, 4, deltas,
+    )
+    scalar = [barrier.touch_rates(lo, hi, feature, indices, 4, delta) for delta in deltas]
+    torch.testing.assert_close(prob, torch.stack([row[0] for row in scalar], dim=1), equal_nan=True)
+    torch.testing.assert_close(hits, torch.stack([row[1] for row in scalar], dim=1))
+    torch.testing.assert_close(counts, scalar[0][2])
+    torch.testing.assert_close(observed, scalar[0][3])
+
+
+def test_persistable_observed_cache_matches_uncached_measurement():
+    data = history(n=100)
+    feature = pd.Series(np.sin(np.arange(100)))
+    deltas, horizons = np.array([-.03, 0., .03]), np.array([1, 3, 7])
+    edges = barrier.bin_edges(feature, 3)
+    expected = barrier.touch_tensor(data, feature, horizons, deltas, edges)
+    low, high = barrier.forward_extremes_upto(data, int(horizons.max()))
+    lo, hi = low[horizons - 1], high[horizons - 1]
+    delta_matrix = deltas.reshape(1, 1, -1)
+    ok = np.isfinite(lo) & np.isfinite(hi)
+    touches = np.where(
+        delta_matrix < 0, lo[:, :, None] <= delta_matrix, hi[:, :, None] >= delta_matrix,
+    ) & ok[:, :, None]
+    counts = ok.sum(axis=1)
+    baseline = np.where(
+        counts[:, None] >= barrier.MIN_BIN_N,
+        touches.sum(axis=1) / np.maximum(counts[:, None], 1),
+        np.nan,
+    ).T
+    actual = barrier.touch_tensor(
+        data, feature, horizons, deltas, edges,
+        excursions=(low, high), touches=touches, baseline=baseline,
+    )
+    for key in ("prob", "hits", "bin_n", "n_obs", "bin_indices"):
+        np.testing.assert_allclose(actual[key], expected[key], equal_nan=True)
+
+
+def test_many_scorer_matches_independent_scoring_across_path_batches():
+    frames = [history(n=100, seed=seed) for seed in range(5)]
+    paths = np.stack([frame.to_numpy() for frame in frames])
+    policies = [
+        {"features": None, "edges": None, "feature_name": "roc",
+         "params": {"period": period}, "deltas": np.array([-.03, .03]),
+         "horizons": np.array([1, 5]), "n_bins": 3}
+        for period in (3, 7)
+    ]
+    expected = [validation.score_histories(paths, **policy) for policy in policies]
+    actual = validation.score_histories_many(paths, policies, batch_size=2)
+    for wanted, received in zip(expected, actual):
+        for key in ("scores", "valid", "edges"):
+            np.testing.assert_allclose(received[key], wanted[key], rtol=0, atol=1e-10)
+
+
+def test_many_scorer_builds_one_touch_matrix_per_batch_and_horizon(monkeypatch):
+    paths = np.stack([history(n=100, seed=seed).to_numpy() for seed in range(5)])
+    policies = [
+        {"features": None, "edges": None, "feature_name": "roc",
+         "params": {"period": period}, "deltas": np.array([-.03, .03]),
+         "horizons": np.array([1, 5]), "n_bins": 3}
+        for period in (3, 7)
+    ]
+    original = barrier.barrier_touch_matrix
+    calls = []
+    def capture(*args):
+        calls.append(1)
+        return original(*args)
+    monkeypatch.setattr(barrier, "barrier_touch_matrix", capture)
+    validation.score_histories_many(paths, policies, batch_size=2)
+    assert len(calls) == 3 * 2
+
+
+def test_feature_cache_reuses_rolling_primitives(monkeypatch):
+    from barrierlab.domain import torch_features
+
+    paths = torch.as_tensor(history(n=100).to_numpy(copy=True)[None])
+    original = torch_features._rolling
+    calls = []
+    def capture(x, window, op):
+        calls.append((window, op))
+        return original(x, window, op)
+    monkeypatch.setattr(torch_features, "_rolling", capture)
+    cache = {}
+    torch_features.compute(paths, "ma_ratio", {"period": 10}, cache)
+    torch_features.compute(paths, "ma_cross", {"fast": 10, "slow": 50}, cache)
+    assert calls.count((10, "mean")) == 1
+
+
 def test_fixed_external_edges_preserve_collapsed_observed_bins():
     data = history()
     x = pd.Series(np.arange(len(data), dtype=float) % 3)

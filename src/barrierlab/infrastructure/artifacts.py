@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+import hashlib
+
+import numpy as np
 
 import pandas as pd
 
@@ -14,6 +17,7 @@ STAGE_DIRECTORIES = {
     "surface": "01_surface",
     "shift": "02_shift",
     "validation": "03_validation",
+    "selection": "04_selection",
 }
 
 
@@ -27,6 +31,9 @@ class ArtifactPaths:
 
     def stage_dir(self, stage: str) -> Path:
         return self.workspace_dir / STAGE_DIRECTORIES[stage]
+
+    def observed_cache_path(self, history_key: str) -> Path:
+        return self.workspace_dir / "00_cache" / f"observed_{history_key}.safetensors"
 
     def cube_path(self, node_id: str) -> Path:
         return self.stage_dir("surface") / "array" / f"{node_id}.safetensors"
@@ -43,6 +50,10 @@ class ArtifactPaths:
     @property
     def validation_summary_path(self) -> Path:
         return self.stage_dir("validation") / "validation.json"
+
+    @property
+    def selection_summary_path(self) -> Path:
+        return self.stage_dir("selection") / "selection.json"
 
 def market_data_from_artifact(artifact: dict) -> pd.DataFrame:
     """Restore the ordered OHLCV history retained in a pipeline artifact."""
@@ -70,3 +81,12 @@ def feature_from_artifact(artifact: dict, index: pd.Index) -> pd.Series:
         name="feature",
     )
     return values.reindex(index)
+
+
+def market_history_key(data: pd.DataFrame) -> str:
+    """Content identity for ordered market data shared by multiple nodes."""
+    digest = hashlib.sha256()
+    digest.update(str(tuple(data.columns)).encode())
+    digest.update(data.index.asi8.tobytes())
+    digest.update(np.ascontiguousarray(data.to_numpy(dtype=float)).tobytes())
+    return digest.hexdigest()

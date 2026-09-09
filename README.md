@@ -53,6 +53,7 @@ python -m pip install -e .
 barrierlab measure
 barrierlab compare
 barrierlab validate
+barrierlab select
 ```
 
 Each pipeline command also accepts `--cuda` when a CUDA-capable PyTorch installation and device are available.
@@ -64,9 +65,10 @@ Each pipeline command also accepts `--cuda` when a CUDA-capable PyTorch installa
 | 1 | measure | Measure raw conditional probabilities | `P(price touch Δ within t bars \| condition)` |
 | 2 | compare | Compare raw probabilities to baseline | `P(price touch Δ within t bars \| condition) − P(price touch Δ within t bars)` |
 | 3 | validate | Validate every eligible bin against the null | `p < 0.05 or p >= 0.05` |
+| 4 | select | Retain cleared bins and render their shift heatmaps | `selected = (p < 0.05)` |
 
 
-Validation reads stored Stage 2 histories and writes `03_validation/`. Cell scores are private contributions summed into each bin score; selection is currently removed and will be added after validation.
+Validation writes `03_validation/`; selection consumes only a current validation result and writes `04_selection/`. Every cleared bin is retained—there is no top-k ranking or secondary economic gate.
 
 ## Repository map
 
@@ -75,3 +77,6 @@ Validation reads stored Stage 2 histories and writes `03_validation/`. Cell scor
 - [Workspaces](workspaces/README.md) — experiment declarations, plugins, generated artifacts, and safe workspace changes.
 
 BarrierLab is research software, not investment advice.
+
+The complete numerical specification is available as LaTeX in
+[`docs/mathematics.tex`](docs/mathematics.tex).

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
+
 from barrierlab.domain import shift
 from barrierlab.infrastructure import artifact_io
 from barrierlab.infrastructure.workspace import BASELINE_NODE, Workspace
-from barrierlab.pipeline.context import baseline_surface
+from barrierlab.pipeline.context import baseline_surface, materialized_shift
 from barrierlab.pipeline.reporting import MilestoneProgress, StageReport
 from barrierlab.presentation import workbooks
 
@@ -34,7 +36,12 @@ def _write_shift_array(ws: Workspace, progress: MilestoneProgress) -> list[str]:
             artifact_io.save_shift(
                 shifted,
                 ws.shift_cube_path(node["id"]),
-                {**full["meta"], "grid": "shift", "value": "conditional_minus_baseline_pp"},
+                {**full["meta"], "grid": "shift", "value": "conditional_minus_baseline_pp",
+                 "source_artifact": str(ws.cube_path(node["id"]).relative_to(ws.dir)),
+                 "source_sha256": hashlib.sha256(ws.cube_path(node["id"]).read_bytes()).hexdigest(),
+                 "baseline_artifact": str(ws.baseline_cube.relative_to(ws.dir)),
+                 "baseline_sha256": hashlib.sha256(ws.baseline_cube.read_bytes()).hexdigest()},
+                thin=True,
             )
         except Exception as error:
             skipped[node["id"]] = str(error)
@@ -53,7 +60,7 @@ def _render_shift(ws: Workspace, progress: MilestoneProgress) -> tuple[int, list
     written = 0
     warnings = []
     for node in nodes:
-        cube = artifact_io.load_shift(ws.shift_cube_path(node["id"]))
+        cube = materialized_shift(ws, node["id"])
         try:
             workbooks.write_shift_xlsx(
                 cube,

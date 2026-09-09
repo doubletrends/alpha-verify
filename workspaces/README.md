@@ -74,11 +74,13 @@ Current examples:
 
 | Stage | Command | Machine-readable contract | Human-readable views |
 |---|---|---|---|
+| `00_cache` | internal | Per-history excursions, touch matrix, and baseline | None |
 | `01_surface` | `measure` | Per-node SafeTensors probability cube and embedded ordered history | Per-node XLSX workbook |
-| `02_shift` | `compare` | Per-node SafeTensors baseline-relative cube | Per-node XLSX workbook |
+| `02_shift` | `compare` | Per-node shift tensor plus Stage 1 references/fingerprints | Per-node XLSX workbook |
 | `03_validation` | `validate` | `validation.json` with fingerprint, observed scores, null scores, p95, and raw p-values | Per-bin null-histogram PNG |
+| `04_selection` | `select` | `selection.json` containing every validation-cleared bin | Per-selected-bin shift heatmap and copied null-distribution PNG |
 
-Stage 3 reads Stage 2 arrays and their embedded price and feature histories, with no provider calls. It remeasures the observed history in float64 through the same path as each null history and tests all eligible non-baseline condition bins. Stored probabilities, shifts, and counts are presentation data, not validation inputs. Core features and quantiles are recomputed for both roles; external feature values and edges stay fixed for both. `validation.json` fingerprints source bytes, node declarations, and bin count and records measurement version and simulation settings. Missing node arrays make the result incomplete. Status reports incomplete or mismatched summaries. Former selection and Stage 4 outputs are ignored; run `validate` to create the new `03_validation/` output.
+Stage 3 uses Stage 2 as its completion gate and reads histories and observed condition data from the referenced Stage 1 artifacts, with no provider calls. Observed excursions, touches, baselines, and bin assignments come from the versioned source cache. Synthetic batches generate one touch matrix per horizon and share it across every node. `validation.json` fingerprints both Stage 1 and Stage 2 source bytes, node declarations, bin count, measurement version, and simulation settings.
 
 Do not copy generated artifacts between workspaces. Paths may look compatible while grids, histories, features, or fingerprints disagree.
 
@@ -108,6 +110,7 @@ Run from the repository root and keep the stages in order:
 barrierlab measure  --workspace nasdaq_daily
 barrierlab compare  --workspace nasdaq_daily
 barrierlab validate --workspace nasdaq_daily
+barrierlab select   --workspace nasdaq_daily
 barrierlab status   --workspace nasdaq_daily
 ```
 
@@ -127,8 +130,8 @@ If a workbook is open in Excel, a stage may report it as locked while continuing
 2. Set the asset, date range, barrier grid, horizons, bin count in `universe.json`.
 3. Keep the baseline node and give every node a unique ID, registered feature, valid parameters, and registered data sources.
 4. Add `plugin.py` only for workspace-specific registrations. Keep reusable numerical behavior in `src/barrierlab/`.
-5. Run `measure`, `compare`, and `validate` in order, then inspect workspace and representative node status.
-6. Review shift workbooks and null-histogram plots as well as the JSON manifests; a successful command alone does not validate their scientific interpretation.
+5. Run `measure`, `compare`, `validate`, and `select` in order, then inspect workspace and representative node status.
+6. Review shift workbooks, null histograms, selected heatmaps, and JSON manifests; a successful command alone does not validate their scientific interpretation.
 7. Add or update [tests](../tests/README.md) when the declaration introduces a repository-level source, schema, plugin, or path contract.
 
 Changing history, grid, feature definitions, or node parameters invalidates downstream interpretation even if old artifacts remain readable. Prefer a clean new workspace identity for materially different experiments; otherwise rerun the full pipeline and use the input fingerprint to detect stale validation.

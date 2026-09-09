@@ -22,6 +22,10 @@ class StageReport:
             "Statistical validation against simulated price paths",
             "Is each condition-bin score larger than expected by chance?",
         ),
+        4: (
+            "Selection of statistically cleared condition bins",
+            "Retain every and only condition bin with raw p < 0.05",
+        ),
     }
     _RULE = "=" * 60
 

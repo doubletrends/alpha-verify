@@ -13,6 +13,7 @@ from barrierlab.infrastructure.workspace import Workspace
 from barrierlab.pipeline.step_01_surface import cmd_surface
 from barrierlab.pipeline.step_02_shift import cmd_shift
 from barrierlab.pipeline.step_03_validation import cmd_validation
+from barrierlab.pipeline.step_04_selection import cmd_selection
 from barrierlab.pipeline.status import cmd_status
 
 
@@ -41,6 +42,11 @@ COMMANDS = (
         cmd_validation,
     ),
     Command(
+        "select",
+        "4. retain validation-cleared bins and render heatmaps",
+        cmd_selection,
+    ),
+    Command(
         "status",
         "show workspace or node artifact and validation status",
         cmd_status,
@@ -60,6 +66,7 @@ OVERVIEW = dedent("""\
         measure     Measure raw conditional probabilities → 01_surface/
         compare     Compare raw probabilities to baseline → 02_shift/
         validate    Validate all eligible bins vs null     → 03_validation/
+        select      Select cleared bins and heatmaps       → 04_selection/
 
       Inspect
 
@@ -88,6 +95,7 @@ class RootParser(argparse.ArgumentParser):
             ("measure", "01_surface/"),
             ("compare", "02_shift/"),
             ("validate", "03_validation/"),
+            ("select", "04_selection/"),
         ):
             help_text = help_text.replace(
                 f"    {command}", f"    {bold}{command}{reset}"

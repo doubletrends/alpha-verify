@@ -9,6 +9,7 @@ import numpy as np
 from safetensors import safe_open
 
 from barrierlab.infrastructure import artifact_io
+from barrierlab.pipeline.context import materialized_shift
 
 
 def _surface_cube() -> dict:
@@ -79,6 +80,44 @@ class ArtifactIoTests(unittest.TestCase):
         for key in ("shift", "prob", "base"):
             self.assertEqual(loaded[key].dtype, np.dtype(np.float64))
         self.assertEqual(loaded["meta"], {"stage": 2})
+
+    def test_thin_shift_owns_only_the_derived_shift(self) -> None:
+        cube = {**_surface_cube(), "shift": np.full((2, 3, 2), 4.25)}
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "shift.safetensors"
+            artifact_io.save_shift(
+                cube, path, {"source_artifact": "01_surface/array/a.safetensors"}, thin=True,
+            )
+            with safe_open(path, framework="np") as stored:
+                self.assertEqual(list(stored.keys()), ["shift"])
+            loaded = artifact_io.load_shift(path)
+        self.assertEqual(set(loaded), {"shift", "meta"})
+
+    def test_thin_shift_materializes_from_stage1(self) -> None:
+        class WorkspaceStub:
+            def __init__(self, root):
+                self.root = Path(root)
+                self.baseline_cube = self.cube_path("baseline")
+            def cube_path(self, node):
+                return self.root / "01_surface" / f"{node}.safetensors"
+            def shift_cube_path(self, node):
+                return self.root / "02_shift" / f"{node}.safetensors"
+        with TemporaryDirectory() as directory:
+            ws = WorkspaceStub(directory)
+            node, baseline = _surface_cube(), _surface_cube()
+            baseline["prob"] = np.broadcast_to(
+                np.full((2, 1, 2), .4), (2, 3, 2),
+            ).copy()
+            artifact_io.save_surface(node, ws.cube_path("a"), {"node": "a"})
+            artifact_io.save_surface(baseline, ws.baseline_cube, {"node": "baseline"})
+            artifact_io.save_shift(
+                {"shift": np.full((2, 3, 2), 4.25)}, ws.shift_cube_path("a"),
+                {"source_artifact": "01_surface/a.safetensors"}, thin=True,
+            )
+            loaded = materialized_shift(ws, "a")
+        np.testing.assert_array_equal(loaded["shift"], 4.25)
+        np.testing.assert_allclose(loaded["base"], .4)
+        self.assertIn("prob", loaded)
 
 
 if __name__ == "__main__":
