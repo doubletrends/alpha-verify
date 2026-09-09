@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from barrierlab.domain.features import is_ohlcv_feature
+from barrierlab.domain.scoring import SCORING_VERSION
 from barrierlab.pipeline.step_04_validation import validation_summary_is_current
 
 
@@ -33,6 +34,9 @@ class CombinedValidationTests(unittest.TestCase):
                 "rank": 1, "node": "atr", "bin": 9, "delta": 0.10,
                 "horizon": 14, "score": 0.02,
             }],
-            "method": {"unit": "one full-grid linearly Δ-weighted condition-bin score; raw p < 0.05"},
+            "method": {"unit": "one full-grid linearly Δ-weighted condition-bin score; raw p < 0.05",
+                       "scoring_version": SCORING_VERSION},
         }
         self.assertTrue(validation_summary_is_current(_Workspace(), summary))
+        del summary["method"]["scoring_version"]
+        self.assertFalse(validation_summary_is_current(_Workspace(), summary))

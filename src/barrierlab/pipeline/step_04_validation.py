@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import numpy as np
 
 from barrierlab.domain import validation as val
+from barrierlab.domain.scoring import SCORING_VERSION
 from barrierlab.domain.features import is_ohlcv_feature
 from barrierlab.infrastructure import artifact_io
 from barrierlab.infrastructure.artifacts import feature_from_artifact, market_data_from_artifact
@@ -39,6 +40,7 @@ def validation_summary_is_current(ws: Workspace, summary: dict) -> bool:
             and summary.get("complete")
             and summary.get("selection_fingerprint") == selection_fingerprint(selected)
             and summary.get("method", {}).get("unit") == "one full-grid linearly Δ-weighted condition-bin score; raw p < 0.05"
+            and summary.get("method", {}).get("scoring_version") == SCORING_VERSION
         )
     except KeyError:
         # A pre-grid selection manifest cannot certify a grid-based validation.
@@ -81,7 +83,7 @@ def cmd_validation(ws: Workspace) -> None:
     )
     for group in grouped.values():
         node, data, feature, cube = group["node"], group["data"], group["feature"], group["cube"]
-        n_bins = int(cube["shift"].shape[1])
+        n_bins = ws.n_bins
         synthetic_features = None
         # Only core OHLCV transforms can be evaluated from the unlabeled
         # synthetic paths.  Calendar and workspace-plugin features have no
@@ -95,6 +97,7 @@ def cmd_validation(ws: Workspace) -> None:
         null_scores_by_bin = val.batched_bin_score_sums(
             simulated_paths, synthetic_features, cube["Δs"], cube["horizons"], n_bins,
             node["feature"], node["params"], null_progress,
+            edges=cube["edges"] if synthetic_features is not None else None,
         )
         for row in group["rows"]:
             observed = float(observed_scores[int(row["bin"])])
@@ -119,6 +122,7 @@ def cmd_validation(ws: Workspace) -> None:
         "artifact": "04_validation", "complete": True,
         "selection_fingerprint": selection_fingerprint(rows),
         "method": {
+            "scoring_version": SCORING_VERSION,
             "threshold": {"raw_p": "< 0.05"},
             "unit": "one full-grid linearly Δ-weighted condition-bin score; raw p < 0.05",
             "null": "10,000 shared synthetic OHLC histories; external condition histories fixed",

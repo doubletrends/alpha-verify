@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import torch
 from barrierlab.domain import tensor_runtime
+from barrierlab.domain.scoring import baseline_shifts
 
 
 def from_cube(cube: dict, baseline: np.ndarray) -> dict:
@@ -27,7 +28,7 @@ def from_cube(cube: dict, baseline: np.ndarray) -> dict:
         )
 
     out = {
-        "shift": ((prob - base[:, None, :]) * 100.0).cpu().numpy(),
+        "shift": baseline_shifts(prob, base).cpu().numpy(),
         "prob": prob.cpu().numpy(),
         "base": base.cpu().numpy(),
         "hits": cube["hits"],

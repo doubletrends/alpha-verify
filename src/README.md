@@ -36,7 +36,7 @@ Key modules:
 - `barrier.py` computes quantile edges, forward price excursions, and conditional touch-probability cubes.
 - `features.py` registers built-in features and routes core transforms to `torch_features.py`.
 - `shift.py` defines the Stage 2 percentage-point shift and the practical-effect inspection used by node status.
-- `selection.py` defines the full-grid condition-bin score and global ranking.
+- `scoring.py` owns baseline subtraction, cell eligibility, barrier weights, and the full-grid bin score; `selection.py` uses its results for global ranking.
 - `validation.py` fits and samples the synthetic OHLC null and scores every null history.
 - `tensor_runtime.py` owns the selected Torch device; `configure_cuda()` is invoked before a CLI stage runs.
 
@@ -109,6 +109,8 @@ bin score  = sum(cell score over all valid paired barriers and horizons)
 
 The candidates are sorted globally and `selection.top_k` candidates are retained; the default is 20. `selection.json` is the ranking source of truth. Each ranked SafeTensors artifact deliberately preserves the selected node's complete bin cube and marks the representative bin. Validation must consume these Stage 3 artifacts, not reach back into Stage 2.
 
+`scoring.score_grid(prob, base, bin_n, deltas)` is the single scoring implementation for selection, observed validation, and simulated validation. It derives percentage-point shifts from probabilities and the supplied history's own baseline, requires at least 30 observations per bin and two usable bins per cell, and sums the linearly weighted absolute skew. Stored `shift` arrays remain presentation artifacts; scoring derives shifts from `prob` and `base` to prevent an observed-only transformation. The baseline retains Stage 2 semantics: all eligible market dates, including dates before feature warm-up.
+
 ### Stage 4: `validate`
 
 Validation reconstructs the exact observed OHLCV and feature histories stored in each selected artifact. It fits a four-component multivariate Gaussian to:
@@ -124,6 +126,8 @@ With deterministic seed `20260907`, it draws 10,000 histories of the observed le
 
 Core OHLCV features are recomputed for each synthetic path. External, calendar, and workspace-plugin features cannot be derived from synthetic OHLC alone, so their observed condition history is broadcast across null paths. Volume is also carried from the observed history.
 
+For each simulated history, validation uses the same quantile-edge, boundary-assignment, and touch-rate helpers as Stage 1. Non-finite feature values are excluded from quantiles, ties are deduplicated, and values equal to an edge enter the lower bin. Core features use the workspace's requested quantile count, with collapsed bins padded internally; fixed external features retain the observed edges. Each path supplies its own unconditional probabilities to `scoring.score_grid`. Horizons are processed incrementally to avoid retaining the full synthetic cube in memory.
+
 For each selected condition bin, validation recomputes the complete linearly barrier-weighted grid score. It records:
 
 - `bin_score`: observed full-grid score;
@@ -132,7 +136,7 @@ For each selected condition bin, validation recomputes the complete linearly bar
 - `peak_p`: `(1 + count(null_score >= observed)) / (1 + 10000)`;
 - `cleared`: whether raw `peak_p < 0.05`.
 
-`validation.json` includes a fingerprint of the Stage 3 selection. Status rejects a validation artifact when that fingerprint or scoring-unit declaration no longer matches.
+`validation.json` includes a fingerprint of the Stage 3 selection and `method.scoring_version`. Status rejects a validation artifact when that fingerprint, scoring-unit declaration, or version no longer matches. Validation results produced before `baseline-relative-grid-v2` are stale. Rerun `measure`, `compare`, `select`, and `validate` to rebuild artifacts with the shared process.
 
 ## Statistical boundary
 
@@ -149,8 +153,8 @@ Changing any of these assumptions changes the experiment contract. Update the im
 | Feature and source implementations | `domain/features.py`, `domain/torch_features.py`, `infrastructure/market_data.py`, workspace plugin |
 | Stage paths and filenames | `infrastructure/artifacts.py` |
 | SafeTensors payload schemas | `infrastructure/artifact_io.py` |
-| Selection formula | `domain/selection.py` and `03_selection/selection.json` metadata |
-| Null generation and scoring | `domain/validation.py` |
+| Bin-score formula | `domain/scoring.py` and `03_selection/selection.json` metadata |
+| Null generation and measurement orchestration | `domain/validation.py`; scoring delegates to `domain/scoring.py` |
 | Validation threshold and fingerprint | `pipeline/step_04_validation.py` and `04_validation/validation.json` |
 
 Do not copy formulas, paths, or configuration into a second executable source. Documentation should name the owner and explain its consequence.
@@ -163,7 +167,7 @@ Do not copy formulas, paths, or configuration into a second executable source. D
 | Add a built-in data source | `infrastructure/market_data.py` | Registry caching and index alignment |
 | Add an experiment-only source or feature | Workspace `plugin.py` | [`workspaces/README.md`](../workspaces/README.md) contract |
 | Change a stage artifact | `infrastructure/artifacts.py` and `artifact_io.py` | Downstream loaders, fingerprints, status, and artifact tests |
-| Change selection scoring | `domain/selection.py` | `domain/validation.py` must calculate exactly the same score |
+| Change bin scoring | `domain/scoring.py` | Selection and observed/null validation share this kernel; update its version and parity tests |
 | Change the null | `domain/validation.py` | Stage 4 metadata, plots, current-summary check, and statistical disclosure |
 | Change a workbook or plot | `presentation/` | Keep machine-readable artifacts unchanged |
 | Add or rename a CLI command | `cli.py` | Pipeline order and CLI contract tests |

@@ -5,19 +5,21 @@ from __future__ import annotations
 import numpy as np
 import torch
 from barrierlab.domain import tensor_runtime
+from barrierlab.domain.scoring import SCORING_VERSION, score_grid
 
 
 def bin_information(
     cube: dict,
     delta: float,
     horizon: int,
+    scored: dict | None = None,
 ) -> dict | None:
     """
     Score one condition bin by its conditional-probability skew.
 
-    Stage 2 already stores the baseline-relative shifts for every signed barrier,
-    bin, and horizon. For an equal-magnitude positive and negative barrier, each
-    bin's score is abs(shift(+Δ) - shift(-Δ)). Every bin competes globally;
+    The shared scorer derives baseline-relative shifts from the Stage 2
+    probabilities and baseline. For an equal-magnitude positive and negative
+    barrier, each bin's score is abs(shift(+Δ) - shift(-Δ)). Every bin competes globally;
     a node is only the identifier of the bin's condition, never a scored aggregate.
     """
     deltas = np.asarray(cube["Δs"], dtype=float)
@@ -32,14 +34,20 @@ def bin_information(
     positive_i, negative_i = int(positive_hits[0]), int(negative_hits[0])
     j = int(horizon_hits[0])
     n = tensor_runtime.tensor(cube["bin_n"])[:, j]
-    positive_shift = tensor_runtime.tensor(cube["shift"])[positive_i, :, j]
-    negative_shift = tensor_runtime.tensor(cube["shift"])[negative_i, :, j]
-    usable = torch.isfinite(n) & torch.isfinite(positive_shift) & torch.isfinite(negative_shift) & (n > 0)
+    if scored is None:
+        scored = score_grid(cube["prob"], cube["base"], cube["bin_n"], deltas)
+    matched_magnitude = next((d for d in scored["cells"] if np.isclose(d, magnitude, atol=1e-12)), None)
+    cell = scored["cells"].get(matched_magnitude)
+    if cell is None:
+        return None
+    positive_shift = scored["shifts"][positive_i, :, j]
+    negative_shift = scored["shifts"][negative_i, :, j]
+    usable = cell["usable"][:, j]
     if int(usable.sum()) < 2:
         return None
 
-    signed_skew = positive_shift - negative_shift
-    bin_score = signed_skew.abs()
+    signed_skew = cell["signed"][:, j]
+    bin_score = cell["skew"][:, j]
     best_bin = int(torch.argmax(torch.nan_to_num(bin_score, nan=float("-inf"))))
     positive_prob = np.asarray(cube["prob"], dtype=float)[positive_i, best_bin, j]
     negative_prob = np.asarray(cube["prob"], dtype=float)[negative_i, best_bin, j]
@@ -105,27 +113,22 @@ def rank_nodes(
                 continue
             deltas = np.asarray(cube["Δs"], dtype=float)
             horizons = np.asarray(cube["horizons"], dtype=int)
-            magnitudes = sorted({abs(float(value)) for value in deltas if abs(value) > 1e-12})
-            paired = [
-                magnitude for magnitude in magnitudes
-                if np.count_nonzero(np.isclose(deltas, magnitude, atol=1e-12)) == 1
-                and np.count_nonzero(np.isclose(deltas, -magnitude, atol=1e-12)) == 1
-            ]
+            scored = score_grid(cube["prob"], cube["base"], cube["bin_n"], deltas)
+            paired = list(scored["cells"])
             if not paired:
                 continue
-            max_magnitude = max(paired)
             labels = cube.get("meta", {}).get("bin_labels", [])
             bin_candidates = {}
             for magnitude in paired:
-                for horizon in horizons:
-                    row = bin_information(cube, magnitude, int(horizon))
+                for j, horizon in enumerate(horizons):
+                    row = bin_information(cube, magnitude, int(horizon), scored)
                     if row is None:
                         continue
-                    weight = magnitude / max_magnitude
+                    weight = scored["cells"][magnitude]["weight"]
                     for cell in row["bin_cells"]:
                         b = int(cell["bin"])
                         skew_pp = cell["score_pp"]
-                        score_pp = skew_pp * weight
+                        score_pp = float(scored["cells"][magnitude]["weighted"][b, j])
                         scored_cell = {
                             **cell,
                             "delta_weight": weight,
@@ -142,8 +145,6 @@ def rank_nodes(
                             "bin_label": labels[b] if b < len(labels) else f"bin {b + 1}",
                             "cell_count": 0, "best_cell": None,
                         })
-                        candidate["score"] += scored_cell["score"]
-                        candidate["score_pp"] += scored_cell["score_pp"]
                         candidate["cell_count"] += 1
                         if (
                             candidate["best_cell"] is None
@@ -151,8 +152,10 @@ def rank_nodes(
                         ):
                             candidate["best_cell"] = scored_cell
             for candidate in bin_candidates.values():
-                # The representative cell drives the Stage 3 view and the existing
-                # per-cell synthetic-null validation, while ranking uses the total.
+                candidate["score_pp"] = float(scored["total"][candidate["bin"]])
+                candidate["score"] = candidate["score_pp"] / 100.0
+                # The representative cell drives the Stage 3 view; validation
+                # and ranking both use the shared full-grid total.
                 candidate["delta"] = candidate["best_cell"]["Δ"]
                 candidate["delta_abs"] = candidate["best_cell"]["Δ_abs"]
                 candidate["delta_weight"] = candidate["best_cell"]["delta_weight"]
@@ -170,12 +173,13 @@ def rank_nodes(
 
     return {
         "method": {
+            "scoring_version": SCORING_VERSION,
             "cell_score": "abs(02_shift(+Δ, bin, horizon) - 02_shift(-Δ, bin, horizon)) * (abs(Δ) / max_abs_Δ)",
             "score": "sum(cell_score for all valid paired-Δ and horizon cells in a condition bin)",
             "unit": "linearly Δ-weighted percentage points",
             "selection_unit": "individual condition bin",
             "delta_weight": "abs(Δ) / max_abs_Δ within each node cube",
-            "source": "02_shift.shift",
+            "source": "02_shift.prob and 02_shift.base via scoring.score_grid",
             "top_k": top_k,
         },
         "selected": candidates[:top_k],

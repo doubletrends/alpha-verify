@@ -28,6 +28,7 @@ python -m pytest -q tests/test_combined_validation.py
 | `test_cli_contract.py` | Supported command set and order; workspace/CUDA option parsing; optional node status; rejection of removed or unsupported flags |
 | `test_combined_validation.py` | Which features can be recomputed on synthetic OHLC; selection fingerprints; rejection of stale validation summaries |
 | `test_node_selection.py` | Per-bin competition; paired-barrier skew; all-horizon, linearly weighted full-grid score; absence of economic verdicts in Stage 3; preservation of the complete selected cube |
+| `test_scoring_parity.py` | Same-history selection/observed/null numerical parity; per-path baselines; drift regression; quantiles, ties, missing values, thin bins, and fixed external edges |
 | `test_stage_reporting.py` | Stable stage headings, summaries, timing shape, and bounded progress milestones |
 | `test_workspace_contracts.py` | Nasdaq catalog and stage paths; artifact-history alignment; per-run source caching; BTC hourly workspace-local OHLCV override |
 

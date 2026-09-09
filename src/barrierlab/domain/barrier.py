@@ -45,20 +45,53 @@ def bin_edges(feature: pd.Series, n_bins: int = 10) -> np.ndarray:
     feature, or the constant used by the baseline node -- yields duplicate quantiles,
     so the caller may get fewer bins than asked for. That is correct, not an error.
 
-    An edge only earns its place if it actually splits the sample. Assignment is
-    searchsorted-left, so an edge e sends values < e down and values >= e up; it
-    therefore needs at least one value on each side, which means min(v) < e <= max(v).
-    Without that check a constant feature produces one edge and an empty second bin --
-    the baseline node would arrive with a phantom column.
+    Assignment is searchsorted-left: values <= e enter the lower bin. Retain
+    the historical edge filter min(v) < e <= max(v), which eliminates phantom
+    edges for constant features. A maximum-valued edge can leave an empty final
+    bin; touch probabilities and scoring exclude it through sample counts.
     """
-    v = feature.dropna()
-    if v.empty:
-        return np.array([])
-    qs = np.linspace(0, 1, n_bins + 1)[1:-1]
-    values = tensor_runtime.tensor(v.to_numpy(float))
-    edges = torch.unique(torch.quantile(values, tensor_runtime.tensor(qs))).sort().values
-    lo, hi = values.min(), values.max()
-    return edges[(edges > lo) & (edges <= hi)].cpu().numpy()
+    values = tensor_runtime.tensor(feature.to_numpy(float))[None, :]
+    edges = batched_bin_edges(values, n_bins)[0]
+    return edges[torch.isfinite(edges)].cpu().numpy()
+
+
+def batched_bin_edges(values: torch.Tensor, n_bins: int) -> torch.Tensor:
+    """Finite-value quantiles, deduplicated per path and padded with infinity."""
+    if n_bins < 1:
+        raise ValueError("n_bins must be positive")
+    if n_bins == 1:
+        return values.new_empty((values.shape[0], 0))
+    finite = torch.isfinite(values)
+    clean = torch.where(finite, values, float("nan"))
+    qs = torch.linspace(0, 1, n_bins + 1, dtype=values.dtype, device=values.device)[1:-1]
+    edges = torch.nanquantile(clean, qs, dim=1).T
+    lo = torch.where(finite, values, float("inf")).amin(dim=1, keepdim=True)
+    hi = torch.where(finite, values, float("-inf")).amax(dim=1, keepdim=True)
+    unique = torch.ones_like(edges, dtype=torch.bool)
+    unique[:, 1:] = edges[:, 1:] != edges[:, :-1]
+    valid = torch.isfinite(edges) & unique & (edges > lo) & (edges <= hi)
+    return torch.where(valid, edges, float("inf")).sort(dim=1).values.contiguous()
+
+
+def bin_indices(values: torch.Tensor, edges: torch.Tensor) -> torch.Tensor:
+    """The common left-boundary convention, including exact ties."""
+    return torch.searchsorted(edges.contiguous(), values.contiguous(), right=False)
+
+
+def touch_rates(lo, hi, feature, indices, n_bins, delta, min_n=MIN_BIN_N):
+    """Batched conditional rates and counts for one signed barrier/horizon.
+
+    Inputs have (history, time) axes. The baseline is measured independently
+    using a constant feature, so it includes all eligible market dates.
+    """
+    ok = torch.isfinite(lo) & torch.isfinite(hi) & torch.isfinite(feature)
+    counts = lo.new_zeros((lo.shape[0], n_bins))
+    counts.scatter_add_(1, indices, ok.to(lo.dtype))
+    touched = lo <= delta if delta < 0 else hi >= delta
+    hits = torch.zeros_like(counts)
+    hits.scatter_add_(1, indices, (touched & ok).to(lo.dtype))
+    prob = torch.where(counts >= min_n, hits / counts.clamp_min(1), float("nan"))
+    return prob, hits, counts, ok.sum(dim=1)
 
 
 def bin_labels(edges: np.ndarray, feature: pd.Series) -> list[str]:
@@ -195,23 +228,16 @@ def _touch_tensor_cuda(
 
     for j, t in enumerate(horizons):
         lo_t, hi_t = mins_t[t - 1], maxs_t[t - 1]
-        ok = torch.isfinite(lo_t) & torch.isfinite(hi_t) & torch.isfinite(x_all)
-        if not bool(ok.any()):
-            continue
-        xs, ls, hs = x_all[ok], lo_t[ok], hi_t[ok]
-        idx = torch.bucketize(xs, edges_t, right=False) if len(edges) else torch.zeros(
-            len(xs), dtype=torch.int64, device=device
-        )
-        counts = torch.bincount(idx, minlength=n_bins)
-        enough = counts >= min_n
-        bin_n[:, j] = counts.to(torch.int32)
-        n_obs[j] = len(xs)
+        idx = bin_indices(x_all, edges_t)
         for i, delta in enumerate(deltas_t):
-            touched = torch.where(delta < 0, ls <= delta, hs >= delta).to(torch.float64)
-            count = torch.bincount(idx, weights=touched, minlength=n_bins)
-            hits[i, :, j] = count.to(torch.int32)
-            rates = count / torch.clamp(counts, min=1)
-            prob[i, :, j] = torch.where(enough, rates, torch.full_like(rates, float("nan")))
+            rates, count, counts, observed = touch_rates(
+                lo_t[None, :], hi_t[None, :], x_all[None, :], idx[None, :],
+                n_bins, delta, min_n,
+            )
+            bin_n[:, j] = counts[0].to(torch.int32)
+            n_obs[j] = observed[0]
+            hits[i, :, j] = count[0].to(torch.int32)
+            prob[i, :, j] = rates[0]
 
     return {
         "prob": prob.cpu().numpy(),
