@@ -13,8 +13,7 @@ _REQUIRED_HISTORY_COLUMNS = ("index", "high", "low", "close")
 STAGE_DIRECTORIES = {
     "surface": "01_surface",
     "shift": "02_shift",
-    "selection": "03_selection",
-    "validation": "04_validation",
+    "validation": "03_validation",
 }
 
 
@@ -40,23 +39,6 @@ class ArtifactPaths:
 
     def shift_surface_path(self, node_id: str) -> Path:
         return self.stage_dir("shift") / "spreadsheet" / f"{node_id}.xlsx"
-
-    @property
-    def selection_path(self) -> Path:
-        return self.stage_dir("selection") / "selection.json"
-
-    def selection_array_path(self, row: dict) -> Path:
-        return self._ranked_path("selection", row, ".safetensors")
-
-    def selection_surface_path(self, row: dict) -> Path:
-        return self._ranked_path("selection", row, ".xlsx")
-
-    def _ranked_path(self, stage: str, row: dict, suffix: str) -> Path:
-        rank = int(row["rank"])
-        return (
-            self.stage_dir(stage) / {".safetensors": "array", ".xlsx": "spreadsheet"}[suffix]
-            / f"rank_{rank:03d}__{row['node']}__bin_{int(row['bin_number']):02d}{suffix}"
-        )
 
     @property
     def validation_summary_path(self) -> Path:

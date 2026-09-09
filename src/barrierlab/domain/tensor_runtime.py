@@ -1,4 +1,4 @@
-"""One numerical runtime for Stages 1–4: PyTorch on CPU or CUDA."""
+"""One numerical runtime for Stages 1–3: PyTorch on CPU or CUDA."""
 from __future__ import annotations
 
 import numpy as np

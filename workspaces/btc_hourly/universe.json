@@ -28,9 +28,6 @@
     "target": {
       "Δ": -0.05,
       "horizon": 24
-    },
-    "selection": {
-      "top_k": 20
     }
   },
   "families": {

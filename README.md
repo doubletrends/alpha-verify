@@ -27,6 +27,8 @@ You've seen lots of them: a so-called “alpha” strategy and an equity curve t
 <br>
 </p>
 
+The figures below are historical results from the former selection-first pipeline; they have not been regenerated with validation of all bins.
+
 ## Example - MA Cross 50/200
 
 The "MA Cross" heatmap looks decisive: the classic MA Cross 50/200 produces a coherent **23.3 percentage-point** upside/downside contrast. 
@@ -50,7 +52,6 @@ python -m pip install -e .
 
 barrierlab measure
 barrierlab compare
-barrierlab select
 barrierlab validate
 ```
 
@@ -61,10 +62,11 @@ Each pipeline command also accepts `--cuda` when a CUDA-capable PyTorch installa
 | Stage | CLI Command | What it does | Mathematical form |
 |---|---|---|---|
 | 1 | measure | Measure raw conditional probabilities | `P(price touch Δ within t bars \| condition)` |
-| 2 | comapre | Compare raw probabilities to baseline | `P(price touch Δ within t bars \| condition) − P(price touch Δ within t bars)` |
-| 3 | select | Select strongest condition effects | `\|shift(+Δ) − shift(−Δ)\| * \|Δ\| / max\|Δ\|` |
-| 4 | validate | Validate selected effects vs null | `p < 0.05 or p >= 0.05` |
+| 2 | compare | Compare raw probabilities to baseline | `P(price touch Δ within t bars \| condition) − P(price touch Δ within t bars)` |
+| 3 | validate | Validate every eligible bin against the null | `p < 0.05 or p >= 0.05` |
 
+
+Validation reads stored Stage 2 histories and writes `03_validation/`. Cell scores are private contributions summed into each bin score; selection is currently removed and will be added after validation.
 
 ## Repository map
 

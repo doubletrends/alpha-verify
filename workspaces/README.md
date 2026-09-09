@@ -1,6 +1,6 @@
 # Workspaces
 
-Each child directory is a versioned experiment declaration and a local artifact namespace. A workspace owns its asset, history start, barrier grid, horizons, condition catalog, optional extensions, and selection count. It does not own shared numerical definitions, artifact schemas, renderers, or CLI behavior; those belong to [`src/`](../src/README.md).
+Each child directory is a versioned experiment declaration and a local artifact namespace. A workspace owns its asset, history start, barrier grid, horizons, condition catalog, and optional extensions. It does not own shared numerical definitions, artifact schemas, renderers, or CLI behavior; those belong to [`src/`](../src/README.md).
 
 ## Boundary and source of truth
 
@@ -10,8 +10,7 @@ workspaces/<name>/
   plugin.py                  optional versioned source/feature registration
   01_surface/                generated measurement artifacts
   02_shift/                  generated baseline-relative artifacts
-  03_selection/              generated ranked candidates and views
-  04_validation/             generated null results and plots
+  03_validation/             generated null results and plots
 ```
 
 `universe.json` is the source of truth for cross-file experiment facts. `barrierlab.infrastructure.workspace.Workspace` loads it into an immutable runtime configuration and node catalog. Do not duplicate asset symbols, grids, horizons, or feature parameters in package code.
@@ -33,11 +32,10 @@ The document contains `meta` and `families` objects.
 | `Δ` or `Delta` | Inclusive signed barrier grid: `min`, `max`, and `step` |
 | `horizons` | Inclusive forward-bar range: `min` and `max` |
 | `n_bins` | Quantile-bin count for conditional features |
-| `selection.top_k` | Number of globally ranked condition bins retained; defaults to 20 |
 | `evaluate` | `min_dev`, `min_bin_n`, and `min_run` used by detailed node status inspection |
-| `target` | Parsed target barrier/horizon available to Python callers; the current CLI selection and validation stages score the complete grid rather than this single target |
+| `target` | Parsed target barrier/horizon available to Python callers; the current CLI validation stage scores the complete grid rather than this single target |
 
-The `evaluate` block does not gate Stage 3 or Stage 4. It controls the practical-effect summary printed by `barrierlab status <node>`.
+The `evaluate` block does not gate Stage 3. It controls the practical-effect summary printed by `barrierlab status <node>`.
 
 ### `families`
 
@@ -78,12 +76,11 @@ Current examples:
 |---|---|---|---|
 | `01_surface` | `measure` | Per-node SafeTensors probability cube and embedded ordered history | Per-node XLSX workbook |
 | `02_shift` | `compare` | Per-node SafeTensors baseline-relative cube | Per-node XLSX workbook |
-| `03_selection` | `select` | `selection.json` plus ranked complete-node SafeTensors artifacts | Ranked single-bin XLSX and selected-surface PNG |
-| `04_validation` | `validate` | `validation.json` with fingerprint, observed scores, null scores, p95, and raw p-values | Per-candidate null-histogram PNG |
+| `03_validation` | `validate` | `validation.json` with fingerprint, observed scores, null scores, p95, and raw p-values | Per-bin null-histogram PNG |
 
-The flow is one way. Stage 4 consumes the promoted Stage 3 artifacts, including their embedded price and feature histories; it does not silently reload current provider data or reach back to Stage 2. `validation.json` fingerprints the selection it certifies, and `status` reports a mismatched summary as stale.
+Stage 3 reads Stage 2 arrays and their embedded price and feature histories, with no provider calls. It remeasures the observed history in float64 through the same path as each null history and tests all eligible non-baseline condition bins. Stored probabilities, shifts, and counts are presentation data, not validation inputs. Core features and quantiles are recomputed for both roles; external feature values and edges stay fixed for both. `validation.json` fingerprints source bytes, node declarations, and bin count and records measurement version and simulation settings. Missing node arrays make the result incomplete. Status reports incomplete or mismatched summaries. Former selection and Stage 4 outputs are ignored; run `validate` to create the new `03_validation/` output.
 
-Do not copy generated artifacts between workspaces. Paths may look compatible while grids, histories, features, ranks, or fingerprints disagree.
+Do not copy generated artifacts between workspaces. Paths may look compatible while grids, histories, features, or fingerprints disagree.
 
 ## Current declarations
 
@@ -91,7 +88,7 @@ Do not copy generated artifacts between workspaces. Paths may look compatible wh
 
 The flagship Alpha Verifier experiment. It requests Nasdaq Composite (`^IXIC`) daily bars from 2015, a −20% to +20% barrier grid in 1% steps, horizons from 1 to 30 days, and ten condition bins. Its catalog combines price/volume indicators with VIX, Treasury-yield, DXY, and calendar conditions.
 
-The documented result in the [root README](../README.md) comes from this workspace's selected top 20 condition bins and 10,000-history validation run.
+The historical result in the [root README](../README.md) comes from this workspace's selected top 20 condition bins and 10,000-history validation run.
 
 ### `btc_daily`
 
@@ -110,7 +107,6 @@ Run from the repository root and keep the stages in order:
 ```powershell
 barrierlab measure  --workspace nasdaq_daily
 barrierlab compare  --workspace nasdaq_daily
-barrierlab select   --workspace nasdaq_daily
 barrierlab validate --workspace nasdaq_daily
 barrierlab status   --workspace nasdaq_daily
 ```
@@ -123,16 +119,16 @@ Inspect one node after `compare`:
 barrierlab status vix_level --workspace nasdaq_daily
 ```
 
-If a workbook is open in Excel, a stage may report it as locked while continuing with other artifacts. Close the workbook and rerun that stage. If validation is stale, rerun `validate` after confirming the current Stage 3 selection is intended.
+If a workbook is open in Excel, a stage may report it as locked while continuing with other artifacts. Close the workbook and rerun that stage. If validation is stale, rerun `validate` after rebuilding Stage 2 when its inputs have changed.
 
 ## Add or change a workspace safely
 
 1. Copy the closest existing declaration into a new, clearly named child directory.
-2. Set the asset, date range, barrier grid, horizons, bin count, and selection count in `universe.json`.
+2. Set the asset, date range, barrier grid, horizons, bin count in `universe.json`.
 3. Keep the baseline node and give every node a unique ID, registered feature, valid parameters, and registered data sources.
 4. Add `plugin.py` only for workspace-specific registrations. Keep reusable numerical behavior in `src/barrierlab/`.
-5. Run `measure`, `compare`, `select`, and `validate` in order, then inspect workspace and representative node status.
-6. Review selected-surface and null-histogram plots as well as the JSON manifests; a successful command alone does not validate their scientific interpretation.
+5. Run `measure`, `compare`, and `validate` in order, then inspect workspace and representative node status.
+6. Review shift workbooks and null-histogram plots as well as the JSON manifests; a successful command alone does not validate their scientific interpretation.
 7. Add or update [tests](../tests/README.md) when the declaration introduces a repository-level source, schema, plugin, or path contract.
 
-Changing history, grid, feature definitions, or node parameters invalidates downstream interpretation even if old artifacts remain readable. Prefer a clean new workspace identity for materially different experiments; otherwise rerun the full pipeline and use the selection fingerprint to detect stale validation.
+Changing history, grid, feature definitions, or node parameters invalidates downstream interpretation even if old artifacts remain readable. Prefer a clean new workspace identity for materially different experiments; otherwise rerun the full pipeline and use the input fingerprint to detect stale validation.

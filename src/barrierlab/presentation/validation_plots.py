@@ -1,4 +1,4 @@
-"""Stage 4 validation diagnostic figures."""
+"""Stage 3 validation diagnostic figures."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from barrierlab.presentation.workbooks import feature_label
 
 
 def write_bin_score_null_histograms(ws, summary: dict, progress=None) -> list[Path]:
-    """Render each selected-bin comparison against its simulated-bin null."""
+    """Render each condition-bin comparison against its simulated-bin null."""
     out = ws.validation_summary_path.parent / "plot"
     out.mkdir(parents=True, exist_ok=True)
     paths = []
@@ -49,7 +49,7 @@ def write_bin_score_null_histograms(ws, summary: dict, progress=None) -> list[Pa
                 color=INK_2,
                 linewidth=1.2,
                 linestyle="--",
-                label="raw p<0.05 threshold (null p95)",
+                label="null 95th percentile",
             )
             ax.axvline(
                 observed,
@@ -75,10 +75,15 @@ def write_bin_score_null_histograms(ws, summary: dict, progress=None) -> list[Pa
             fig.subplots_adjust(top=0.78, bottom=0.18)
             path = (
                 out
-                / f'null_histogram__{row["rank"]:03d}__{row["node"]}__bin_{int(row["bin_number"]):02d}.png'
+                / f'null_histogram__{row["node"]}__bin_{int(row["bin_number"]):02d}.png'
             )
             paths.append(_save(fig, path))
         finally:
             if progress is not None:
                 progress.advance()
+    # Remove obsolete generated views when bins disappear or become unsupported.
+    current = set(paths)
+    for path in out.glob("null_histogram__*.png"):
+        if path not in current:
+            path.unlink()
     return paths

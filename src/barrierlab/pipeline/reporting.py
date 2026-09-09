@@ -19,12 +19,8 @@ class StageReport:
             "P(touch Δ within t bars | condition) − P(touch Δ within t bars)",
         ),
         3: (
-            "Strongest directional condition effects",
-            "Rank bins by summed |shift(+Δ) − shift(−Δ)| across the full grid",
-        ),
-        4: (
             "Statistical validation against simulated price paths",
-            "Is the selected directional effect larger than expected by chance?",
+            "Is each condition-bin score larger than expected by chance?",
         ),
     }
     _RULE = "=" * 60

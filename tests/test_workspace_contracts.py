@@ -13,15 +13,13 @@ from barrierlab.pipeline.context import RunContext
 
 
 class WorkspaceContractTests(unittest.TestCase):
-    def test_catalog_and_stage_paths_match_the_four_stage_pipeline(self) -> None:
+    def test_catalog_and_stage_paths_match_the_three_stage_pipeline(self) -> None:
         workspace = Workspace("nasdaq_daily")
-        row = {"rank": 7, "family": "vix", "node": "vix_level", "bin_number": 3}
         self.assertEqual(len(workspace.catalog.all_nodes()), 58)
         self.assertEqual(workspace.catalog.find("vix_level")["family"], "vix")
         self.assertEqual(workspace.cube_path("vix_level").parts[-3:], ("01_surface", "array", "vix_level.safetensors"))
         self.assertEqual(workspace.shift_cube_path("vix_level").parts[-3:], ("02_shift", "array", "vix_level.safetensors"))
-        self.assertEqual(workspace.selection_array_path(row).parts[-3:], ("03_selection", "array", "rank_007__vix_level__bin_03.safetensors"))
-        self.assertEqual(workspace.validation_summary_path.parts[-2:], ("04_validation", "validation.json"))
+        self.assertEqual(workspace.validation_summary_path.parts[-2:], ("03_validation", "validation.json"))
 
     def test_artifact_history_helpers_align_feature_to_valid_prices(self) -> None:
         artifact = {

@@ -9,7 +9,7 @@ import numpy as np
 from barrierlab.domain import shift
 from barrierlab.infrastructure import artifact_io
 from barrierlab.infrastructure.workspace import Workspace
-from barrierlab.pipeline.step_04_validation import validation_summary_is_current
+from barrierlab.pipeline.step_03_validation import validation_summary_is_current
 
 
 def _print_node_status(ws: Workspace, node_id: str) -> None:
@@ -88,10 +88,6 @@ def cmd_status(ws: Workspace, node_id: str | None = None) -> None:
         _print_node_status(ws, node_id)
         return
 
-    selection = ws.read_json(ws.selection_path)
-    selected = [
-        row for row in selection.get("selected", []) if ws.has_selection_array(row)
-    ]
     validation = ws.read_json(ws.validation_summary_path)
     validation_current = validation_summary_is_current(ws, validation)
     cleared_rows = validation.get("cleared", []) if validation_current else []
@@ -103,8 +99,7 @@ def cmd_status(ws: Workspace, node_id: str | None = None) -> None:
         "sheet",
         "shift",
         "sheet",
-        "select",
-        "s-sheet",
+        "tested",
         "cleared",
     ]
     by_family = defaultdict(lambda: [0] * len(columns))
@@ -115,12 +110,8 @@ def cmd_status(ws: Workspace, node_id: str | None = None) -> None:
         counts[2] += bool(ws.has_surface(node["id"]))
         counts[3] += bool(ws.has_shift_cube(node["id"]))
         counts[4] += bool(ws.has_shift_surface(node["id"]))
-        selected_rows = [row for row in selected if row["node"] == node["id"]]
-        counts[5] += sum(1 for row in selected_rows if ws.has_selection_array(row))
-        counts[6] += sum(1 for row in selected_rows if ws.has_selection_surface(row))
-        counts[7] += sum(
-            1 for row in cleared_rows if row.get("node") == node["id"]
-        )
+        counts[5] += sum(1 for row in tests if row.get("node") == node["id"])
+        counts[6] += sum(1 for row in cleared_rows if row.get("node") == node["id"])
 
     print(f"\n=== Status [{ws.dir.name}] ===")
     print(
@@ -130,11 +121,10 @@ def cmd_status(ws: Workspace, node_id: str | None = None) -> None:
     )
     if validation and validation_current:
         method = validation.get("method", {})
-        if method.get("unit") == "one full-grid linearly Δ-weighted condition-bin score; raw p < 0.05":
-            print(
-                f"  validation: {len(tests)} selected bins vs {method.get('null')} | "
-                f"raw p < 0.05 cleared {len(cleared_rows)}"
-            )
+        print(
+            f"  validation: {len(tests)} condition bins vs {method.get('null')} | "
+            f"raw p < {method['threshold']['raw_p']} cleared {len(cleared_rows)}"
+        )
     elif validation:
         missing = validation.get("missing_nodes", [])
         detail = f" ({len(missing)} missing nodes)" if missing else ""
@@ -159,5 +149,5 @@ def cmd_status(ws: Workspace, node_id: str | None = None) -> None:
     print(f"  {'TOTAL':<15}" + "".join(f"{value:>9}" for value in totals))
     print(
         f"\n  full grid {len(ws.deltas)}Δ x {len(ws.horizons)}t   |   "
-        f"03_selection keeps top {len(selected)} condition bins ranked over the full grid"
+        "03_validation tests all eligible condition bins across available nodes"
     )

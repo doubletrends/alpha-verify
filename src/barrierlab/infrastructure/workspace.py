@@ -29,7 +29,6 @@ class WorkspaceConfig:
     n_bins: int
     target_delta: float | None
     target_horizon: int | None
-    selection_top_k: int
     min_dev: float
     min_bin_n: int
     min_run: int
@@ -40,7 +39,6 @@ class WorkspaceConfig:
         horizons = meta.get("horizons", {})
         barriers = meta.get("Delta", meta.get("\u0394", {}))
         target = meta.get("target", {})
-        selection = meta.get("selection", {})
         evaluate = meta.get("evaluate", {})
         target_delta = target.get("Delta", target.get("\u0394"))
         return cls(
@@ -61,7 +59,6 @@ class WorkspaceConfig:
                 if target.get("horizon") is None
                 else int(target["horizon"])
             ),
-            selection_top_k=int(selection.get("top_k", 20)),
             min_dev=float(evaluate.get("min_dev", 10.0)),
             min_bin_n=int(evaluate.get("min_bin_n", 50)),
             min_run=int(evaluate.get("min_run", 2)),
@@ -163,10 +160,6 @@ class Workspace:
         return self.config.target_horizon
 
     @property
-    def selection_top_k(self) -> int:
-        return self.config.selection_top_k
-
-    @property
     def min_dev(self) -> float:
         return self.config.min_dev
 
@@ -210,24 +203,8 @@ class Workspace:
     def has_shift_surface(self, node_id: str) -> bool:
         return self.shift_surface_path(node_id).exists()
 
-    @property
-    def selection_path(self) -> Path:
-        return self.artifacts.selection_path
-
-    def selection_array_path(self, row: dict) -> Path:
-        return self.artifacts.selection_array_path(row)
-
-    def has_selection_array(self, row: dict) -> bool:
-        return self.selection_array_path(row).exists()
-
-    def selection_surface_path(self, row: dict) -> Path:
-        return self.artifacts.selection_surface_path(row)
-
-    def has_selection_surface(self, row: dict) -> bool:
-        return self.selection_surface_path(row).exists()
-
     def target(self, baseline: np.ndarray) -> tuple[float, int]:
-        """Return the shared Stage 3 selection and Stage 4 validation target."""
+        """Return an optional inspection target; validation scores the full grid."""
         horizons = self.horizons
         horizon = self.target_horizon or int(horizons[len(horizons) // 2])
         if self.target_delta is not None:

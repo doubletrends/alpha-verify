@@ -1,4 +1,4 @@
-"""Shared baseline-relative bin scoring for selection and observed/null validation."""
+"""In-memory full-grid bin scoring; cell contributions stay private."""
 
 from __future__ import annotations
 
@@ -8,10 +8,10 @@ import torch
 from barrierlab.domain import tensor_runtime
 from barrierlab.domain.barrier import MIN_BIN_N
 
-SCORING_VERSION = "baseline-relative-grid-v2"
+SCORING_VERSION = "baseline-relative-bin-v3"
 
 
-def paired_barriers(deltas) -> list[tuple[float, int, int]]:
+def _paired_barriers(deltas) -> list[tuple[float, int, int]]:
     """Unique nonzero magnitudes with exactly one positive and negative row."""
     deltas = np.asarray(deltas, dtype=float)
     pairs = []
@@ -32,28 +32,33 @@ def baseline_shifts(prob, base):
     return 100.0 * (_tensor(prob) - _tensor(base).unsqueeze(-2))
 
 
-def score_grid(prob, base, bin_n, deltas) -> dict:
-    """Score one or a batch of grids using each history's own baseline.
+def bin_scores(prob, base, bin_n, deltas) -> dict[str, torch.Tensor]:
+    """Return bin-level scores and validity, both shaped (..., bin).
 
-    Probability shape: (..., signed barrier, bin, horizon). Baselines omit
-    the bin axis; counts omit the barrier axis. Invalid cells contribute zero,
-    and a barrier/horizon must have at least two bins with MIN_BIN_N samples.
-    Returns cell details as well as the authoritative weighted sum per bin.
+    Probabilities have axes (..., signed barrier, bin, horizon); baselines
+    omit bin and counts omit barrier. All paired cell contributions are
+    computed together and reduced internally. Invalid contributions are zero;
+    validity distinguishes unsupported bins from supported zero-score bins.
+    This function performs no I/O and exposes no individual cell operations.
     """
+    prob, base, counts = _tensor(prob), _tensor(base), _tensor(bin_n)
+    if (prob.ndim < 3 or prob.shape[-3] != len(deltas)
+            or base.shape != prob.shape[:-2] + prob.shape[-1:]
+            or counts.shape != prob.shape[:-3] + prob.shape[-2:]):
+        raise ValueError("probability, baseline, counts, and barrier axes must match")
+    pairs = _paired_barriers(deltas)
+    if not pairs:
+        shape = counts.shape[:-1]
+        return {"scores": prob.new_zeros(shape),
+                "valid": torch.zeros(shape, dtype=torch.bool, device=prob.device)}
     shifts = baseline_shifts(prob, base)
-    counts = _tensor(bin_n)
-    pairs = paired_barriers(deltas)
-    total = torch.zeros_like(counts[..., 0], dtype=shifts.dtype)
-    cells = {}
-    max_magnitude = pairs[-1][0] if pairs else 1.0
-    for magnitude, positive, negative in pairs:
-        signed = shifts[..., positive, :, :] - shifts[..., negative, :, :]
-        usable = torch.isfinite(signed) & torch.isfinite(counts) & (counts >= MIN_BIN_N)
-        usable = usable & (usable.sum(dim=-2, keepdim=True) >= 2)
-        skew = torch.where(usable, signed.abs(), float("nan"))
-        weight = magnitude / max_magnitude
-        weighted = torch.where(usable, skew * weight, 0.0)
-        total += weighted.sum(dim=-1)
-        cells[magnitude] = {"signed": signed, "usable": usable, "skew": skew,
-                            "weighted": weighted, "weight": weight}
-    return {"total": total, "cells": cells, "shifts": shifts}
+    positive = [pair[1] for pair in pairs]
+    negative = [pair[2] for pair in pairs]
+    signed = shifts[..., positive, :, :] - shifts[..., negative, :, :]
+    usable = (torch.isfinite(signed) & torch.isfinite(counts.unsqueeze(-3))
+              & (counts.unsqueeze(-3) >= MIN_BIN_N))
+    usable = usable & (usable.sum(dim=-2, keepdim=True) >= 2)
+    weights = prob.new_tensor([pair[0] / pairs[-1][0] for pair in pairs])[:, None, None]
+    contributions = torch.where(usable, signed.abs() * weights, 0.0)
+    return {"scores": contributions.sum(dim=(-3, -1)),
+            "valid": usable.any(dim=-3).any(dim=-1)}

@@ -12,8 +12,7 @@ from barrierlab.domain import barrier
 from barrierlab.infrastructure.workspace import Workspace
 from barrierlab.pipeline.step_01_surface import cmd_surface
 from barrierlab.pipeline.step_02_shift import cmd_shift
-from barrierlab.pipeline.step_03_selection import cmd_selection
-from barrierlab.pipeline.step_04_validation import cmd_validation
+from barrierlab.pipeline.step_03_validation import cmd_validation
 from barrierlab.pipeline.status import cmd_status
 
 
@@ -37,13 +36,8 @@ COMMANDS = (
         cmd_shift,
     ),
     Command(
-        "select",
-        "3. select the strongest condition effects",
-        cmd_selection,
-    ),
-    Command(
         "validate",
-        "4. validate selected effects against the null",
+        "3. validate all eligible condition bins against the null",
         cmd_validation,
     ),
     Command(
@@ -65,8 +59,7 @@ OVERVIEW = dedent("""\
 
         measure     Measure raw conditional probabilities → 01_surface/
         compare     Compare raw probabilities to baseline → 02_shift/
-        select      Select strongest condition effects    → 03_selection/
-        validate    Validate selected effects vs null     → 04_validation/
+        validate    Validate all eligible bins vs null     → 03_validation/
 
       Inspect
 
@@ -94,8 +87,7 @@ class RootParser(argparse.ArgumentParser):
         for command, artifact in (
             ("measure", "01_surface/"),
             ("compare", "02_shift/"),
-            ("select", "03_selection/"),
-            ("validate", "04_validation/"),
+            ("validate", "03_validation/"),
         ):
             help_text = help_text.replace(
                 f"    {command}", f"    {bold}{command}{reset}"

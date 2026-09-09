@@ -30,6 +30,7 @@ from barrierlab.domain import tensor_runtime
 
 # Below this many observations a bin's rate is not worth reporting.
 MIN_BIN_N = 30
+MEASUREMENT_VERSION = "shared-history-float64-v1"
 
 
 def configure_cuda(enabled: bool) -> None:
@@ -94,7 +95,7 @@ def touch_rates(lo, hi, feature, indices, n_bins, delta, min_n=MIN_BIN_N):
     return prob, hits, counts, ok.sum(dim=1)
 
 
-def bin_labels(edges: np.ndarray, feature: pd.Series) -> list[str]:
+def bin_labels(edges: np.ndarray, feature: pd.Series | None = None) -> list[str]:
     """
     One interval label per bin, written the way the condition reads:
 
@@ -113,138 +114,121 @@ def bin_labels(edges: np.ndarray, feature: pd.Series) -> list[str]:
     return out
 
 
+def ohlcv_tensor(data: pd.DataFrame) -> torch.Tensor:
+    """Convert a stored history to one float64 path in canonical OHLCV order."""
+    close = data["close"].to_numpy(float)
+    open_ = data["open"].to_numpy(float) if "open" in data else close
+    high = data["high"].to_numpy(float) if "high" in data else np.maximum(open_, close)
+    low = data["low"].to_numpy(float) if "low" in data else np.minimum(open_, close)
+    volume = data["volume"].to_numpy(float) if "volume" in data else np.ones(len(data))
+    return tensor_runtime.tensor(np.stack((open_, high, low, close, volume), axis=-1)[None])
+
+
+def _iter_extremes(paths: torch.Tensor, horizons):
+    """Shared incremental excursion ladder, yielding one horizon at a time."""
+    close, low, high = paths[:, :, 3], paths[:, :, 2], paths[:, :, 1]
+    length = close.shape[1]
+    reached = 0
+    run_lo, run_hi = torch.full_like(close, float("inf")), torch.full_like(close, float("-inf"))
+    for horizon in horizons:
+        if horizon < reached:
+            run_lo.fill_(float("inf"))
+            run_hi.fill_(float("-inf"))
+            reached = 0
+        for offset in range(reached + 1, min(int(horizon), length - 1) + 1):
+            n = length - offset
+            run_lo[:, :n] = torch.minimum(run_lo[:, :n], low[:, offset:])
+            run_hi[:, :n] = torch.maximum(run_hi[:, :n], high[:, offset:])
+        reached = min(int(horizon), length - 1)
+        n = length - int(horizon)
+        lo, hi = torch.full_like(close, float("nan")), torch.full_like(close, float("nan"))
+        if n > 0:
+            lo[:, :n] = run_lo[:, :n] / close[:, :n] - 1.0
+            hi[:, :n] = run_hi[:, :n] / close[:, :n] - 1.0
+        yield lo, hi
+
+
 def forward_extremes_upto(data: pd.DataFrame, t_max: int) -> tuple[np.ndarray, np.ndarray]:
+    """Cache the common excursion ladder as (horizon, time) arrays for Stage 1."""
+    if t_max < 1:
+        raise ValueError("t_max must be positive")
+    rows = list(_iter_extremes(ohlcv_tensor(data), range(1, t_max + 1)))
+    return tuple(torch.cat([row[i] for row in rows], dim=0).cpu().numpy() for i in (0, 1))
+
+
+def measure_histories(paths, features, deltas, horizons, n_bins, *, edges=None,
+                      min_n=MIN_BIN_N, excursions=None):
+    """Return bin edges and an iterator of measured float64 horizon slices.
+
+    Paths have (history, time, OHLCV) axes. Features may have one row, shared
+    across histories, or one row per history. Without fixed edges, each history
+    receives its own quantiles. Probability slices have (history, barrier, bin,
+    1) axes. Each slice includes its own unconditional baseline, measured over
+    all eligible market dates independently of feature warm-up.
+    Stage 1 may supply its cached excursion ladder for a single history.
     """
-    Worst and best excursion over (t0, t0+t] for every t up to t_max, as (t_max, n) arrays.
-
-    Built incrementally: the window for t is the window for t-1 extended by one bar, so
-    the whole ladder costs one pass per horizon instead of one pass per horizon per bar.
-    Computing 30 horizons the naive way re-reads the same 465 shifted columns; this
-    reads 30.
-
-    Row i holds horizon i+1. Entries whose forward window runs off the end of the
-    series are NaN.
-    """
-    return _forward_extremes_cuda(data, t_max)
-
-
-def _forward_extremes_cuda(data: pd.DataFrame, t_max: int) -> tuple[np.ndarray, np.ndarray]:
-    """CUDA implementation of the shared forward high/low excursion ladder."""
-    import torch
-
-    device = tensor_runtime.device()
-    close = torch.as_tensor(
-        np.array(data["close"], dtype=float, copy=True), dtype=torch.float64, device=device
-    )
-    low = torch.as_tensor(
-        np.array(data["low"] if "low" in data else data["close"], dtype=float, copy=True),
-        dtype=torch.float64,
-        device=device,
-    )
-    high = torch.as_tensor(
-        np.array(data["high"] if "high" in data else data["close"], dtype=float, copy=True),
-        dtype=torch.float64,
-        device=device,
-    )
-    n = len(close)
-    run_lo = torch.full((n,), float("inf"), dtype=torch.float64, device=device)
-    run_hi = torch.full((n,), float("-inf"), dtype=torch.float64, device=device)
-    mins = torch.full((t_max, n), float("nan"), dtype=torch.float64, device=device)
-    maxs = torch.full((t_max, n), float("nan"), dtype=torch.float64, device=device)
-
-    for t in range(1, t_max + 1):
-        if n - t <= 0:
-            break
-        run_lo[:n - t] = torch.minimum(run_lo[:n - t], low[t:])
-        run_hi[:n - t] = torch.maximum(run_hi[:n - t], high[t:])
-        mins[t - 1, :n - t] = run_lo[:n - t] / close[:n - t] - 1.0
-        maxs[t - 1, :n - t] = run_hi[:n - t] / close[:n - t] - 1.0
-    return mins.cpu().numpy(), maxs.cpu().numpy()
-
-
-def touch_tensor(
-    data:     pd.DataFrame,
-    feature:  pd.Series,
-    horizons: np.ndarray,
-    Δs:   np.ndarray,
-    edges:    np.ndarray,
-    min_n:    int = MIN_BIN_N,
-    excursions: tuple[np.ndarray, np.ndarray] | None = None,
-) -> dict:
-    """
-    The probability cube: P(touch Δ within t | X in bin).
-
-    Shape (n_Δ, n_bins, n_horizons). This is the pipeline's primary measurement and
-    the value the workbook shows -- the raw conditional probability, not a deviation
-    from anything, so a cell can be read on its own terms ("a -5% touch within 7 days
-    happens 50% of the time under this condition") without carrying a base rate in your
-    head.
-
-    Nothing here is measured against anything. The unconditional rate is its own node
-    -- the `baseline` node, whose feature is constant so every bar falls in one bin --
-    and is produced by this same function with no special case.
-
-    Cells whose bin holds fewer than min_n observations are NaN in `prob`; `hits` keeps
-    the raw counts so a thin bin stays visible rather than absent.
-    """
-    return _touch_tensor_cuda(data, feature, horizons, Δs, edges, min_n, excursions)
-
-
-def _touch_tensor_cuda(
-    data: pd.DataFrame,
-    feature: pd.Series,
-    horizons: np.ndarray,
-    Δs: np.ndarray,
-    edges: np.ndarray,
-    min_n: int,
-    excursions: tuple[np.ndarray, np.ndarray] | None,
-) -> dict:
-    """CUDA touch-tensor kernel with the same output contract as ``touch_tensor``."""
-    import torch
-
-    t_max = int(np.max(horizons))
-    if excursions is None:
-        mins, maxs = _forward_extremes_cuda(data, t_max)
+    paths = paths.to(dtype=torch.float64) if isinstance(paths, torch.Tensor) else tensor_runtime.tensor(paths)
+    x = features.to(dtype=torch.float64) if isinstance(features, torch.Tensor) else tensor_runtime.tensor(features)
+    if paths.ndim != 3 or paths.shape[-1] != 5:
+        raise ValueError("paths must have (history, time, OHLCV) axes")
+    if x.ndim != 2 or x.shape[1] != paths.shape[1] or x.shape[0] not in (1, paths.shape[0]):
+        raise ValueError("features must match the path and time axes")
+    x = x.expand(paths.shape[:2])
+    deltas, horizons = np.asarray(deltas, dtype=float), np.asarray(horizons, dtype=int)
+    if deltas.ndim != 1 or horizons.ndim != 1 or np.any(horizons < 1):
+        raise ValueError("barriers and horizons must be vectors, with positive horizons")
+    if edges is None:
+        edges_t = batched_bin_edges(x, n_bins)
     else:
-        mins, maxs = excursions
-        expected = (t_max, len(data))
-        if mins.shape != expected or maxs.shape != expected:
+        edges_t = edges.to(dtype=torch.float64) if isinstance(edges, torch.Tensor) else tensor_runtime.tensor(edges)
+        edges_t = edges_t.expand(paths.shape[0], -1).contiguous()
+    n_bins = edges_t.shape[1] + 1
+    indices = bin_indices(x, edges_t)
+    baseline_feature, baseline_indices = torch.ones_like(x), torch.zeros_like(indices)
+    if excursions is not None:
+        expected = (int(horizons.max()) if len(horizons) else 0, paths.shape[1])
+        if paths.shape[0] != 1 or any(value.shape != expected for value in excursions):
             raise ValueError("cached excursions do not match the requested data and horizon grid")
+        mins, maxs = (tensor_runtime.tensor(value) for value in excursions)
+        extremes = ((mins[t - 1][None], maxs[t - 1][None]) for t in horizons)
+    else:
+        extremes = _iter_extremes(paths, horizons)
 
-    device = tensor_runtime.device()
-    mins_t = torch.as_tensor(np.array(mins, copy=True), dtype=torch.float64, device=device)
-    maxs_t = torch.as_tensor(np.array(maxs, copy=True), dtype=torch.float64, device=device)
-    x_all = torch.as_tensor(
-        np.array(feature, dtype=float, copy=True), dtype=torch.float64, device=device
+    def measurements():
+        for lo, hi in extremes:
+            probabilities, hits, baselines = [], [], []
+            # Counts are independent of the barrier, including an empty grid.
+            _, _, counts, observed = touch_rates(lo, hi, x, indices, n_bins, 0.0, min_n)
+            for delta in deltas:
+                prob, hit, _, _ = touch_rates(lo, hi, x, indices, n_bins, delta, min_n)
+                base, _, _, _ = touch_rates(lo, hi, baseline_feature, baseline_indices, 1, delta, min_n)
+                probabilities.append(prob)
+                hits.append(hit)
+                baselines.append(base[:, 0])
+            shape = (paths.shape[0], 0, n_bins, 1)
+            yield {
+                "prob": torch.stack(probabilities, dim=1).unsqueeze(-1) if len(deltas) else paths.new_empty(shape),
+                "base": torch.stack(baselines, dim=1).unsqueeze(-1) if len(deltas) else paths.new_empty((paths.shape[0], 0, 1)),
+                "hits": torch.stack(hits, dim=1).unsqueeze(-1) if len(deltas) else paths.new_empty(shape),
+                "bin_n": counts.unsqueeze(-1), "n_obs": observed.unsqueeze(-1),
+            }
+    return edges_t, measurements()
+
+
+def touch_tensor(data: pd.DataFrame, feature: pd.Series, horizons: np.ndarray,
+                 Δs: np.ndarray, edges: np.ndarray, min_n: int = MIN_BIN_N,
+                 excursions: tuple[np.ndarray, np.ndarray] | None = None) -> dict:
+    """Stage 1 adapter: collect the shared history measurements into one cube."""
+    _, measurements = measure_histories(
+        ohlcv_tensor(data), feature.to_numpy(float)[None], Δs, horizons, len(edges) + 1,
+        edges=edges, min_n=min_n, excursions=excursions,
     )
-    edges_t = torch.as_tensor(edges, dtype=torch.float64, device=device)
-    deltas_t = torch.as_tensor(Δs, dtype=torch.float64, device=device)
-    n_bins, n_th, n_t = len(edges) + 1, len(Δs), len(horizons)
-
-    prob = torch.full((n_th, n_bins, n_t), float("nan"), dtype=torch.float64, device=device)
-    hits = torch.zeros((n_th, n_bins, n_t), dtype=torch.int32, device=device)
-    bin_n = torch.zeros((n_bins, n_t), dtype=torch.int32, device=device)
-    n_obs = torch.zeros(n_t, dtype=torch.int32, device=device)
-
-    for j, t in enumerate(horizons):
-        lo_t, hi_t = mins_t[t - 1], maxs_t[t - 1]
-        idx = bin_indices(x_all, edges_t)
-        for i, delta in enumerate(deltas_t):
-            rates, count, counts, observed = touch_rates(
-                lo_t[None, :], hi_t[None, :], x_all[None, :], idx[None, :],
-                n_bins, delta, min_n,
-            )
-            bin_n[:, j] = counts[0].to(torch.int32)
-            n_obs[j] = observed[0]
-            hits[i, :, j] = count[0].to(torch.int32)
-            prob[i, :, j] = rates[0]
-
-    return {
-        "prob": prob.cpu().numpy(),
-        "hits": hits.cpu().numpy(),
-        "bin_n": bin_n.cpu().numpy(),
-        "n_obs": n_obs.cpu().numpy(),
-        "Δs": np.asarray(Δs, dtype=float),
-        "horizons": np.asarray(horizons, dtype=int),
-        "edges": np.asarray(edges, dtype=float),
-    }
+    rows = list(measurements)
+    shape = (len(Δs), len(edges) + 1, len(horizons))
+    result = {}
+    for key, empty_shape in (("prob", shape), ("hits", shape),
+                             ("bin_n", shape[1:]), ("n_obs", shape[-1:])):
+        values = torch.cat([row[key] for row in rows], dim=-1)[0].cpu().numpy() if rows else np.empty(empty_shape)
+        result[key] = values if key == "prob" else values.astype(np.int32)
+    return {**result, "Δs": np.asarray(Δs, dtype=float),
+            "horizons": np.asarray(horizons, dtype=int), "edges": np.asarray(edges, dtype=float)}
