@@ -40,6 +40,17 @@ class WorkspaceConfig:
         barriers = meta.get("barriers", meta.get("Delta", meta.get("\u0394", {})))
         target = meta.get("target", {})
         evaluate = meta.get("evaluate", {})
+        # Unmarked declarations predate fractional shifts and express min_dev in pp.
+        shift_unit = evaluate.get("shift_unit", "percentage_points")
+        if shift_unit not in ("percentage_points", "probability_difference"):
+            raise ValueError(f"unknown evaluate.shift_unit: {shift_unit}")
+        min_dev = float(evaluate.get(
+            "min_dev", 10.0 if shift_unit == "percentage_points" else 0.10,
+        ))
+        if shift_unit == "percentage_points":
+            min_dev /= 100.0
+        if not np.isfinite(min_dev) or not 0 <= min_dev <= 1:
+            raise ValueError("evaluate.min_dev must represent a probability difference in [0, 1]")
         target_barrier = target.get("barrier", target.get("Delta", target.get("\u0394")))
         return cls(
             asset=dict(asset),
@@ -59,7 +70,7 @@ class WorkspaceConfig:
                 if target.get("horizon") is None
                 else int(target["horizon"])
             ),
-            min_dev=float(evaluate.get("min_dev", 10.0)),
+            min_dev=min_dev,
             min_bin_n=int(evaluate.get("min_bin_n", 50)),
             min_run=int(evaluate.get("min_run", 2)),
         )

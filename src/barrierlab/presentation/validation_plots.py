@@ -57,14 +57,14 @@ def write_bin_score_null_histograms(ws, summary: dict, progress=None) -> list[Pa
                 linewidth=2.1,
                 label="observed bin score",
             )
-            ax.set_xlabel("two-sided bin score (pp)")
+            ax.set_xlabel("two-sided bin score (weighted probability difference)")
             ax.set_ylabel("synthetic OHLC replicates")
             _frame(ax, grid_axis="y")
             ax.legend(fontsize=8, frameon=False)
             _title(
                 fig,
                 f'{feature_label(row["node"])} bin {int(row["bin_number"])} — score vs synthetic null',
-                f'observed {observed:.2f}pp · null p95 {p95:.2f}pp · '
+                f'observed {observed:.4f} · null p95 {p95:.4f} · '
                 f'p={row["monte_carlo_p_value"]:.4f} · '
                 f'{"CLEARED" if row.get("cleared") else "NOT CLEARED"}',
             )

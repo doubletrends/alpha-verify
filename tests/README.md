@@ -80,3 +80,6 @@ barrierlab status   --workspace <name>
 ```
 
 Then inspect `validation.json`, `selection.json`, representative spreadsheets, null histograms, and selected-bin heatmaps. Generated artifacts are local and ignored by Git; see the [workspace contract](../workspaces/README.md).
+
+`test_shift_units.py` verifies probability-difference storage, legacy unit conversion,
+threshold equivalence, workbook percentage formatting, and score comparison invariance.

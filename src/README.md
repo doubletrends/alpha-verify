@@ -35,7 +35,7 @@ Key modules:
 
 - `barrier.py` owns `measure_histories()`: quantile edges, the shared incremental excursion ladder, conditional probabilities, counts, and each history's baseline. Stage 1 collects its horizon slices into cubes.
 - `features.py` registers built-in features and routes core transforms to `torch_features.py`.
-- `shift.py` defines the Stage 2 percentage-point shift and the practical-effect inspection used by node status.
+- `shift.py` defines the Stage 2 probability-difference shift and the practical-effect inspection used by node status.
 - `scoring.py` owns baseline subtraction, cell eligibility, barrier weights, and the full-grid bin score; cell contributions are private to the bin scorer.
 - `validation.py` fits and samples the synthetic OHLC null. Its `score_histories()` measures and scores both the observed batch of one and simulated batches through the same path.
 - `tensor_runtime.py` owns the selected Torch device; `configure_cuda()` is invoked before a CLI stage runs.
@@ -99,11 +99,11 @@ The SafeTensors cube includes probabilities, hit counts, bin counts, barrier and
 Subtract the baseline for the same signed barrier and horizon:
 
 ```text
-probability_shift_pp[barrier, bin, horizon]
+probability_shift[barrier, bin, horizon]
     = 100 × (conditional_probability − baseline_probability)
 ```
 
-The unit is percentage points. Stage 2 owns only the derived shift tensor and fingerprints/references its node and baseline Stage 1 artifacts. Readers materialize the remaining arrays from Stage 1, avoiding a second copy of every probability cube and history.
+The stored unit is a probability difference in [-1, 1]; 0.10 displays as +10%, a 10-percentage-point difference. Scores use weighted probability differences and are not percentages. Stage 2 owns only the derived shift tensor and fingerprints/references its node and baseline Stage 1 artifacts. Readers materialize the remaining arrays from Stage 1, avoiding a second copy of every probability cube and history.
 
 ### Stage 3: `validate`
 
@@ -128,9 +128,9 @@ horizon)`; baseline omits bin and counts omit barrier. It returns a typed
 `(..., bin)`.
 
 ```text
-shift      = 100 * (conditional probability - baseline)
-cell score = abs(shift(+D) - shift(-D)) * abs(D) / largest paired abs(D)
-bin score  = sum of eligible cell scores over paired barriers and horizons
+shift      = conditional probability - baseline
+cell score = 0.5 * abs(shift(D) - shift(-D)) * abs(D) / largest paired abs(D)
+bin score  = sum of eligible cell scores over the full signed grid and horizons
 ```
 
 Cell contributions are private, vectorized intermediate tensors. A bin needs at least 30 observations and each barrier/horizon needs two usable bins. An unsupported bin has zero score and false validity; a supported zero-score bin is still tested. Stored probability and shift cubes remain presentation artifacts. Validation remeasures conditional probabilities and each history's own baseline in float64, avoiding stored float32 probability rounding. Baselines include all eligible market dates, including feature warm-up.
@@ -205,3 +205,5 @@ Do not copy formulas, paths, or configuration into a second executable source. D
 | Add or rename a CLI command | `cli.py` | Pipeline order and CLI contract tests |
 
 Run the [test suite](../tests/README.md) after any source change. A real workspace rerun is additionally required for changes to market data, numerical kernels, feature definitions, bin scoring, null generation, or presentation artifacts.
+
+Shift units use a separate `probability-difference-v1` artifact contract. Legacy percentage-point arrays convert on load; new writes use `probability_shift`. See [workspace migration guidance](../workspaces/README.md#probability-difference-shift-units).

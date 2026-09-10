@@ -84,7 +84,7 @@ Stage 3 uses Stage 2 as its completion gate and reads histories and observed con
 
 Array artifacts use schema version 2 and descriptive ASCII field names such as
 `barriers`, `conditional_probability`, `baseline_probability`,
-`probability_shift_pp`, `bin_observation_counts`, and `bin_edges`. Readers
+`probability_shift`, `bin_observation_counts`, and `bin_edges`. Readers
 normalize version-1 names, including `Δs`, so existing generated workspaces can
 still be consumed and regenerated.
 
@@ -141,3 +141,21 @@ If a workbook is open in Excel, a stage may report it as locked while continuing
 7. Add or update [tests](../tests/README.md) when the declaration introduces a repository-level source, schema, plugin, or path contract.
 
 Changing history, grid, feature definitions, or node parameters invalidates downstream interpretation even if old artifacts remain readable. Prefer a clean new workspace identity for materially different experiments; otherwise rerun the full pipeline and use the input fingerprint to detect stale validation.
+
+### Probability-difference shift units
+
+Stage 2 writes `probability_shift` with `shift_unit: probability_difference` and
+`shift_version: probability-difference-v1`. This is a shift-specific version;
+Stage 1 arrays and observed caches remain reusable. Recognized legacy `shift`
+and `probability_shift_pp` arrays are converted from percentage points on load.
+Unknown or conflicting unit declarations are rejected.
+
+Workspace `evaluate.min_dev` uses fractions when `evaluate.shift_unit` is
+`probability_difference`: 0.10 means a 10-percentage-point effect. Older declarations
+without `shift_unit` retain their percentage-point interpretation (10 means 0.10).
+New declarations should always specify the unit. These thresholds govern status
+inspection, not the Stage 4 statistical selection rule.
+
+Run `compare`, `validate`, and `select` to regenerate derived artifacts and views
+in the new units. Old validation and selection summaries are stale under the new
+scoring version. No Stage 1 remeasurement is required solely for this unit change.

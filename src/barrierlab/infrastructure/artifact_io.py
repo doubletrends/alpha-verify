@@ -22,13 +22,14 @@ _HISTORY_KEYS = (
 )
 
 ARTIFACT_SCHEMA_VERSION = 2
+SHIFT_VERSION = "probability-difference-v1"
+SHIFT_UNIT = "probability_difference"
 
 # Readers accept version-1 field names so existing workspaces remain usable.
 _LEGACY_ARRAY_NAMES = {
     "prob": "conditional_probability",
     "base": "baseline_probability",
     "baseline": "baseline_probability",
-    "shift": "probability_shift_pp",
     "hits": "bin_hit_counts",
     "bin_n": "bin_observation_counts",
     "n_obs": "eligible_observation_count",
@@ -165,15 +166,16 @@ def load_observed_cache(path: Path) -> dict:
 
 def save_shift(cube: dict, path: Path, meta: dict, *, thin: bool = False) -> None:
     """Write a complete Stage 2 baseline-subtracted shift cube."""
+    values = _shift_values(cube)
+    meta = {**meta, "value": "probability_shift",
+            "shift_version": SHIFT_VERSION, "shift_unit": SHIFT_UNIT}
     if thin:
         _write_npz(
-            path, {"probability_shift_pp": _array_value(
-                cube, "probability_shift_pp"
-            ).astype(np.float32)}, meta
+            path, {"probability_shift": values.astype(np.float32)}, meta
         )
         return
     payload = {
-        "probability_shift_pp": _array_value(cube, "probability_shift_pp").astype(np.float32),
+        "probability_shift": values.astype(np.float32),
         "conditional_probability": _array_value(cube, "conditional_probability").astype(np.float32),
         "baseline_probability": _array_value(cube, "baseline_probability").astype(np.float32),
         "bin_hit_counts": _array_value(cube, "bin_hit_counts"),
@@ -188,7 +190,33 @@ def save_shift(cube: dict, path: Path, meta: dict, *, thin: bool = False) -> Non
 
 
 def load_shift(path: Path) -> dict:
-    """Load a Stage 2 baseline-subtracted shift cube."""
-    return _read_npz(
-        path, ("probability_shift_pp", "conditional_probability", "baseline_probability")
+    """Load probability differences, converting recognized legacy pp fields once."""
+    cube = _read_npz(
+        path, ("probability_shift", "conditional_probability", "baseline_probability")
     )
+    if "probability_shift" in cube:
+        meta = cube.get("meta", {})
+        if (meta.get("shift_version") != SHIFT_VERSION
+                or meta.get("shift_unit") != SHIFT_UNIT):
+            raise ValueError("unknown shift units/version; rerun compare")
+    values = _shift_values(cube)
+    cube.pop("probability_shift_pp", None)
+    cube.pop("shift", None)
+    cube["probability_shift"] = values
+    cube["meta"] = {**cube.get("meta", {}), "value": "probability_shift",
+                    "shift_version": SHIFT_VERSION, "shift_unit": SHIFT_UNIT}
+    return cube
+
+
+def _shift_values(cube: dict) -> np.ndarray:
+    keys = [key for key in ("probability_shift", "probability_shift_pp", "shift")
+            if key in cube]
+    if len(keys) != 1:
+        raise ValueError("expected exactly one shift field with unambiguous units")
+    key = keys[0]
+    unit = cube.get("meta", {}).get("shift_unit")
+    expected = SHIFT_UNIT if key == "probability_shift" else "percentage_points"
+    if unit is not None and unit != expected:
+        raise ValueError("shift field and declared units disagree")
+    values = np.asarray(cube[key], dtype=np.float64)
+    return values if key == "probability_shift" else values / 100.0

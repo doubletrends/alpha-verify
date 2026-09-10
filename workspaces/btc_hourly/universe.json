@@ -17,7 +17,8 @@
     },
     "n_bins": 10,
     "evaluate": {
-      "min_dev": 5.0,
+      "min_dev": 0.05,
+      "shift_unit": "probability_difference",
       "min_bin_n": 200,
       "min_run": 2
     },

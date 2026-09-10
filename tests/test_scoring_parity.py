@@ -262,7 +262,7 @@ def test_shared_scorer_excludes_thin_bins_even_with_finite_probabilities():
     prob = np.array([[[.2], [.3], [.0]], [[.7], [.6], [1.]]])
     base = np.array([[.3], [.6]])
     scores = scoring.bin_scores(prob, base, np.array([[30], [30], [29]]), [-.1, .1])
-    np.testing.assert_allclose(scores.bin_score, [20, 0, 0], atol=1e-12)
+    np.testing.assert_allclose(scores.bin_score, [.20, 0, 0], atol=1e-12)
     assert scores.score_supported.tolist() == [True, True, False]
     scores = scoring.bin_scores(prob, base, np.array([[30], [29], [29]]), [-.1, .1])
     np.testing.assert_array_equal(scores.bin_score, [0, 0, 0])
@@ -277,8 +277,8 @@ def test_unpaired_grid_has_zero_score():
 
 
 def test_bin_score_reduces_all_pairs_and_horizons_with_linear_weights():
-    # Signed paired shifts: small barrier [10, -20]pp, large [30, -40]pp.
-    # Two horizons and a 1/2 small-barrier weight give totals [70, 100]pp.
+    # Signed paired shifts: small barrier [.10, -.20], large [.30, -.40].
+    # Two horizons and a 1/2 small-barrier weight give totals [.70, 1.00].
     prob = np.array([[[.5, .5], [.5, .5]], [[.6, .6], [.3, .3]],
                      [[.5, .5], [.5, .5]], [[.8, .8], [.1, .1]]])
     base = np.full((4, 2), .5)
@@ -286,12 +286,12 @@ def test_bin_score_reduces_all_pairs_and_horizons_with_linear_weights():
     deltas = np.array([-.05, .05, -.1, .1])
     order = [3, 0, 2, 1]
     result = scoring.bin_scores(prob[order], base[order], counts, deltas[order])
-    np.testing.assert_allclose(result.bin_score, [70, 100])
+    np.testing.assert_allclose(result.bin_score, [.70, 1.00])
     assert result.score_supported.tolist() == [True, True]
     batch = scoring.bin_scores(np.broadcast_to(prob, (2, 3, *prob.shape)),
                                np.broadcast_to(base, (2, 3, *base.shape)),
                                np.broadcast_to(counts, (2, 3, *counts.shape)), deltas)
-    np.testing.assert_allclose(batch.bin_score, np.broadcast_to([70, 100], (2, 3, 2)))
+    np.testing.assert_allclose(batch.bin_score, np.broadcast_to([.70, 1.00], (2, 3, 2)))
 
 
 def test_nonfinite_cells_and_empty_horizons_are_unsupported():
@@ -302,3 +302,55 @@ def test_nonfinite_cells_and_empty_horizons_are_unsupported():
     result = scoring.bin_scores(prob[..., :0], np.empty((2, 0)), np.empty((2, 0)), [-.1, .1])
     assert result.bin_score.tolist() == [0, 0]
     assert not result.score_supported.any()
+
+
+def test_week_example_keeps_all_five_contribution_rows(monkeypatch):
+    shifts = np.broadcast_to(np.array([-.10, -.10, 0., .10, .10])[:, None, None],
+                             (5, 2, 7))
+    baseline = np.full((5, 7), .5)
+    contributions = []
+    original_where = torch.where
+
+    def capture(*args, **kwargs):
+        result = original_where(*args, **kwargs)
+        contributions.append(result.detach().cpu().numpy())
+        return result
+
+    monkeypatch.setattr(scoring.torch, "where", capture)
+    result = scoring.bin_scores(
+        baseline[:, None, :] + shifts, baseline,
+        np.full((2, 7), 100), [-.02, -.01, 0., .01, .02],
+    )
+    assert len(contributions) == 1
+    expected = np.broadcast_to(np.array([.10, .05, 0., .05, .10])[:, None, None],
+                               (5, 2, 7))
+    np.testing.assert_allclose(contributions[0], expected)
+    np.testing.assert_allclose(result.bin_score, [2.10, 2.10])
+    assert result.score_supported.tolist() == [True, True]
+
+
+def test_full_grid_score_matches_pair_reference_with_partial_support():
+    rng = np.random.default_rng(24)
+    # Unsorted grid, zero, an unmatched row, and duplicate rows.
+    barriers = np.array([.02, -.01, 0., -.02, .01, .03, -.04, .04, .04])
+    probability = rng.uniform(.1, .9, (3, len(barriers), 4, 7))
+    baseline = rng.uniform(.1, .9, (3, len(barriers), 7))
+    counts = rng.integers(25, 45, (3, 4, 7))
+    probability[0, 0, 0, 0] = np.nan
+    probability[1, 1, 2, 3] = np.inf
+    baseline[2, 4, 5] = np.nan
+    counts[0, :, 6] = 0
+    shifts = probability - baseline[:, :, None, :]
+    expected = np.zeros((3, 4))
+    supported = np.zeros((3, 4), dtype=bool)
+    for path in range(3):
+        for horizon in range(7):
+            for positive, negative, weight in [(4, 1, .5), (0, 3, 1.)]:
+                difference = shifts[path, positive, :, horizon] - shifts[path, negative, :, horizon]
+                valid = np.isfinite(difference) & (counts[path, :, horizon] >= 30)
+                if valid.sum() >= 2:
+                    expected[path, valid] += weight * np.abs(difference[valid])
+                    supported[path, valid] = True
+    result = scoring.bin_scores(probability, baseline, counts, barriers)
+    np.testing.assert_allclose(result.bin_score, expected, atol=1e-10)
+    np.testing.assert_array_equal(result.score_supported, supported)

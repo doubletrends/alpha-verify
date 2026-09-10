@@ -12,9 +12,9 @@ def from_cube(cube: dict, baseline_probability: np.ndarray) -> dict:
     """
     Convert a raw probability cube into a baseline-subtracted shift cube.
 
-    `shift` is stored in percentage points:
+    `shift` is stored as a probability difference:
 
-        100 * (conditional_probability - baseline_probability)
+        conditional_probability - baseline_probability
 
     The conditional probabilities and baseline are carried too, so inspection and
     later derived artifacts can show the rate behind a shift without reloading stage 1.
@@ -29,7 +29,7 @@ def from_cube(cube: dict, baseline_probability: np.ndarray) -> dict:
         )
 
     out = {
-        "probability_shift_pp": baseline_shifts(
+        "probability_shift": baseline_shifts(
             conditional_probability, baseline_probability
         ).cpu().numpy(),
         "conditional_probability": conditional_probability.cpu().numpy(),
@@ -50,7 +50,7 @@ def from_cube(cube: dict, baseline_probability: np.ndarray) -> dict:
 
 def evaluate(
     cube: dict,
-    min_dev: float = 10.0,
+    min_dev: float = 0.10,
     min_bin_n: int = 50,
     min_run: int = 2,
 ) -> dict:
@@ -58,9 +58,9 @@ def evaluate(
     Economic filter over a shift cube.
 
     A node passes when at least one bin/horizon has `min_run` adjacent barrier rows with
-    the same-signed deviation from baseline, each at least `min_dev` percentage points.
+    the same-signed deviation from baseline, each at least `min_dev` in probability units.
     """
-    dev = np.asarray(cube["probability_shift_pp"], dtype=float)
+    dev = np.asarray(cube["probability_shift"], dtype=float)
     conditional_probability = np.asarray(cube["conditional_probability"], dtype=float)
     baseline_probability = np.asarray(cube["baseline_probability"], dtype=float)
     bin_observation_counts = cube["bin_observation_counts"]

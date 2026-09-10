@@ -16,6 +16,8 @@ from barrierlab.pipeline import step_03_validation as stage
 from barrierlab.pipeline.status import cmd_status
 from barrierlab.presentation import validation_plots
 
+_REAL_HISTOGRAM_WRITER = validation_plots.write_bin_score_null_histograms
+
 
 @pytest.fixture
 def workspace(tmp_path, monkeypatch):
@@ -56,6 +58,31 @@ def test_only_core_features_are_recomputed():
     assert is_ohlcv_feature("atr")
     assert not is_ohlcv_feature("days_since_halving")
     assert not is_ohlcv_feature("day_of_week")
+
+
+def test_compare_validate_select_in_probability_units(workspace, monkeypatch):
+    from barrierlab.pipeline import step_02_shift, step_04_selection
+
+    # Materialize a small Stage 1 source, then exercise the real downstream writers.
+    for node in workspace.catalog.all_nodes():
+        cube = artifact_io.load_shift(workspace.shift_cube_path(node["id"]))
+        artifact_io.save_surface(cube, workspace.cube_path(node["id"]), cube["meta"])
+    baseline = {**cube, "conditional_probability": cube["baseline_probability"][:, None, :],
+                "bin_observation_counts": cube["bin_observation_counts"][:1],
+                "bin_hit_counts": cube["bin_hit_counts"][:, :1], "bin_edges": np.array([])}
+    artifact_io.save_surface(baseline, workspace.baseline_cube, {"bin_labels": ["all"]})
+    step_02_shift.cmd_shift(workspace)
+    stored = artifact_io.load_shift(workspace.shift_cube_path("a"))
+    assert stored["meta"]["shift_unit"] == "probability_difference"
+    assert np.nanmax(np.abs(stored["probability_shift"])) <= 1
+    assert workspace.shift_surface_path("a").exists()
+    # Restore the actual renderer (the fixture replaces it to keep other tests lean).
+    monkeypatch.setattr(validation_plots, "write_bin_score_null_histograms",
+                        _REAL_HISTOGRAM_WRITER)
+    stage.cmd_validation(workspace)
+    step_04_selection.cmd_selection(workspace)
+    selected = workspace.read_json(workspace.selection_summary_path)
+    assert step_04_selection.selection_summary_is_current(workspace, selected)
 
 
 def test_all_bins_are_validated_without_selection(workspace, monkeypatch, capsys):
@@ -164,7 +191,7 @@ def test_identical_history_has_same_score_and_validity_as_observed_or_null(
     cube = artifact_io.load_shift(path)
     cube["conditional_probability"][:] = np.nan
     cube["baseline_probability"][:] = np.nan
-    cube["probability_shift_pp"][:] = 999
+    cube["probability_shift"][:] = 999
     cube["bin_observation_counts"][:] = 0
     if feature_name == "roc":
         cube["feature_values"] = np.full(len(cube["feature_values"]), np.nan)

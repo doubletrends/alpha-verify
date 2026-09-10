@@ -125,9 +125,19 @@ Its array representation has $|\Delta|$ rows and $|\Theta|$ columns.
 The entire grid is one element---one point in this space---even though its
 construction and evaluation use individual coordinates.
 
-\topic{Paths and outer indices}
+\topic{Partial support}
 
-The path index $i$ identifies one complete OHLCV price history.
+A complete Surface retains the full grid even when some entries are
+unsupported. Formally, a partially supported Surface is represented by
+an element $F\in\mathcal S$ together with a Boolean support mask on
+$\Delta\times\Theta$. Values outside the support are arbitrary and never
+used. Numerical arrays may store non-finite values there instead;
+NaN is a storage convention, not an element of $\mathbb R$. Completeness
+describes the grid, not a guarantee that every entry is available.
+
+\subsection{Paths}\label{sec:paths}
+
+The path index $i=0,1,\ldots,I$ identifies one complete OHLCV price history.
 Path $i=0$ is the observed market history. Paths $i=1,\ldots,I$ are
 random synthetic histories generated from the fitted null model for
 hypothesis testing; the current configuration uses $I=1{,}000$.
@@ -142,16 +152,6 @@ the outcome Surface for path $i$ and date $t$, whereas $Y_{k}^{(i)}$ is the
 conditional probability Surface for path $i$ and bin $k$. A date-level
 outcome and a bin-level probability do not have the same outer indices:
 aggregation replaces a collection indexed by dates with one indexed by bins.
-
-\topic{Partial support}
-
-A complete Surface retains the full grid even when some entries are
-unsupported. Formally, a partially supported Surface is represented by
-an element $F\in\mathcal S$ together with a Boolean support mask on
-$\Delta\times\Theta$. Values outside the support are arbitrary and never
-used. Numerical arrays may store non-finite values there instead;
-NaN is a storage convention, not an element of $\mathbb R$. Completeness
-describes the grid, not a guarantee that every entry is available.
 
 \subsection{The objects carried through the pipeline}
 
@@ -288,8 +288,6 @@ and $R_{t,\theta}^{-,(i)}$ for downside excursions.
 \toprule
 Symbol & Meaning \\
 \midrule
-$i=0,1,\ldots,I$ & identifies a price-history path:
-        $i=0$ is observed, and $i=1,\ldots,I$ are null replicates. \\
 $t\in\mathcal T$ & identifies an observation date. In forward
         expressions, $t+j$ means the $j$th subsequent observation. \\
 $x_{t}^{(i)}$ & is the feature value used to assign date $t$ to a bin. \\

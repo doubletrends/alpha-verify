@@ -36,7 +36,7 @@ def selected_workspace(tmp_path):
         cube = {
             "prob": probability,
             "base": baseline,
-            "shift": 100 * (probability - baseline[:, None, :]) + offset,
+            "probability_shift": probability - baseline[:, None, :] + offset / 100,
             "hits": np.full_like(probability, 40, dtype=int),
             "bin_n": np.full((2, 2), 80), "n_obs": np.array([160, 158]),
             "\u0394s": deltas, "horizons": horizons, "edges": np.array([.5]),
@@ -49,12 +49,12 @@ def selected_workspace(tmp_path):
         })
     rows = [
         {"node": "a", "family": "test", "feature": "day_of_week", "params": {},
-         "bin": 0, "bin_number": 1, "bin_label": "x < 0.5", "bin_score": 12.,
-         "monte_carlo_p_value": .01, "cleared": True, "null_p95": 10.,
+         "bin": 0, "bin_number": 1, "bin_label": "x < 0.5", "bin_score": .12,
+         "monte_carlo_p_value": .01, "cleared": True, "null_p95": .10,
          "n_null_replicates": 1000, "n_supported_null": 1000},
         {"node": "b", "family": "test", "feature": "day_of_week", "params": {},
-         "bin": 1, "bin_number": 2, "bin_label": "0.5 < x", "bin_score": 8.,
-         "monte_carlo_p_value": .20, "cleared": False, "null_p95": 10.,
+         "bin": 1, "bin_number": 2, "bin_label": "0.5 < x", "bin_score": .08,
+         "monte_carlo_p_value": .20, "cleared": False, "null_p95": .10,
          "n_null_replicates": 1000, "n_supported_null": 1000},
     ]
     summary = {

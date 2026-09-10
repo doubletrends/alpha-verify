@@ -27,7 +27,7 @@ You've seen lots of them: a so-called “alpha” strategy and an equity curve t
 <br>
 </p>
 
-The figures below are historical results from the former selection-first pipeline; they have not been regenerated with validation of all bins.
+The figures below are historical results from the former selection-first pipeline; they have not been regenerated with validation of all bins. Their original percentage-point score axes are historical; current shifts store `conditional_probability - baseline_probability`, and current scores are one hundredth of the former scale. A shift of 0.233 displays as 23.3%, the same 23.3-percentage-point difference.
 
 ## Example - MA Cross 50/200
 

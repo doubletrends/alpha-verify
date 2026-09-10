@@ -35,7 +35,7 @@ def _write_shift_array(ws: Workspace, progress: MilestoneProgress) -> list[str]:
             artifact_io.save_shift(
                 shifted,
                 ws.shift_cube_path(node["id"]),
-                {**full["meta"], "grid": "shift", "value": "probability_shift_pp",
+                {**full["meta"], "grid": "shift", "value": "probability_shift",
                  "source_artifact": str(ws.cube_path(node["id"]).relative_to(ws.dir)),
                  "source_sha256": hashlib.sha256(ws.cube_path(node["id"]).read_bytes()).hexdigest(),
                  "baseline_artifact": str(ws.baseline_cube.relative_to(ws.dir)),

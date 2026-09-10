@@ -14,3 +14,9 @@ dist/
 workspaces/*/*
 !workspaces/*/universe.json
 !workspaces/*/plugin.py
+
+# LaTeX Output
+.aux
+.log
+.out
+.toc

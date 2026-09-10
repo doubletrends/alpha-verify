@@ -23,7 +23,7 @@ def _print_node_status(ws: Workspace, node_id: str) -> None:
         return
 
     cube = materialized_shift(ws, node_id)
-    dev = cube["probability_shift_pp"]
+    dev = cube["probability_shift"]
     barriers = cube["barriers"]
     horizons = cube["horizons"]
     labels = cube["meta"]["bin_labels"]
@@ -35,7 +35,7 @@ def _print_node_status(ws: Workspace, node_id: str) -> None:
     best = evaluation["best"]
     if not best:
         print(
-            f"  no cell reaches {ws.min_dev}pp across "
+            f"  no cell reaches {ws.min_dev:.1%} across "
             f"{ws.min_run} adjacent barrier rows"
         )
         return
@@ -43,7 +43,7 @@ def _print_node_status(ws: Workspace, node_id: str) -> None:
     bin_index = best["bin"]
     print(f"  strongest bin : {bin_index + 1} of {len(labels)}   ({labels[bin_index]})")
     print(
-        f"  strongest cell: shift={best['dev']:+.1f}pp; "
+        f"  strongest cell: shift={best['dev']:+.1%}; "
         f"P={best['conditional_probability']:.1%} "
         f"vs {best['baseline_probability']:.1%} baseline "
         f"at barrier={best['barrier']:+.0%}, +{best['horizon']}{ws.horizon_unit} "
@@ -71,17 +71,17 @@ def _print_node_status(ws: Workspace, node_id: str) -> None:
         if finite.size == 0 or np.max(np.abs(finite)) < ws.min_dev:
             continue
         cells = "".join(
-            "       -" if not np.isfinite(value) else f"{value:>8.1f}"
+            "       -" if not np.isfinite(value) else f"{value:>8.1%}"
             for value in row
         )
         print(f"  {format(barriers[index], delta_format):>7}{cells}")
         shown += 1
     if not shown:
-        print(f"  no barrier row deviates by {ws.min_dev}pp at these horizons")
+        print(f"  no barrier row deviates by {ws.min_dev:.1%} at these horizons")
     print()
     print(
-        "  values are percentage-point shifts from baseline; rows shown deviate "
-        f"at least {ws.min_dev}pp"
+        "  values are probability differences from baseline, displayed as percentages; rows shown deviate "
+        f"at least {ws.min_dev:.1%}"
     )
     print(
         f"  the workbook carries all {len(barriers)} barriers, {len(horizons)} horizons "

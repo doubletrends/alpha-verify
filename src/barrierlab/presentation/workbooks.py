@@ -23,7 +23,6 @@ from openpyxl.utils import get_column_letter
 from barrierlab.domain.barrier import MIN_BIN_N
 
 _PCT_FMT = '0.0%'
-_PP_FMT = '+0.0;-0.0;0.0'
 _SHIFT_PCT_FMT = '+0.0%;-0.0%;0.0%'
 _PVAL_FMT = '0.0000'
 
@@ -216,11 +215,11 @@ def write_shift_xlsx(
     """
     One tab per condition bin; each tab is the full baseline-subtracted surface.
 
-    Values are percentage-point deviations from the baseline node. The color scale is
+    Values are probability differences from the baseline, displayed as percentages. The color scale is
     centered at zero: blue means the barrier is touched less often than unconditional,
     red means more often.
     """
-    values = cube['probability_shift_pp']
+    values = cube['probability_shift']
     barriers = cube['barriers']
     horizons = cube['horizons']
     bin_observation_counts = cube['bin_observation_counts']
@@ -273,7 +272,7 @@ def write_shift_xlsx(
             for j in range(horizon_count):
                 v = values[i, b, j]
                 cell = ws.cell(row=r, column=2 + j,
-                               value=None if not np.isfinite(v) else round(float(v) / 100.0, 4))
+                               value=None if not np.isfinite(v) else float(v))
                 cell.number_format = _SHIFT_PCT_FMT
                 if not np.isfinite(v):
                     cell.fill = _FILL_NA
@@ -286,7 +285,7 @@ def write_shift_xlsx(
                            end_type='num', end_value=lim, end_color=_RED))
 
         ws.column_dimensions['A'].width = 8
-        for j in range(n_t):
+        for j in range(horizon_count):
             ws.column_dimensions[get_column_letter(2 + j)].width = 8.5
         ws.freeze_panes = f'B{_DATA_ROW}'
 

@@ -33,7 +33,7 @@ def _method() -> dict:
         "null_version": NULL_VERSION,
         "n_null_replicates": N_NULL_REPLICATES, "seed": SEED,
         "threshold": {"raw_p": RAW_P_THRESHOLD},
-        "unit": "linearly barrier-weighted percentage points",
+        "unit": "linearly barrier-weighted probability difference",
         "null": "shared synthetic OHLC histories per identical stored market history; external conditions fixed",
         "invalid_null_bins": "zero score; retained in the full null ensemble",
     }

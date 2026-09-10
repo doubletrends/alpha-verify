@@ -7,6 +7,7 @@ import shutil
 
 import numpy as np
 from matplotlib.colors import TwoSlopeNorm
+from matplotlib.ticker import PercentFormatter
 
 from barrierlab.presentation.plot_style import (
     CMAP_DIV, GRID, INK_2, SURFACE,
@@ -14,7 +15,7 @@ from barrierlab.presentation.plot_style import (
 )
 from barrierlab.presentation.workbooks import feature_label
 
-SHIFT_LIMIT_PP = 30.0
+SHIFT_LIMIT = 0.30
 
 
 def _condition(row: dict) -> str:
@@ -38,7 +39,7 @@ def write_selected_shift_heatmaps(
             horizons = np.asarray(cube["horizons"], dtype=int)
             keep = np.abs(barriers) > 1e-12
             surface = np.asarray(
-                cube["probability_shift_pp"][:, bin_index, :], dtype=float
+                cube["probability_shift"][:, bin_index, :], dtype=float
             )[keep]
             shown_barriers = barriers[keep]
 
@@ -46,12 +47,14 @@ def write_selected_shift_heatmaps(
             mesh = ax.pcolormesh(
                 horizons, shown_barriers * 100.0, surface,
                 cmap=CMAP_DIV,
-                norm=TwoSlopeNorm(vcenter=0.0, vmin=-SHIFT_LIMIT_PP, vmax=SHIFT_LIMIT_PP),
+                norm=TwoSlopeNorm(vcenter=0.0, vmin=-SHIFT_LIMIT, vmax=SHIFT_LIMIT),
                 shading="nearest",
             )
             ax.axhline(0, color=SURFACE, linewidth=1.4)
             colorbar = fig.colorbar(mesh, ax=ax, pad=0.02, fraction=0.04)
-            colorbar.set_label("conditional minus baseline (percentage points)", color=INK_2)
+            colorbar.set_label("conditional minus baseline (probability difference)", color=INK_2)
+            colorbar.formatter = PercentFormatter(xmax=1.0)
+            colorbar.update_ticks()
             colorbar.outline.set_visible(False)
             colorbar.ax.tick_params(color=GRID, labelsize=7.5)
             ax.set_xlabel(f"forward horizon (+t {ws.horizon_unit})")
@@ -61,7 +64,7 @@ def write_selected_shift_heatmaps(
             _title(
                 fig,
                 f'{feature_label(row["node"])} bin {int(row["bin_number"])}: {_condition(row)}',
-                f'full baseline-relative surface · validation score {float(row["bin_score"]):.2f}pp '
+                f'full baseline-relative surface · validation score {float(row["bin_score"]):.4f} '
                 f'· raw p={float(row["monte_carlo_p_value"]):.4f}',
             )
             _note(
