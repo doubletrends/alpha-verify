@@ -89,10 +89,25 @@ of each resulting shift surface against synthetic histories, and retain the
 observed surfaces that clear the test.
 
 This document defines those transformations and their numerical contract.
+It is intended for readers implementing the method; no particular array
+library is assumed. Primitive operations and notation are defined below.
 The same measurement and scoring rules apply to observed and synthetic
 histories. Section~\ref{sec:numerics} collects array layouts, artifact
 references, and cache rules; these determine how results are represented
 and reused without changing the mathematical operations.
+
+\topic{What the comparison establishes}
+
+The current decision is an exploratory comparison with a fitted independent
+Gaussian OHLC simulator. A small Monte Carlo i-value means that this simulator
+rarely produces a score as large as the observed one. It does not by itself
+establish incremental predictive information, out-of-sample performance, or
+a calibrated 5\% false-positive rate in markets with temporal dependence.
+Model limitations and support conditioning are part of the interpretation
+of the decision, not merely implementation details
+(Section~\ref{sec:validation}). This specification describes the current
+algorithm; explicitly identified diagnostics and alternatives are proposals,
+not claims about implemented behavior.
 
 \section{Central concepts}\label{sec:surface}
 
@@ -288,12 +303,34 @@ and $R_{t,\theta}^{-,(i)}$ for downside excursions.
 \toprule
 Symbol & Meaning \\
 \midrule
+$i\in\{0,\ldots,I\}$ & Path label; $0$ is observed and $I=1{,}000$ paths are synthetic. \\
 $t\in\mathcal T$ & identifies an observation date. In forward
         expressions, $t+j$ means the $j$th subsequent observation. \\
 $x_{t}^{(i)}$ & is the feature value used to assign date $t$ to a bin. \\
 $k\in\{0,\ldots,K_{\mathrm{req}}-1\}$ & is a requested
         bin position. Path $i$ has $K^{(i)}\leq K_{\mathrm{req}}$ effective
         bins, occupying positions $0,\ldots,K^{(i)}-1$. \\
+$\delta\in\Delta,\ \theta\in\Theta$ & Signed return barrier and forward horizon in bars; grids are ordered. \\
+$\Delta_{\pm}$ & Nonzero grid rows with unique opposite-sign partners. \\
+$e^{(i)},\ \kappa_t^{(i)},\ A_k^{(i)}$ & Ordered bin edges, date assignment, and dates in bin $k$. \\
+$\mathcal E_\theta^{(i)},\ \mathcal E_{k,\theta}^{(i)}$ & Price-eligible dates, and their intersection with bin $k$. \\
+$N^{\mathrm{condition}},\ N^{\mathrm{baseline}},\ N^{\mathrm{hit}}$ & Conditional sample count, baseline sample count, and touch count; $n_{\min}=30$. \\
+\bottomrule
+\end{tabularx}
+
+\begin{tabularx}{\linewidth}{@{}l >{\raggedright\arraybackslash}X@{}}
+\toprule
+Symbol & Meaning \\
+\midrule
+$X_t^{(i)},Y_k^{(i)},B^{(i)},Z_k^{(i)}$ & Outcome, conditional probability, baseline probability, and shift Surfaces. \\
+$\Pi^{(i)}[A]$ & Eligible averaging of outcome Surfaces over date group $A$. \\
+$R_{t,\theta}^{-,(i)},R_{t,\theta}^{+,(i)}$ & Minimum downside and maximum upside forward excursions. \\
+$\mathcal L^{(i)},\ \mathcal U_k^{(i)}$ & Locally eligible bins and usable scoring coordinates. \\
+$w_\delta,\ H_k^{(i)},\ Q_k^{(i)},\ V_k^{(i)}$ & Barrier weight, contribution Surface, scalar score, and support flag. \\
+$\widehat i_k,\ C_k,\mathcal K_{\mathrm{sel}}$ & Monte Carlo i-value, clearing flag, and selected bin positions. \\
+$g_t^{(i)},z_t^{(i)},\mu,\Sigma$ & OHLC log components, standard Gaussian innovations, fitted mean, and covariance. \\
+$\epsilon,L_\Sigma,I_4,C_{\mathrm{init}}$ & Covariance jitter, lower Cholesky factor, four-dimensional identity, and initial close. \\
+$j,\gamma$ & Local dummy indices: $j$ indexes offsets, edges, components, or time within its formula; $\gamma$ indexes barriers. \\
 \bottomrule
 \end{tabularx}
 
@@ -301,6 +338,23 @@ Bin positions are zero-based, matching the insertion-index convention
 used in the implementation. Bin $k$ refers to an ordered position within
 each path's binning; its numerical feature boundaries can differ between
 paths.
+
+\topic{Primitive operations}
+
+$\ind[P]$ is $1$ when proposition $P$ is true and $0$ otherwise.
+For a positive-definite matrix $A$, $\chol(A)$ is the lower triangular
+matrix $L$ with positive diagonal satisfying $LL^{\mathsf T}=A$.
+For an increasing edge vector $e$,
+$\searchsorted(e,x,\mathrm{left})=|\{r:e_r<x\}|$; equality therefore enters
+the lower bin. For example, edges $(2,5)$ assign $2,3,5,6$ to bins
+$0,1,1,2$, respectively.
+
+Quantiles use linear interpolation of the sorted finite sample
+$a_0\leq\cdots\leq a_{n-1}$. For probability $u\in[0,1]$, let
+$h=(n-1)u$, $r=\lfloor h\rfloor$, and $s=\lceil h\rceil$; then
+$\quantile_u(a)=a_r+(h-r)(a_s-a_r)$. An empty finite sample has no
+finite edges and assigns no dates to any bin. NaN denotes an unavailable
+stored value, never a numeric zero.
 
 \Needspace{13\baselineskip}
 \subsection{Values, counts, and support}
@@ -597,6 +651,15 @@ $\Delta_{\pm}\ne\varnothing$, assign the magnitude weights
 \]
 If $\Delta_{\pm}$ is empty, all weights are zero.
 
+The current scorer silently ignores unmatched or ambiguously matched rows;
+it returns zero scores and false support flags when no pairs remain. This
+is a configuration failure mode, not evidence of no signal. Recommended
+diagnostics are paired and excluded row counts and an error when no pairs
+remain; these are not currently enforced. Numerically, the implementation
+matches using \texttt{isclose} with absolute tolerance $10^{-12}$ and
+relative tolerance $10^{-5}$, and ignores magnitudes at most $10^{-12}$.
+The exact reflection above assumes an unambiguous symmetric grid.
+
 \topic{Usable coordinates}
 
 Support is determined on this same grid. First identify locally eligible
@@ -650,6 +713,15 @@ coordinates. It is a weighted probability-difference score, not a probability,
 and can exceed one. An unsupported bin has score zero and false validity;
 a supported zero score remains valid.
 
+There is no inverse-variance weighting or normalization for usable grid
+size. Coordinates supported by 31 and 3,000 dates receive the same barrier
+weight. Under independent Bernoulli observations, the standard error at
+probability $0.5$ with 30 dates is $\sqrt{0.25/30}\approx0.091$.
+This is not an uncertainty bound here: forward windows overlap, the baseline
+overlaps each bin, and opposite-barrier outcomes are dependent. Precision
+weighting would need these covariances. Equal scoring rules do not compensate
+for a mismatch in observed and simulated dependence or support.
+
 \subsection{Worked example: scoring the shift}\label{sec:score-example}
 
 For the running example, take the Stage~2 Surface as the observed
@@ -684,6 +756,30 @@ Each column contributes $0.10+0.05+0+0.05+0.10=0.30$. Summing the entire Surface
 \]
 Stage~3 compares this single score with scores from null histories; it
 does not test each of the 35 Surface entries separately.
+
+\topic{Worked boundary cases: support is not a score}
+
+Use one horizon and $\Delta=(-0.02,+0.02)$, so both weights are $1$.
+With two eligible bins, shifts $(-0.10,+0.10)$ in one bin give two
+contributions of $0.10$, hence $Q=0.20,V=1$. Vary this setup independently:
+\begin{itemize}
+ \item \textbf{Unsupported entry.} With 29 eligible dates, this bin's
+ probabilities and shifts are NaN; its contributions are zero and
+ $Q=0,V=0$. If the other bin is the only eligible bin left, it also has
+ $V=0$: the two-bin rule fails even though its shifts are finite.
+ \item \textbf{Supported zero.} With both bins eligible, shifts
+ $(+0.10,+0.10)$ give $Q=0,V=1$, distinguishing zero asymmetry from no support.
+ \item \textbf{No matched pair.} For $\Delta=(-0.02,+0.01)$,
+ $\Delta_{\pm}=\varnothing$. All weights and scores are zero and all
+ support flags are false, even with 100 dates in each bin.
+ \item \textbf{Heavy ties.} Request four bins from 80 values: 60 zeros
+ and 20 ones. Linear-interpolated interior quantiles are $(0,0,0.25)$;
+ filtering retains $(0.25)$. Thus $K^{(i)}=2$, with counts 60 and 20 if
+ all dates are price eligible. Positions 2 and 3 are absent, bin 1 misses
+ the count threshold, and bin 0 fails the two-bin rule. All flags are false.
+\end{itemize}
+Losing one horizon need not invalidate a whole score: $V=0$ requires
+that no usable coordinate remains anywhere on the grid.
 
 \subsection{The synthetic-history model}\label{sec:null}
 
@@ -739,6 +835,30 @@ Observed volume is broadcast across synthetic histories. The null does
 not model temporal autocorrelation, volatility clustering, regime
 transitions, liquidity, execution, or trading costs.
 
+\topic{Consequences for inference and OHLC consistency}
+
+The fitted mean and covariance do not reproduce temporal dependence or
+non-Gaussian tails. Features associated with persistent volatility or regimes
+can distinguish observed history from this simulator without establishing
+incremental predictive content. The direction and size of the score effect
+require measurement: symmetric changes in opposite-barrier shifts can cancel.
+Restricting features to those uncorrelated with a volatility proxy does not
+establish calibration either.
+
+The Gaussian draw also fails to enforce $g^{\mathrm{high}}\geq0$ and
+$g^{\mathrm{low}}\leq0$. With $\Open=\Close=100$, draws
+$g^{\mathrm{high}}=-0.01$ and $g^{\mathrm{low}}=+0.01$ give
+$\High\approx99.00$ and $\Low\approx101.01$, violating OHLC ordering.
+The reconstruction documents this limitation; it does not repair those
+draws. A constraint-preserving generator would be a model change requiring
+new validation and cache versions.
+
+A dependent resampling or volatility model is a candidate replacement,
+not an automatic inferential fix. A block bootstrap can preserve both
+temporal dependence and the feature--future relationship under investigation.
+A replacement must specify which relationship its null removes, which
+dependence it preserves, and how calibration is checked.
+
 \subsection{Repeating measurement on each null path}
 
 For an OHLCV-derived feature, recompute its values and quantile edges
@@ -752,6 +872,15 @@ Section~\ref{sec:score} to every path. This produces
 $Q_{k}^{(1)},\ldots,Q_{k}^{(I)}$ at each requested bin position. The comparison
 matches bin positions; it does not require identical numerical quantile
 edges or identical effective bin counts across histories.
+
+For a reconstructed feature, position $k$ denotes an adaptive ordered bin
+with path-dependent cutoffs; ties can change its nominal quantile interval.
+For a fixed external feature, it denotes the same cutoffs and date group
+on each path. These are different conditioning policies. Applying the same
+policy to observed and simulated data defines a reproducible statistic,
+but position matching alone does not establish exchangeability or calibration.
+Observed volume is fixed even for reconstructed OHLCV features; its joint
+dynamics with synthetic prices are not preserved.
 
 \subsection{The test and decision rule}
 
@@ -770,6 +899,53 @@ Unsupported observed bins are skipped. There is no family-wise or
 false-discovery-rate correction across bins in the current decision rule.
 The comparison concerns this score under the specified null model.
 
+\topic{Support conditioning and an alternative comparison}
+
+Let $M_k=\sum_{i=1}^I V_k^{(i)}$ be the supported-null count. For a positive
+supported observed score, define
+\[
+ A_k=\sum_{i:V_k^{(i)}=1}\ind[Q_k^{(i)}\geq Q_k^{(0)}].
+\]
+The implemented value is $(1+A_k)/(1+I)$. A comparison conditional on null
+support would instead use
+\[
+ \widehat i_k^{\mathrm{supported}}=\frac{1+A_k}{1+M_k},\qquad M_k>0.
+\]
+This alternative is not the current decision rule. With no supported null
+paths it should be reported as untestable. Supported null zeros remain in
+its sample. For a supported observed zero, both comparisons equal one
+whenever the conditional comparison is defined.
+
+For example, $I=1{,}000$, $M_k=100$, and $A_k=4$ give implemented value
+$5/1{,}001\approx0.0050$ and conditional value $5/101\approx0.0495$.
+With $A_k=5$, they become $6/1{,}001\approx0.0060$ and
+$6/101\approx0.0594$, reversing the decision. Invalid zeros lower the
+implemented tail rank for a fixed positive score relative to the supported
+comparison. This does not prove unconditional type-I error inflation:
+under an exchangeable null, an identically applied statistic may legitimately
+include a mass at zero. Conditioning on observed support changes the target
+population and requires its own calibration argument.
+
+The fitted simulator does not establish that exchangeability. Its parameters
+are estimated from observed history, so the plus-one formula alone supplies
+no exact finite-sample guarantee. Resolution $1/(I+1)$ is not a guarantee
+of statistical accuracy. Recommended diagnostics are $M_k/I$, observed and
+null usable-coordinate counts, effective bin counts, and both comparison
+values, followed by repeated full-pipeline null experiments across ties,
+missingness, sample sizes, and horizon grids. Currently the supported-null
+count, rather than this full diagnostic set, is recorded alongside scores.
+
+\topic{Multiplicity and the meaning of clearing}
+
+For a fixed family containing $m_0$ true null hypotheses, valid marginal
+tests at level $0.05$ imply an expected number of false rejections at most
+$0.05m_0$; independence is unnecessary for this expectation. For example,
+100 features with ten true-null bin tests each would yield 50 expected false
+rejections if each test had size exactly $0.05$. This is not a calibration
+result for the present simulator and does not automatically apply after
+conditioning on a data-selected set of supported bins. Clearing is an
+unadjusted exploratory flag, not a family-level error guarantee.
+
 \Needspace{16\baselineskip}
 \subsection{Worked example: applying the decision rule}\label{sec:decision-example}
 
@@ -784,6 +960,12 @@ ties. Then
 This bin clears, and Stage~4 retains its complete $-0.10/0/+0.10$ shift
 Surface. The count of 24 is an illustrative assumption, not a simulation
 result: the observed shifts alone cannot determine the null comparison.
+
+For a non-rejection example with the same positive observed score, 50 null
+scores at least as large give $\widehat i_k=51/1{,}001\approx0.05095$:
+the bin does not clear. With 49 exceedances, $50/1{,}001\approx0.04995$
+clears. Ties count as exceedances. An unsupported observed bin is skipped
+rather than assigned a passing i-value, regardless of its stored zero score.
 
 \section{Stage 4: selection and presentation}
 
@@ -822,17 +1004,12 @@ depends on that bin's own support and decision result.
 
 \subsection{Surface notation and stored axes}
 
-Surface notation groups the two internal coordinates for mathematical
-reasoning; it does not prescribe contiguous axes in a stored tensor.
-The correspondence with scalar-index notation is
-\begin{align*}
- X_{t}^{(i)}(\delta,\theta)&=X_{t,\theta,\delta}^{(i)},\\
- Y_{k}^{(i)}(\delta,\theta)&=\pi_{\delta,k,\theta}^{\mathrm{condition},(i)},\\
- B^{(i)}(\delta,\theta)&=\pi_{\delta,\theta}^{\mathrm{baseline},(i)},\\
- Z_{k}^{(i)}(\delta,\theta)&=Z_{\delta,k,\theta}^{(i)},\\
- N_{k}^{\mathrm{hit},(i)}(\delta,\theta)&=N_{\delta,k,\theta}^{\mathrm{hit},(i)}.
-\end{align*}
-The implementation uses the following axis order. A path batch contains a
+Surface arguments $(\delta,\theta)$ identify mathematical coordinates,
+not tensor axis positions. The following table is the storage-axis contract;
+no alternate scalar-subscript ordering is implied. A touch matrix is
+evaluated at a fixed horizon and has no horizon axis. Slicing a horizon
+from a logical four-axis tensor does not determine where that axis belonged.
+A path batch contains a
 subset of the paths $i=0,1,\ldots,I$; an observed role batch contains one path.
 
 \begin{center}
@@ -889,6 +1066,13 @@ Horizons are traversed incrementally: running future minima and maxima
 extend the state for shorter horizons. Synthetic histories are evaluated
 in memory-bounded path batches. At each batch and horizon, one touch
 matrix serves the baseline and all node-specific bin reductions.
+
+Features sharing a history also share its synthetic ensemble. Their results
+are dependent through both the data and the common simulations. A fixed seed
+makes one ensemble reproducible; it does not provide independent replication
+across features or eliminate Monte Carlo uncertainty. Shared draws do not
+inherently invalidate marginal tests and can support a joint multiplicity
+procedure, but no such correction is currently applied.
 
 The following quantities are reused exactly rather than approximated:
 \begin{itemize}
