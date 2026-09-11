@@ -5,7 +5,7 @@ from pathlib import Path
 import unittest
 
 
-PACKAGE_ROOT = Path(__file__).parents[1] / "src" / "barrierlab"
+PACKAGE_ROOT = Path(__file__).parents[1] / "src" / "alphaverify"
 
 
 def imported_layers(path: Path) -> set[str]:
@@ -21,7 +21,7 @@ def imported_layers(path: Path) -> set[str]:
 
         for module in modules:
             parts = module.split(".")
-            if parts[0] == "barrierlab" and len(parts) > 1:
+            if parts[0] == "alphaverify" and len(parts) > 1:
                 layers.add(parts[1])
             else:
                 layers.add(parts[0])
@@ -29,7 +29,12 @@ def imported_layers(path: Path) -> set[str]:
 
 
 class ArchitectureBoundaryTests(unittest.TestCase):
-    def test_internal_imports_use_the_barrierlab_namespace(self) -> None:
+    def test_core_has_no_provider_implementations(self) -> None:
+        forbidden = {"yfinance", "urllib", "requests", "httpx"}
+        for path in PACKAGE_ROOT.rglob("*.py"):
+            self.assertFalse(imported_layers(path) & forbidden, path)
+
+    def test_internal_imports_use_the_alphaverify_namespace(self) -> None:
         legacy_roots = {"domain", "infrastructure", "pipeline", "presentation"}
         violations = []
         for path in PACKAGE_ROOT.rglob("*.py"):

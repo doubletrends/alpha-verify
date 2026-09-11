@@ -4,10 +4,10 @@ import numpy as np
 import pytest
 from openpyxl import load_workbook
 
-from barrierlab.domain import scoring, shift
-from barrierlab.infrastructure import artifact_io
-from barrierlab.infrastructure.workspace import WorkspaceConfig
-from barrierlab.presentation import workbooks
+from alphaverify.domain import scoring, shift
+from alphaverify.infrastructure import artifact_io
+from alphaverify.infrastructure.workspace import WorkspaceConfig
+from alphaverify.presentation import workbooks
 
 
 @pytest.mark.parametrize("suffix", [".npz", ".safetensors"])

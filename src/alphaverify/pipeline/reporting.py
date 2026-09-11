@@ -33,15 +33,15 @@ class StageReport:
         self._started = perf_counter()
         title, calculation = self._HEADINGS[number]
         color = self._color_enabled()
-        cyan = "\033[36m" if color else ""
+        accent = "\033[38;2;194;65;12m" if color else ""
         bold = "\033[1m" if color else ""
         dim = "\033[2m" if color else ""
         reset = "\033[0m" if color else ""
         print(
-            f"\n{cyan}{self._RULE}{reset}\n"
-            f"{cyan}{bold}Stage {number}:{reset} {bold}{title}{reset}\n"
+            f"\n{accent}{self._RULE}{reset}\n"
+            f"{accent}{bold}Stage {number}:{reset} {bold}{title}{reset}\n"
             f"{dim}{calculation}{reset}\n"
-            f"{cyan}{self._RULE}{reset}\n"
+            f"{accent}{self._RULE}{reset}\n"
         )
 
     def line(self, message: str) -> None:
@@ -56,10 +56,10 @@ class StageReport:
     def progress_group(self, label: str) -> None:
         """Start one compact, visually separate group of milestone updates."""
         color = self._color_enabled()
-        cyan = "\033[36m" if color else ""
+        accent = "\033[38;2;194;65;12m" if color else ""
         bold = "\033[1m" if color else ""
         reset = "\033[0m" if color else ""
-        print(f"\n  {cyan}{bold}{label[:1].upper()}{label[1:]}{reset}")
+        print(f"\n  {accent}{bold}{label[:1].upper()}{label[1:]}{reset}")
 
     def progress(self, completed: int, total: int, milestone: int) -> None:
         print(f"    {completed}/{total} · {milestone}%")

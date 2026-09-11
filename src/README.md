@@ -1,25 +1,25 @@
 # Source architecture
 
-`src/` owns the installable `barrierlab` package: numerical definitions, data and artifact adapters, pipeline orchestration, presentation, and the command-line entrypoint. It does not own asset-specific experiments—the declarations and optional extensions for those live in [`workspaces/`](../workspaces/README.md)—or the evidence narrative in the [root README](../README.md).
+`src/` owns the installable `alphaverify` package: numerical definitions, data and artifact adapters, pipeline orchestration, presentation, and the command-line entrypoint. It does not own asset-specific experiments—the declarations and optional extensions for those live in [`workspaces/`](../workspaces/README.md)—or the evidence narrative in the [root README](../README.md).
 
 ## Public entrypoints
 
 | Entrypoint | Responsibility |
 |---|---|
-| `barrierlab.cli:main` | Installed `barrierlab` command and argument routing |
-| `barrierlab.infrastructure.workspace.Workspace` | Validated view of one `universe.json` and its artifact namespace |
-| `barrierlab.pipeline.step_01_surface.cmd_surface` | Stage 1 `measure` implementation |
-| `barrierlab.pipeline.step_02_shift.cmd_shift` | Stage 2 `compare` implementation |
-| `barrierlab.pipeline.step_03_validation.cmd_validation` | Stage 3 `validate` implementation |
-| `barrierlab.pipeline.step_04_selection.cmd_selection` | Stage 4 `select` implementation |
-| `barrierlab.pipeline.status.cmd_status` | Read-only workspace and node inspection |
+| `alphaverify.cli:main` | Installed `alphaverify` command and argument routing |
+| `alphaverify.infrastructure.workspace.Workspace` | Validated view of one `universe.json` and its artifact namespace |
+| `alphaverify.pipeline.step_01_surface.cmd_surface` | Stage 1 `measure` implementation |
+| `alphaverify.pipeline.step_02_shift.cmd_shift` | Stage 2 `compare` implementation |
+| `alphaverify.pipeline.step_03_validation.cmd_validation` | Stage 3 `validate` implementation |
+| `alphaverify.pipeline.step_04_selection.cmd_selection` | Stage 4 `select` implementation |
+| `alphaverify.pipeline.status.cmd_status` | Read-only workspace and node inspection |
 
 The CLI constructs `Workspace(args.workspace)` relative to `Path.cwd() / "workspaces"`; run it from the repository root unless calling the Python API with an explicit workspace directory.
 
 ## Package boundaries
 
 ```text
-src/barrierlab/
+src/alphaverify/
   cli.py              command definitions and dispatch
   domain/             numerical and statistical rules
   infrastructure/     workspace, source, plugin, and persistence adapters
@@ -42,11 +42,11 @@ Key modules:
 
 ### `infrastructure/`
 
-Owns all contact with filesystems, workspace declarations, market-data providers, and workspace-local extensions.
+Owns artifact persistence, workspace declarations, prepared-data validation, and loading workspace-local code. Provider access and cleaning policy belong to the workspace.
 
 - `workspace.py` loads `universe.json` once into `NodeCatalog` and immutable `WorkspaceConfig` objects and maps logical artifacts to paths.
-- `market_data.py` registers built-in Yahoo OHLCV, VIX, Treasury-yield, and DXY sources. `SourceRegistry` caches each raw feed once per command and joins secondary histories onto the primary index with forward filling.
-- `workspace_plugins.py` loads an optional `workspaces/<name>/plugin.py`. A plugin must expose `register(sources, features)`; registries are recreated for each command.
+- `market_data.py` lazily loads the workspace's `data.py`, validates prepared panels, and caches them per command. It never chooses a provider, sorts, fills, joins, or drops rows. New inputs require finite positive OHLC, finite nonnegative volume, valid OHLC ordering, and unique increasing timezone-naive timestamps. Auxiliary values may be NaN, but not infinite.
+- `workspace_plugins.py` loads `data.py` and the optional feature-only `plugin.py`, whose entry point is `register(features)`. Modules can import helpers relative to their workspace; namespaces are isolated by absolute workspace root.
 - `artifact_io.py` is the sole array-persistence owner. It writes SafeTensors plus JSON metadata and restores probability-like arrays as float64 for runtime calculations.
 - `artifacts.py` defines the three stage directories and reconstructs aligned OHLCV and feature histories from Stage 2 artifacts.
 
@@ -54,12 +54,12 @@ Owns all contact with filesystems, workspace declarations, market-data providers
 
 Owns sequencing, progress reporting, failure isolation by node, timestamps, provenance metadata, and the transition between domain operations and persisted artifacts. A pipeline module may use domain, infrastructure, and presentation APIs. It should not redefine their calculations or schemas.
 
-`RunContext` creates fresh source and feature registries for one command, loads the workspace plugin, caches source panels, and reuses forward excursions for nodes sharing a source set.
+`RunContext` creates a fresh workspace data boundary and feature registry for one command, loads optional feature registrations, caches prepared panels, and reuses forward excursions. Data code is loaded only when measurement requests inputs; validation from stored artifacts does not load providers. Stored history is validated without silently dropping rows; legacy histories may omit open and volume.
 
 `domain/notation.py` is the code-level notation contract. It names canonical
 tensor axes, fixes the OHLCV component order, and provides typed measurement
 and scoring results. Public numerical boundaries use descriptive ASCII names;
-short symbols are confined to `docs/mathematics.tex`.
+short symbols are confined to `mathematics.tex`.
 
 ### `presentation/`
 
@@ -71,6 +71,7 @@ Owns human-readable workbooks and plots. It consumes artifact data and may use d
 flowchart LR
     U[universe.json] --> C[Workspace + RunContext]
     P[optional plugin.py] --> C
+    D[workspace data.py: fetch, clean, align] --> C
     C --> M[measure]
     M --> C0[00_cache<br/>observed shared tensors]
     M --> A1[01_surface<br/>SafeTensors + XLSX]
@@ -179,9 +180,11 @@ Changing any of these assumptions changes the experiment contract. Update the im
 
 | Fact | Source of truth |
 |---|---|
-| CLI commands and options | `barrierlab/cli.py` |
+| CLI commands and options | `alphaverify/cli.py` |
 | Asset, nodes, grid, horizons, and bin count | `workspaces/<name>/universe.json` |
-| Feature and source implementations | `domain/features.py`, `domain/torch_features.py`, `infrastructure/market_data.py`, workspace plugin |
+| Feature implementations | `domain/features.py`, `domain/torch_features.py`, workspace `plugin.py` |
+| Providers, cleaning, alignment, and source snapshots | Workspace `data.py`; optional transport/snapshot helpers in `workspaces/_shared/` |
+| Prepared-data contract | `infrastructure/market_data.py` |
 | Stage paths and filenames | `infrastructure/artifacts.py` |
 | SafeTensors payload schemas | `infrastructure/artifact_io.py` |
 | Bin-score formula | `domain/scoring.py` and `03_validation/validation.json` metadata |
@@ -196,8 +199,8 @@ Do not copy formulas, paths, or configuration into a second executable source. D
 | Change | Start here | Also verify |
 |---|---|---|
 | Add a reusable OHLCV indicator | `domain/torch_features.py`, then `domain/features.py` | Synthetic-path recomputation and observed/null parity tests |
-| Add a built-in data source | `infrastructure/market_data.py` | Registry caching and index alignment |
-| Add an experiment-only source or feature | Workspace `plugin.py` | [`workspaces/README.md`](../workspaces/README.md) contract |
+| Add or change a data source | Workspace `data.py` | Cleaning, timestamp availability, alignment, snapshots, and common input validation |
+| Add an experiment-only feature | Workspace `plugin.py` | [`workspaces/README.md`](../workspaces/README.md) contract |
 | Change a stage artifact | `infrastructure/artifacts.py` and `artifact_io.py` | Downstream loaders, fingerprints, status, and artifact tests |
 | Change bin scoring | `domain/scoring.py` | Observed/null validation share this kernel; update its version and parity tests |
 | Change the null | `domain/validation.py` | Stage 3 metadata, plots, current-summary check, and statistical disclosure |

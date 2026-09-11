@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import hashlib
 
-from barrierlab.domain import shift
-from barrierlab.infrastructure import artifact_io
-from barrierlab.infrastructure.workspace import BASELINE_NODE, Workspace
-from barrierlab.pipeline.context import baseline_surface, materialized_shift
-from barrierlab.pipeline.reporting import MilestoneProgress, StageReport
-from barrierlab.presentation import workbooks
+from alphaverify.domain import shift
+from alphaverify.infrastructure import artifact_io
+from alphaverify.infrastructure.workspace import BASELINE_NODE, Workspace
+from alphaverify.pipeline.context import baseline_surface, materialized_shift
+from alphaverify.pipeline.reporting import MilestoneProgress, StageReport
+from alphaverify.presentation import workbooks
 
 
 def _write_shift_array(ws: Workspace, progress: MilestoneProgress) -> list[str]:

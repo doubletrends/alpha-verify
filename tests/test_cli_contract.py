@@ -5,8 +5,8 @@ from io import StringIO
 import unittest
 from unittest.mock import patch
 
-from barrierlab.cli import COMMANDS, build_parser
-from barrierlab.pipeline.status import cmd_status
+from alphaverify.cli import COMMANDS, build_parser
+from alphaverify.pipeline.status import cmd_status
 
 
 class CliContractTests(unittest.TestCase):
@@ -62,7 +62,7 @@ class CliContractTests(unittest.TestCase):
         workspace = object()
 
         with patch(
-            "barrierlab.pipeline.status._print_node_status"
+            "alphaverify.pipeline.status._print_node_status"
         ) as print_node_status:
             cmd_status(workspace, "vix_level")
 

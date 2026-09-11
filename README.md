@@ -1,6 +1,6 @@
 <div align="center">
   <h1><strong>AlphaVerify</strong> - Multi-Asset Financial Strategy Debunker</h1>
-  <img src="docs/alpha-verify-icon.svg" alt="AlphaVerify icon" width="180">
+  <img src="docs/alphaverify-icon.svg" alt="AlphaVerify icon" width="180">
   <br><br>
   <img src="https://img.shields.io/badge/Python-%E2%89%A5%203.12-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python >= 3.12">
   <img src="https://img.shields.io/badge/CUDA-%E2%89%A5%2012.0-76B900?style=for-the-badge&logo=nvidia&logoColor=white" alt="CUDA >= 12.0">
@@ -47,13 +47,17 @@ Then the same full-grid score is applied to 10,000 fitted synthetic histories, a
 
 Run commands from the repository root. 
 
+The distribution, CLI, and Python package are named `alphaverify`.
+The repository name remains `alpha-verify`. Reinstall the editable package
+after updating an existing checkout.
+
 ```
 python -m pip install -e .
 
-barrierlab measure
-barrierlab compare
-barrierlab validate
-barrierlab select
+alphaverify measure
+alphaverify compare
+alphaverify validate
+alphaverify select
 ```
 
 Each pipeline command also accepts `--cuda` when a CUDA-capable PyTorch installation and device are available.
@@ -76,7 +80,7 @@ Validation writes `03_validation/`; selection consumes only a current validation
 - [Test contracts](tests/README.md) — what the fast suite protects and what requires a real pipeline run.
 - [Workspaces](workspaces/README.md) — experiment declarations, plugins, generated artifacts, and safe workspace changes.
 
-BarrierLab is research software, not investment advice.
+AlphaVerify is research software, not investment advice.
 
 The complete numerical specification is available as LaTeX in
-[`docs/mathematics.tex`](docs/mathematics.tex).
+[`mathematics.tex`](mathematics.tex).

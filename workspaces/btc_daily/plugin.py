@@ -1,43 +1,10 @@
-"""BTC daily workspace plugin — registers coinmetrics source and BTC-specific features."""
-
-import json
-import urllib.parse
-import urllib.request
+"""BTC-specific on-chain and halving-cycle feature registrations."""
 
 import pandas as pd
 import torch
 
-from barrierlab.domain import tensor_runtime, torch_features
+from alphaverify.domain import tensor_runtime, torch_features
 
-# ── coinmetrics source ────────────────────────────────────────────────────────
-
-def _coinmetrics(start: str, asset: dict) -> pd.DataFrame:
-    params = {
-        'assets':    'btc',
-        'metrics':   'CapMVRVCur,HashRate,AdrActCnt,TxCnt',
-        'frequency': '1d',
-        'format':    'json',
-        'page_size': '10000',
-    }
-    url = (
-        'https://community-api.coinmetrics.io/v4/timeseries/asset-metrics?'
-        + urllib.parse.urlencode(params)
-    )
-    with urllib.request.urlopen(url, timeout=60) as r:
-        payload = json.load(r)
-    df = pd.DataFrame(payload['data'])
-    df['Date'] = pd.to_datetime(df['time'], utc=True).dt.tz_localize(None)
-    df = df.set_index('Date').sort_index()
-    rename = {
-        'CapMVRVCur': 'mvrv',
-        'HashRate':   'hash_rate',
-        'AdrActCnt':  'adr_act_cnt',
-        'TxCnt':      'tx_cnt',
-    }
-    df = df[list(rename)].rename(columns=rename).apply(pd.to_numeric, errors='coerce')
-    return df[df.index >= pd.Timestamp(start)]
-
-# ── on-chain feature helpers ──────────────────────────────────────────────────
 
 def _torch_column(data: pd.DataFrame, column: str) -> torch.Tensor:
     return tensor_runtime.tensor(data[column].to_numpy(float))
@@ -94,9 +61,8 @@ def _days_since_halving(data: pd.DataFrame) -> pd.Series:
     return pd.Series(days, index=data.index, dtype=float)
 
 
-def register(sources, features) -> None:
-    """Register BTC-only sources and features for one pipeline run."""
-    sources.register('coinmetrics', _coinmetrics)
+def register(features) -> None:
+    """Register BTC-only features for one pipeline run."""
     # The data-frame index remains the date-label boundary; all numeric feature
     # arithmetic below is on the pipeline's selected Torch device.
     features.register_torch('mvrv', lambda d, p: _torch_column(d, 'mvrv'))

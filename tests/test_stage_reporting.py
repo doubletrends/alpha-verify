@@ -4,12 +4,12 @@ from contextlib import redirect_stdout
 from io import StringIO
 from unittest.mock import patch
 
-from barrierlab.pipeline.reporting import MilestoneProgress, StageReport
+from alphaverify.pipeline.reporting import MilestoneProgress, StageReport
 
 
 def test_stage_report_has_a_compact_consistent_shape() -> None:
     output = StringIO()
-    with patch("barrierlab.pipeline.reporting.perf_counter", side_effect=(10.0, 12.34)):
+    with patch("alphaverify.pipeline.reporting.perf_counter", side_effect=(10.0, 12.34)):
         with redirect_stdout(output):
             report = StageReport(2, "shift", "nasdaq_daily")
             report.line("shifting 58 nodes against baseline")

@@ -5,11 +5,11 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
-from barrierlab.infrastructure import artifact_io
-from barrierlab.infrastructure.workspace import Workspace
-from barrierlab.pipeline import step_03_validation as validation_stage
-from barrierlab.pipeline import step_04_selection as selection_stage
-from barrierlab.presentation import selection_plots
+from alphaverify.infrastructure import artifact_io
+from alphaverify.infrastructure.workspace import Workspace
+from alphaverify.pipeline import step_03_validation as validation_stage
+from alphaverify.pipeline import step_04_selection as selection_stage
+from alphaverify.presentation import selection_plots
 
 
 @pytest.fixture

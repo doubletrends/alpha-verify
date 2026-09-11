@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 import torch
 
-from barrierlab.domain import barrier, scoring, shift, validation
+from alphaverify.domain import barrier, scoring, shift, validation
 
 
 def history(n=420, seed=7):
@@ -219,7 +219,7 @@ def test_many_scorer_builds_one_touch_matrix_per_batch_and_horizon(monkeypatch):
 
 
 def test_feature_cache_reuses_rolling_primitives(monkeypatch):
-    from barrierlab.domain import torch_features
+    from alphaverify.domain import torch_features
 
     paths = torch.as_tensor(history(n=100).to_numpy(copy=True)[None])
     original = torch_features._rolling
@@ -247,7 +247,7 @@ def test_fixed_external_edges_preserve_collapsed_observed_bins():
 
 
 def test_core_feature_recomputation_matches_observed_history():
-    from barrierlab.domain import tensor_runtime, torch_features
+    from alphaverify.domain import tensor_runtime, torch_features
 
     data = history()
     paths = tensor_runtime.tensor(data.to_numpy()[None])

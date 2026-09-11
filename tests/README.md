@@ -31,7 +31,8 @@ python -m pytest -q tests/test_validation_pipeline.py
 | `test_scoring_parity.py` | Full-grid versus streamed score/validity parity; cached versus streamed excursions; per-path baselines; drift regression; quantiles, ties, missing values, thin bins, and fixed external edges |
 | `test_notation_contract.py` | Canonical tensor-axis names, OHLCV component order, and version-1 artifact-name normalization |
 | `test_stage_reporting.py` | Stable stage headings, summaries, timing shape, and bounded progress milestones |
-| `test_workspace_contracts.py` | Nasdaq catalog and stage paths; artifact-history alignment; per-run source caching; BTC hourly workspace-local OHLCV override |
+| `test_workspace_contracts.py` | Nasdaq catalog and stage paths; exact artifact-history restoration; per-run workspace feed caching; BTC hourly loader |
+| `test_workspace_data.py` | Prepared-data rejection without mutation; workspace cleaning/alignment; missing loaders; panel isolation; snapshots and measurement provenance |
 
 ## Test boundaries
 
@@ -72,11 +73,11 @@ Prefer assertions about filenames, labels, dimensions, and data handed to the re
 Changes to the scientific path require a staged workspace run:
 
 ```powershell
-barrierlab measure  --workspace <name>
-barrierlab compare  --workspace <name>
-barrierlab validate --workspace <name>
-barrierlab select   --workspace <name>
-barrierlab status   --workspace <name>
+alphaverify measure  --workspace <name>
+alphaverify compare  --workspace <name>
+alphaverify validate --workspace <name>
+alphaverify select   --workspace <name>
+alphaverify status   --workspace <name>
 ```
 
 Then inspect `validation.json`, `selection.json`, representative spreadsheets, null histograms, and selected-bin heatmaps. Generated artifacts are local and ignored by Git; see the [workspace contract](../workspaces/README.md).

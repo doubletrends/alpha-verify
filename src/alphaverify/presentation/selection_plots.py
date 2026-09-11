@@ -9,11 +9,11 @@ import numpy as np
 from matplotlib.colors import TwoSlopeNorm
 from matplotlib.ticker import PercentFormatter
 
-from barrierlab.presentation.plot_style import (
+from alphaverify.presentation.plot_style import (
     CMAP_DIV, GRID, INK_2, SURFACE,
     note as _note, plt, save as _save, title as _title,
 )
-from barrierlab.presentation.workbooks import feature_label
+from alphaverify.presentation.workbooks import feature_label
 
 SHIFT_LIMIT = 0.30
 

@@ -8,13 +8,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from barrierlab.domain import barrier, shift, validation
-from barrierlab.domain.features import is_ohlcv_feature
-from barrierlab.infrastructure import artifact_io
-from barrierlab.infrastructure.workspace import Workspace
-from barrierlab.pipeline import step_03_validation as stage
-from barrierlab.pipeline.status import cmd_status
-from barrierlab.presentation import validation_plots
+from alphaverify.domain import barrier, shift, validation
+from alphaverify.domain.features import is_ohlcv_feature
+from alphaverify.infrastructure import artifact_io
+from alphaverify.infrastructure.workspace import Workspace
+from alphaverify.pipeline import step_03_validation as stage
+from alphaverify.pipeline.status import cmd_status
+from alphaverify.presentation import validation_plots
 
 _REAL_HISTOGRAM_WRITER = validation_plots.write_bin_score_null_histograms
 
@@ -61,7 +61,7 @@ def test_only_core_features_are_recomputed():
 
 
 def test_compare_validate_select_in_probability_units(workspace, monkeypatch):
-    from barrierlab.pipeline import step_02_shift, step_04_selection
+    from alphaverify.pipeline import step_02_shift, step_04_selection
 
     # Materialize a small Stage 1 source, then exercise the real downstream writers.
     for node in workspace.catalog.all_nodes():

@@ -6,8 +6,8 @@ from pathlib import Path
 
 import numpy as np
 
-from barrierlab.domain.notation import AXIS_CONTRACTS, OhlcvComponent
-from barrierlab.infrastructure import artifact_io
+from alphaverify.domain.notation import AXIS_CONTRACTS, OhlcvComponent
+from alphaverify.infrastructure import artifact_io
 
 
 def test_canonical_axes_and_ohlcv_order_are_explicit() -> None:

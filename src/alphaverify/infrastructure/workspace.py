@@ -8,8 +8,8 @@ from pathlib import Path
 
 import numpy as np
 
-from barrierlab.infrastructure.artifact_io import read_json, write_json
-from barrierlab.infrastructure.artifacts import ArtifactPaths
+from alphaverify.infrastructure.artifact_io import read_json, write_json
+from alphaverify.infrastructure.artifacts import ArtifactPaths
 
 BASELINE_NODE = "baseline"
 

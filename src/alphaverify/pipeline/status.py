@@ -6,12 +6,12 @@ from collections import defaultdict
 
 import numpy as np
 
-from barrierlab.domain import shift
-from barrierlab.infrastructure import artifact_io
-from barrierlab.infrastructure.workspace import Workspace
-from barrierlab.pipeline.step_03_validation import validation_summary_is_current
-from barrierlab.pipeline.step_04_selection import selection_summary_is_current
-from barrierlab.pipeline.context import materialized_shift
+from alphaverify.domain import shift
+from alphaverify.infrastructure import artifact_io
+from alphaverify.infrastructure.workspace import Workspace
+from alphaverify.pipeline.step_03_validation import validation_summary_is_current
+from alphaverify.pipeline.step_04_selection import selection_summary_is_current
+from alphaverify.pipeline.context import materialized_shift
 
 
 def _print_node_status(ws: Workspace, node_id: str) -> None:

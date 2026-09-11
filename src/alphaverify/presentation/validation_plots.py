@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
-from barrierlab.presentation.plot_style import (
+from alphaverify.presentation.plot_style import (
     INK_2,
     S1,
     SURFACE,
@@ -16,7 +16,7 @@ from barrierlab.presentation.plot_style import (
     save as _save,
     title as _title,
 )
-from barrierlab.presentation.workbooks import feature_label
+from alphaverify.presentation.workbooks import feature_label
 
 
 def write_bin_score_null_histograms(ws, summary: dict, progress=None) -> list[Path]:

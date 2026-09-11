@@ -8,15 +8,15 @@ import math
 
 import numpy as np
 
-from barrierlab.domain import barrier, scoring, validation
-from barrierlab.domain.features import is_ohlcv_feature
-from barrierlab.infrastructure import artifact_io
-from barrierlab.infrastructure.artifacts import (
+from alphaverify.domain import barrier, scoring, validation
+from alphaverify.domain.features import is_ohlcv_feature
+from alphaverify.infrastructure import artifact_io
+from alphaverify.infrastructure.artifacts import (
     feature_from_artifact, market_data_from_artifact, market_history_key,
 )
-from barrierlab.infrastructure.workspace import BASELINE_NODE, Workspace
-from barrierlab.pipeline.context import RunContext, materialized_shift
-from barrierlab.pipeline.reporting import MilestoneProgress, StageReport
+from alphaverify.infrastructure.workspace import BASELINE_NODE, Workspace
+from alphaverify.pipeline.context import RunContext, materialized_shift
+from alphaverify.pipeline.reporting import MilestoneProgress, StageReport
 
 N_NULL_REPLICATES = 1_000
 SEED = 20260907
@@ -182,7 +182,7 @@ def cmd_validation(ws: Workspace) -> None:
         "tests": records, "skipped_bins": skipped, "cleared": cleared,
     }
     ws.write_json(ws.validation_summary_path, summary)
-    from barrierlab.presentation.validation_plots import write_bin_score_null_histograms
+    from alphaverify.presentation.validation_plots import write_bin_score_null_histograms
     plots = write_bin_score_null_histograms(
         ws, summary, MilestoneProgress(report, "writing plots", len(records)),
     )

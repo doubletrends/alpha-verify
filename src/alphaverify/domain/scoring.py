@@ -5,9 +5,9 @@ from __future__ import annotations
 import numpy as np
 import torch
 
-from barrierlab.domain import tensor_runtime
-from barrierlab.domain.barrier import MIN_BIN_N
-from barrierlab.domain.notation import BinScoreResult
+from alphaverify.domain import tensor_runtime
+from alphaverify.domain.barrier import MIN_BIN_N
+from alphaverify.domain.notation import BinScoreResult
 
 SCORING_VERSION = "baseline-relative-bin-v5-probability-difference"
 

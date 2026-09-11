@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import unittest
 from unittest.mock import patch
+from tempfile import TemporaryDirectory
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from barrierlab.infrastructure.artifacts import feature_from_artifact, market_data_from_artifact
-from barrierlab.infrastructure.market_data import SourceRegistry
-from barrierlab.infrastructure.workspace import Workspace
-from barrierlab.pipeline.context import RunContext
+from alphaverify.infrastructure.artifacts import feature_from_artifact, market_data_from_artifact
+from alphaverify.infrastructure.workspace_plugins import load_workspace_module
+from alphaverify.infrastructure.workspace import Workspace
+from alphaverify.pipeline.context import RunContext
 
 
 class WorkspaceContractTests(unittest.TestCase):
@@ -22,42 +24,52 @@ class WorkspaceContractTests(unittest.TestCase):
         self.assertEqual(workspace.validation_summary_path.parts[-2:], ("03_validation", "validation.json"))
         self.assertEqual(workspace.selection_summary_path.parts[-2:], ("04_selection", "selection.json"))
 
-    def test_artifact_history_helpers_align_feature_to_valid_prices(self) -> None:
+    def test_artifact_history_helpers_preserve_rows_and_reject_missing_prices(self) -> None:
         artifact = {
             "index": np.array(["2024-01-01", "2024-01-02", "2024-01-03"]),
             "high": np.array([11.0, 12.0, 13.0]), "low": np.array([9.0, 10.0, 11.0]),
-            "close": np.array([10.0, np.nan, 12.0]), "feature_values": np.array([1.0, 2.0, 3.0]),
+            "close": np.array([10.0, 11.0, 12.0]), "feature_values": np.array([1.0, 2.0, 3.0]),
         }
         data = market_data_from_artifact(artifact)
-        np.testing.assert_array_equal(feature_from_artifact(artifact, data.index).to_numpy(), [1.0, 3.0])
+        np.testing.assert_array_equal(feature_from_artifact(artifact, data.index).to_numpy(), [1.0, 2.0, 3.0])
+        artifact["close"][1] = np.nan
+        with self.assertRaisesRegex(ValueError, "finite"):
+            market_data_from_artifact(artifact)
 
-    def test_source_registry_fetches_shared_ohlcv_only_once_per_run(self) -> None:
-        registry, calls = SourceRegistry(), []
+    def test_workspace_loader_fetches_shared_ohlcv_only_once_per_run(self) -> None:
+        module = load_workspace_module(Workspace("nasdaq_daily").dir, "data", required=True)
+        calls = []
         index = pd.date_range("2024-01-01", periods=2)
-        def source(name, columns):
-            def fetch(**_kwargs):
-                calls.append(name)
-                return pd.DataFrame(columns, index=index)
-            return fetch
-        registry.register("ohlcv", source("ohlcv", {"close": [1.0, 2.0]}))
-        registry.register("vix", source("vix", {"vix": [10.0, 11.0]}))
-        asset = {"ticker": "TEST", "interval": "1d"}
-        registry.fetch(["ohlcv"], "2024-01-01", asset)
-        registry.fetch(["ohlcv", "vix"], "2024-01-01", asset)
-        self.assertEqual(calls, ["ohlcv", "vix"])
+        def download(ticker, *_args):
+            calls.append(ticker)
+            return pd.DataFrame({"Open": [10., 11.], "High": [12., 13.],
+                                 "Low": [9., 10.], "Close": [11., 12.],
+                                 "Volume": [1., 2.]}, index=index)
+        with TemporaryDirectory() as directory, patch.object(module, "download", download):
+            loader = module.create_loader(start="2024-01-01", cache_dir=Path(directory),
+                                          asset={"ticker": "TEST", "interval": "1d", "provider": "yfinance"})
+            first = loader(["ohlcv"])
+            first.iloc[0, 0] = 999
+            second = loader(["ohlcv", "vix"])
+            self.assertEqual(second.iloc[0, 0], 10.)
+            self.assertEqual(len(list(Path(directory).glob("*.csv"))), 2)
+        self.assertEqual(calls, ["TEST", "^VIX"])
 
     def test_btc_hourly_workspace_uses_its_local_ohlcv_source(self) -> None:
-        workspace, context = Workspace("btc_hourly"), RunContext(Workspace("btc_hourly"))
+        workspace = Workspace("btc_hourly")
+        module = load_workspace_module(workspace.dir, "data", required=True)
         source_frame = pd.DataFrame({"DATETIME": ["2017-12-31T23:00:00Z", "2018-01-01T00:00:00Z"], "OPEN": [100.0, 101.0], "HIGH": [102.0, 103.0], "LOW": [99.0, 100.0], "CLOSE": [101.0, 102.0], "VOLUME_BTC": [10.0, 11.0]})
-        with patch("pandas.read_csv", return_value=source_frame):
-            data = context.sources.fetch(["ohlcv"], workspace.start_date, workspace.asset)
+        with TemporaryDirectory() as directory, patch("pandas.read_csv", return_value=source_frame):
+            loader = module.create_loader(start=workspace.start_date, asset=workspace.asset,
+                                          cache_dir=Path(directory))
+            data = loader(["ohlcv"])
         self.assertEqual(data.columns.tolist(), ["open", "high", "low", "close", "volume"])
 
     def test_observed_outcomes_are_persisted_and_reused(self) -> None:
         from tempfile import TemporaryDirectory
         from pathlib import Path
-        from barrierlab.infrastructure import artifact_io
-        from barrierlab.domain import barrier
+        from alphaverify.infrastructure import artifact_io
+        from alphaverify.domain import barrier
 
         with TemporaryDirectory() as directory:
             root = Path(directory) / "workspaces"

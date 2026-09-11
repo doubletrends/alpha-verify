@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from barrierlab.domain import tensor_runtime, torch_features
+from alphaverify.domain import tensor_runtime, torch_features
 
 _TORCH_OHLCV_FEATURES = {
     'constant', 'rsi', 'rsi_spread', 'stoch_k', 'stoch_d', 'williams_r',

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 import torch
-from barrierlab.domain import tensor_runtime
-from barrierlab.domain.scoring import baseline_shifts
+from alphaverify.domain import tensor_runtime
+from alphaverify.domain.scoring import baseline_shifts
 
 
 def from_cube(cube: dict, baseline_probability: np.ndarray) -> dict:

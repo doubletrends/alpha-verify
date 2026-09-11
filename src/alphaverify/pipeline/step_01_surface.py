@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from barrierlab.domain import barrier
-from barrierlab.infrastructure import artifact_io
-from barrierlab.infrastructure.workspace import Workspace
-from barrierlab.pipeline.context import RunContext
-from barrierlab.pipeline.reporting import MilestoneProgress, StageReport
-from barrierlab.presentation import workbooks
+from alphaverify.domain import barrier
+from alphaverify.infrastructure import artifact_io
+from alphaverify.infrastructure.workspace import Workspace
+from alphaverify.pipeline.context import RunContext
+from alphaverify.pipeline.reporting import MilestoneProgress, StageReport
+from alphaverify.presentation import workbooks
 
 
 def _build_cube(context: RunContext, node: dict) -> None:
@@ -39,6 +39,7 @@ def _build_cube(context: RunContext, node: dict) -> None:
         "feature": node["feature"],
         "params": node["params"],
         "workspace": workspace.dir.name,
+        "data_provenance": data.attrs.get("provenance", {}),
         "bin_labels": barrier.bin_labels(edges, feature),
         "grid": "full",
         "generated": datetime.now(timezone.utc).isoformat(),

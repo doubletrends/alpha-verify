@@ -5,8 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from barrierlab.domain import barrier, scoring
-from barrierlab.domain.notation import HistoryScoreResult
+from alphaverify.domain import barrier, scoring
+from alphaverify.domain.notation import HistoryScoreResult
 
 
 def simulated_ohlc_tensor(
@@ -15,7 +15,7 @@ def simulated_ohlc_tensor(
     """Fit and draw the shared OHLC ensemble on the configured Torch device."""
     import torch
 
-    from barrierlab.domain import tensor_runtime
+    from alphaverify.domain import tensor_runtime
 
     close = data["close"].to_numpy(float)
     open_ = data["open"].to_numpy(float) if "open" in data else close
@@ -81,7 +81,7 @@ def score_histories(
     """
     import torch
 
-    from barrierlab.domain import tensor_runtime, torch_features
+    from alphaverify.domain import tensor_runtime, torch_features
 
     ohlcv = paths.to(dtype=torch.float64) if isinstance(paths, torch.Tensor) else tensor_runtime.tensor(paths)
     x = torch_features.compute(ohlcv, feature_name, params or {}) if features is None else features
@@ -122,7 +122,7 @@ def _score_histories_many_batch(paths, policies: list[dict]) -> list[HistoryScor
     """
     import torch
 
-    from barrierlab.domain import tensor_runtime, torch_features
+    from alphaverify.domain import tensor_runtime, torch_features
 
     if not policies:
         return []

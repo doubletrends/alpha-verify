@@ -5,10 +5,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import hashlib
 
-from barrierlab.infrastructure.workspace import Workspace
-from barrierlab.pipeline.context import materialized_shift
-from barrierlab.pipeline.reporting import MilestoneProgress, StageReport
-from barrierlab.pipeline.step_03_validation import validation_summary_is_current
+from alphaverify.infrastructure.workspace import Workspace
+from alphaverify.pipeline.context import materialized_shift
+from alphaverify.pipeline.reporting import MilestoneProgress, StageReport
+from alphaverify.pipeline.step_03_validation import validation_summary_is_current
 
 
 def _file_sha256(path) -> str:
@@ -67,7 +67,7 @@ def cmd_selection(ws: Workspace) -> None:
         raise RuntimeError("Stage 3 validation changed during selection; rerun select")
     ws.write_json(ws.selection_summary_path, summary)
 
-    from barrierlab.presentation.selection_plots import (
+    from alphaverify.presentation.selection_plots import (
         copy_selected_null_histograms, write_selected_shift_heatmaps,
     )
     cubes = {node: materialized_shift(ws, node) for node in {row["node"] for row in selected}}

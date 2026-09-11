@@ -8,8 +8,8 @@ import unittest
 import numpy as np
 from safetensors import safe_open
 
-from barrierlab.infrastructure import artifact_io
-from barrierlab.pipeline.context import materialized_shift
+from alphaverify.infrastructure import artifact_io
+from alphaverify.pipeline.context import materialized_shift
 
 
 def _surface_cube() -> dict:

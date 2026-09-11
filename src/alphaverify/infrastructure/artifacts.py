@@ -9,6 +9,8 @@ import numpy as np
 
 import pandas as pd
 
+from alphaverify.infrastructure.market_data import validate_market_data
+
 
 _MARKET_COLUMNS = ("open", "high", "low", "close", "volume")
 _REQUIRED_HISTORY_COLUMNS = ("index", "high", "low", "close")
@@ -64,10 +66,10 @@ def market_data_from_artifact(artifact: dict) -> pd.DataFrame:
     data = pd.DataFrame(
         {key: artifact[key].astype(float) for key in _MARKET_COLUMNS if key in artifact},
         index=index,
-    ).dropna(subset=["close"])
+    )
     data.index.name = "Date"
-    if data.empty:
-        raise ValueError("artifact history is empty")
+    # Legacy artifacts may omit open/volume, but no stored row is silently dropped.
+    validate_market_data(data, require_full_ohlcv=False)
     return data
 
 

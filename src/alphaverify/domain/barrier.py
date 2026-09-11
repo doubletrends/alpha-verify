@@ -26,8 +26,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import torch
-from barrierlab.domain import tensor_runtime
-from barrierlab.domain.notation import MeasurementSlice, OhlcvComponent
+from alphaverify.domain import tensor_runtime
+from alphaverify.domain.notation import MeasurementSlice, OhlcvComponent
 
 # Below this many observations a bin's rate is not worth reporting.
 MIN_BIN_N = 30

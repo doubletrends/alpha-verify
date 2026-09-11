@@ -8,13 +8,13 @@ from dataclasses import dataclass
 import sys
 from textwrap import dedent
 
-from barrierlab.domain import barrier
-from barrierlab.infrastructure.workspace import Workspace
-from barrierlab.pipeline.step_01_surface import cmd_surface
-from barrierlab.pipeline.step_02_shift import cmd_shift
-from barrierlab.pipeline.step_03_validation import cmd_validation
-from barrierlab.pipeline.step_04_selection import cmd_selection
-from barrierlab.pipeline.status import cmd_status
+from alphaverify.domain import barrier
+from alphaverify.infrastructure.workspace import Workspace
+from alphaverify.pipeline.step_01_surface import cmd_surface
+from alphaverify.pipeline.step_02_shift import cmd_shift
+from alphaverify.pipeline.step_03_validation import cmd_validation
+from alphaverify.pipeline.step_04_selection import cmd_selection
+from alphaverify.pipeline.status import cmd_status
 
 
 @dataclass(frozen=True)
@@ -57,7 +57,7 @@ COMMAND_BY_NAME = {command.name: command for command in COMMANDS}
 
 OVERVIEW = dedent("""\
     ============================================================
-    BarrierLab
+    AlphaVerify
     Conditional barrier-touch probability pipeline
     ============================================================
 
@@ -87,10 +87,10 @@ class RootParser(argparse.ArgumentParser):
         if not sys.stdout.isatty():
             return OVERVIEW
 
-        cyan, bold, dim, reset = "\033[36m", "\033[1m", "\033[2m", "\033[0m"
-        help_text = OVERVIEW.replace("=" * 60, f"{cyan}{'=' * 60}{reset}")
+        accent, bold, dim, reset = "\033[38;2;194;65;12m", "\033[1m", "\033[2m", "\033[0m"
+        help_text = OVERVIEW.replace("=" * 60, f"{accent}{'=' * 60}{reset}")
         for heading in ("Pipeline", "Inspect", "Options"):
-            help_text = help_text.replace(f"  {heading}", f"  {cyan}{bold}{heading}{reset}")
+            help_text = help_text.replace(f"  {heading}", f"  {accent}{bold}{heading}{reset}")
         for command, artifact in (
             ("measure", "01_surface/"),
             ("compare", "02_shift/"),
@@ -113,6 +113,7 @@ def _add_workspace(parser: argparse.ArgumentParser) -> None:
     )
 def build_parser() -> argparse.ArgumentParser:
     parser = RootParser(
+        prog="alphaverify",
         description=(
             "Barrier-touch pipeline: conditional probability by barrier, bin, and horizon, "
             "measured on a full grid and judged after subtracting the baseline."

@@ -3,7 +3,7 @@ requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "barrierlab"
+name = "alphaverify"
 version = "0.1.0"
 description = "Conditional barrier-touch probability pipeline."
 readme = "README.md"
@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.scripts]
-barrierlab = "barrierlab.cli:main"
+alphaverify = "alphaverify.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
