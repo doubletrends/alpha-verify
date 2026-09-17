@@ -13,8 +13,8 @@ workspaces/<name>/
   00_cache/                  generated per-history observed outcomes
   01_surface/                generated measurement artifacts
   02_shift/                  generated baseline-relative artifacts
-  03_validation/             generated null results and plots
-  04_selection/              generated cleared-bin manifest and heatmaps
+  03_validation/             generated null results and bin figures
+  04_selection/              generated cleared-bin manifest and bin figures
 ```
 
 `universe.json` is the source of truth for cross-file experiment facts. `alphaverify.infrastructure.workspace.Workspace` loads it into an immutable runtime configuration and node catalog. Do not duplicate asset symbols, grids, horizons, or feature parameters in package code.
@@ -94,8 +94,8 @@ Current examples:
 | `00_cache` | internal | Per-history excursions, touch matrix, and baseline | None |
 | `01_surface` | `measure` | Per-node SafeTensors probability cube and embedded ordered history | Per-node XLSX workbook |
 | `02_shift` | `compare` | Per-node shift tensor plus Stage 1 references/fingerprints | Per-node XLSX workbook |
-| `03_validation` | `validate` | `validation.json` with fingerprint, observed scores, null scores, p95, and raw p-values | Per-bin null-histogram PNG |
-| `04_selection` | `select` | `selection.json` containing every validation-cleared bin | Per-selected-bin shift heatmap and copied null-distribution PNG |
+| `03_validation` | `validate` | `validation.json` with fingerprint, observed scores, null scores, p95, and raw p-values | Per-tested-bin figure: shift heatmap beside the null distribution |
+| `04_selection` | `select` | `selection.json` containing every validation-cleared bin | The same standard figure for each selected bin |
 
 Stage 3 uses Stage 2 as its completion gate and reads histories and observed condition data from the referenced Stage 1 artifacts, with no provider calls. Observed excursions, touches, baselines, and bin assignments come from the versioned source cache. Synthetic batches generate one touch matrix per horizon and share it across every node. `validation.json` fingerprints both Stage 1 and Stage 2 source bytes, node declarations, bin count, measurement version, and simulation settings.
 
@@ -154,7 +154,7 @@ If a workbook is open in Excel, a stage may report it as locked while continuing
 3. Keep the baseline node and give every node a unique ID, registered feature, valid parameters, and declared data sources.
 4. Implement `data.py`, including source selection, cleaning, alignment, and provenance. Add `plugin.py` only for custom features. Keep reusable numerical behavior in `src/alphaverify/`.
 5. Run `measure`, `compare`, `validate`, and `select` in order, then inspect workspace and representative node status.
-6. Review shift workbooks, null histograms, selected heatmaps, and JSON manifests; a successful command alone does not validate their scientific interpretation.
+6. Review shift workbooks, bin figures, and JSON manifests; a successful command alone does not validate their scientific interpretation.
 7. Add or update [tests](../tests/README.md) when the declaration introduces a repository-level source, schema, plugin, or path contract.
 
 Changing history, grid, feature definitions, or node parameters invalidates downstream interpretation even if old artifacts remain readable. Prefer a clean new workspace identity for materially different experiments; otherwise rerun the full pipeline and use the input fingerprint to detect stale validation.

@@ -26,8 +26,8 @@ python -m pytest -q tests/test_validation_pipeline.py
 | `test_architecture_boundaries.py` | Absolute package imports; inward-only domain dependencies; infrastructure ownership of array persistence; flat infrastructure/presentation packages; presentation independence; Stage 3 consumption of Stage 2 artifacts |
 | `test_artifact_io.py` | JSON fallback and round-trip behavior; SafeTensors keys and metadata; stable stored/runtime dtypes for surface and shift cubes |
 | `test_cli_contract.py` | Supported command set and order; workspace/CUDA option parsing; optional node status; rejection of removed or unsupported flags |
-| `test_validation_pipeline.py` | Observed/null role parity through actual pipeline calls despite corrupted presentation arrays; all-bin validation without selection; shared/distinct history ensembles; input fingerprints; missing artifacts; zero-score bins; rank-free plots |
-| `test_selection_pipeline.py` | Cleared-only Stage 4 selection, validation fingerprint freshness, and selected-bin heatmap rendering |
+| `test_validation_pipeline.py` | Observed/null role parity through actual pipeline calls despite corrupted presentation arrays; all-bin validation without selection; shared/distinct history ensembles; input fingerprints; missing artifacts; zero-score bins; rank-free bin figures shared with Stage 4 |
+| `test_selection_pipeline.py` | Cleared-only Stage 4 selection, validation fingerprint freshness, and standard bin-figure rendering with equal-width panels |
 | `test_scoring_parity.py` | Full-grid versus streamed score/validity parity; cached versus streamed excursions; observed outcomes against an independent reference; per-path baselines; drift regression; quantiles, ties, missing values, thin bins, and fixed external edges |
 | `test_shift_units.py` | Probability-difference storage, legacy unit conversion, threshold equivalence, workbook percentage formatting, and score comparison invariance |
 | `test_notation_contract.py` | Canonical tensor-axis names, OHLCV component order, and version-1 artifact-name normalization |
@@ -81,4 +81,4 @@ alphaverify select   --workspace <name>
 alphaverify status   --workspace <name>
 ```
 
-Then inspect `validation.json`, `selection.json`, representative spreadsheets, null histograms, and selected-bin heatmaps. Generated artifacts are local and ignored by Git; see the [workspace contract](../workspaces/README.md).
+Then inspect `validation.json`, `selection.json`, representative spreadsheets, and bin figures. Generated artifacts are local and ignored by Git; see the [workspace contract](../workspaces/README.md).

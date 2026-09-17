@@ -171,12 +171,16 @@ def cmd_validation(ws: Workspace) -> None:
     }
     artifact_io.write_json(ws.validation_summary_path, summary)
     # Deferred so commands that write no figures do not pay matplotlib's import.
-    from alphaverify.presentation import validation_plots
-    plots = validation_plots.write_bin_score_null_histograms(
-        ws, summary, MilestoneProgress(report, "writing plots", len(records)),
+    from alphaverify.presentation import bin_figures
+    figures = bin_figures.write_bin_figures(
+        ws.stage_dir("validation") / "plot",
+        records,
+        {node: materialized_shift(ws, node) for node in {row["node"] for row in records}},
+        workspace=ws.dir.name, horizon_unit=ws.horizon_unit,
+        progress=MilestoneProgress(report, "writing bin figures", len(records)),
     )
     report.summary(f"cleared {len(cleared)} of {len(records)} with raw p < {RAW_P_THRESHOLD}; skipped {len(skipped)} unsupported bins")
     if missing:
         report.line(f"incomplete: {len(missing)} nodes lack shift arrays; run measure and compare")
-    report.line(f"wrote 1 summary + {len(plots)} plots → {ws.validation_summary_path.parent}")
+    report.line(f"wrote 1 summary + {len(figures)} figures → {ws.validation_summary_path.parent}")
     report.completed()
