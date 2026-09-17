@@ -5,47 +5,16 @@ import pytest
 from openpyxl import load_workbook
 
 from alphaverify.domain import scoring, shift
-from alphaverify.infrastructure import artifact_io
 from alphaverify.infrastructure.workspace import WorkspaceConfig
 from alphaverify.presentation import workbooks
 
 
-@pytest.mark.parametrize("suffix", [".npz", ".safetensors"])
-@pytest.mark.parametrize("field", ["shift", "probability_shift_pp"])
-def test_legacy_shift_converts_once_and_rewrites_in_new_units(tmp_path, suffix, field):
-    old = tmp_path / ("old" + suffix)
-    new = tmp_path / ("new" + suffix)
-    values = np.array([[[-10., 20., np.nan]]])
-    artifact_io._write_arrays(old, {field: values}, {"value": field})
-    loaded = artifact_io.load_shift(old)
-    np.testing.assert_allclose(loaded["probability_shift"], values / 100, equal_nan=True)
-    assert field not in loaded
-    artifact_io.save_shift(loaded, new, loaded["meta"], thin=True)
-    np.testing.assert_allclose(artifact_io.load_shift(new)["probability_shift"],
-                               values / 100, equal_nan=True)
-
-
-@pytest.mark.parametrize("payload,meta", [
-    ({"probability_shift": np.array([.1])}, {}),
-    ({"probability_shift_pp": np.array([10.])}, {"shift_unit": "probability_difference"}),
-    ({"shift": np.array([10.]), "probability_shift_pp": np.array([10.])}, {}),
-])
-def test_unknown_or_conflicting_artifact_units_are_rejected(tmp_path, payload, meta):
-    path = tmp_path / "bad.npz"
-    artifact_io._write_arrays(path, payload, meta)
-    with pytest.raises(ValueError):
-        artifact_io.load_shift(path)
-
-
-def test_threshold_migration_preserves_effect_and_default():
+def test_threshold_is_a_probability_difference():
     meta = {"asset": {"ticker": "TEST"}, "start_date": "2024-01-01"}
-    old = WorkspaceConfig.from_meta({**meta, "evaluate": {"min_dev": 10}})
-    new = WorkspaceConfig.from_meta({**meta, "evaluate": {
-        "min_dev": .10, "shift_unit": "probability_difference",
-    }})
-    assert old.min_dev == new.min_dev == WorkspaceConfig.from_meta(meta).min_dev == .10
+    declared = WorkspaceConfig.from_meta({**meta, "evaluate": {"min_dev": .10}})
+    assert declared.min_dev == WorkspaceConfig.from_meta(meta).min_dev == .10
     with pytest.raises(ValueError):
-        WorkspaceConfig.from_meta({**meta, "evaluate": {"shift_unit": "unknown"}})
+        WorkspaceConfig.from_meta({**meta, "evaluate": {"min_dev": 10}})
 
 
 def test_shift_storage_threshold_and_workbook_share_probability_units(tmp_path):
@@ -57,7 +26,9 @@ def test_shift_storage_threshold_and_workbook_share_probability_units(tmp_path):
         "barriers": np.array([.01, .02]), "horizons": np.array([1]),
         "bin_edges": np.array([]), "meta": {"bin_labels": ["all"]},
     }
-    result = shift.from_cube(cube, np.array([[.125], [.5]]))
+    baseline = np.array([[.125], [.5]])
+    result = {**cube, "probability_shift": shift.from_cube(cube, baseline),
+              "baseline_probability": baseline}
     np.testing.assert_array_equal(result["probability_shift"], [[[.125]], [[.25]]])
     assert shift.evaluate(result, min_dev=.125, min_bin_n=50, min_run=2)["passed"]
     assert not shift.evaluate(result, min_dev=.126, min_bin_n=50, min_run=2)["passed"]

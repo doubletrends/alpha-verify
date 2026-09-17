@@ -25,7 +25,8 @@ def observed_cube(data, feature, n_bins, deltas, horizons):
     baseline = barrier.touch_tensor(
         data, pd.Series(np.ones(len(data))), horizons, deltas, np.array([]),
     )["conditional_probability"][:, 0, :]
-    return shift.from_cube(cube, baseline)
+    return {**cube, "probability_shift": shift.from_cube(cube, baseline),
+            "baseline_probability": baseline}
 
 
 def observed_scores(cube):
@@ -84,13 +85,14 @@ def test_cached_and_streamed_measurement_agree_with_missing_prices():
         np.testing.assert_array_equal(direct[key], cached[key])
 
 
-def test_measurement_baseline_includes_feature_warmup_and_uses_float64():
-    data = pd.DataFrame({"close": [100.] * 5, "high": [100., 101., 110., 103., 120.],
-                         "low": [100., 99., 90., 98., 95.]})
+def test_measurement_baseline_includes_feature_warmup_and_uses_float64(monkeypatch):
+    monkeypatch.setattr(barrier, "MIN_BIN_N", 1)
+    data = pd.DataFrame({"open": [100.] * 5, "high": [100., 101., 110., 103., 120.],
+                         "low": [100., 99., 90., 98., 95.], "close": [100.] * 5,
+                         "volume": [1.] * 5})
     features = np.array([[np.nan, np.nan, 0., 1., 1.]])
     edges, slices = barrier.measure_histories(barrier.ohlcv_tensor(data).float(), features,
-                                              [-.05, .05], [1], 2,
-                                              bin_edges=[.5], min_n=1)
+                                              [-.05, .05], [1], 2, bin_edges=[.5])
     measured = next(slices)
     assert measured.conditional_probability.dtype == torch.float64
     np.testing.assert_allclose(measured.baseline_probability, [[[.5], [.5]]])

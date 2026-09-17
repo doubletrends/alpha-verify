@@ -1,4 +1,4 @@
-"""Canonical mathematical vocabulary and tensor-axis contracts.
+"""Canonical mathematical vocabulary: OHLCV order, typed results, and shared thresholds.
 
 Names in this module are deliberately descriptive and ASCII-only.  Short
 symbols belong in the mathematical specification; arrays crossing a Python
@@ -24,21 +24,6 @@ class OhlcvComponent(IntEnum):
     LOW = 2
     CLOSE = 3
     VOLUME = 4
-
-
-AXIS_CONTRACTS = {
-    "ohlcv": ("replicate", "observation", "ohlcv_component"),
-    "feature_values": ("replicate_or_one", "observation"),
-    "bin_edges": ("replicate_or_one", "edge"),
-    "bin_assignments": ("replicate", "observation"),
-    "excursion": ("replicate", "observation"),
-    "touch_mask": ("replicate", "observation", "barrier"),
-    "conditional_probability": ("replicate", "barrier", "bin", "horizon"),
-    "baseline_probability": ("replicate", "barrier", "horizon"),
-    "bin_observation_counts": ("replicate", "bin", "horizon"),
-    "bin_hit_counts": ("replicate", "barrier", "bin", "horizon"),
-    "bin_score": ("replicate", "bin"),
-}
 
 
 @dataclass(frozen=True)

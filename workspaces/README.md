@@ -37,9 +37,9 @@ The document contains `meta` and `families` objects.
 | `barriers` | Inclusive signed barrier grid: `min`, `max`, and `step` |
 | `horizons` | Inclusive forward-bar range: `min` and `max` |
 | `n_bins` | Quantile-bin count for conditional features |
-| `evaluate` | `min_dev`, `min_bin_n`, and `min_run` used by detailed node status inspection |
+| `evaluate` | `min_dev`, `min_bin_n`, and `min_run` for the forecast's strongest-cell report |
 
-The `evaluate` block does not gate Stage 3. It controls the practical-effect summary printed by `alphaverify status <node>`.
+The `evaluate` block does not gate any stage. It controls the strongest-cell line `forecast` prints for each condition it uses.
 
 ### `families`
 
@@ -111,9 +111,8 @@ Stage 3 uses Stage 2 as its completion gate and reads histories and observed con
 
 Array artifacts use schema version 2 and descriptive ASCII field names such as
 `barriers`, `conditional_probability`, `baseline_probability`,
-`probability_shift`, `bin_observation_counts`, and `bin_edges`. Readers
-normalize version-1 names, including `Δs`, so existing generated workspaces can
-still be consumed and regenerated.
+`probability_shift`, `bin_observation_counts`, and `bin_edges`. Artifacts from
+earlier schemas are not read; rerun the pipeline to regenerate them.
 
 Do not copy generated artifacts between workspaces. Paths may look compatible while grids, histories, features, or fingerprints disagree.
 
@@ -145,18 +144,11 @@ alphaverify compare   --workspace nasdaq_daily
 alphaverify validate  --workspace nasdaq_daily
 alphaverify select    --workspace nasdaq_daily
 alphaverify forecast  --workspace nasdaq_daily
-alphaverify status    --workspace nasdaq_daily
 ```
 
 `forecast` combines the cleared bins active on the last bar stored by `measure`; rerun the pipeline for newer data.
 
 Every command accepts `--cuda` when CUDA is available through PyTorch. A command reuses data and price excursions in memory only for that command; the next stage reads persisted artifacts.
-
-Inspect one node after `compare`:
-
-```powershell
-alphaverify status vix_level --workspace nasdaq_daily
-```
 
 If a workbook is open in Excel, a stage may report it as locked while continuing with other artifacts. Close the workbook and rerun that stage. If validation is stale, rerun `validate` after rebuilding Stage 2 when its inputs have changed.
 
@@ -166,7 +158,7 @@ If a workbook is open in Excel, a stage may report it as locked while continuing
 2. Set the asset, date range, barrier grid, horizons, bin count in `universe.json`.
 3. Keep the baseline node and give every node a unique ID, registered feature, valid parameters, and declared data sources.
 4. Implement `data.py`, including source selection, cleaning, alignment, and provenance. Add `plugin.py` only for custom features. Keep reusable numerical behavior in `src/alphaverify/`.
-5. Run `measure`, `compare`, `validate`, `select`, and `forecast` in order, then inspect workspace and representative node status.
+5. Run `measure`, `compare`, `validate`, `select`, and `forecast` in order.
 6. Review shift workbooks, bin figures, and JSON manifests; a successful command alone does not validate their scientific interpretation.
 7. Add or update [tests](../tests/README.md) when the declaration introduces a repository-level source, schema, plugin, or path contract.
 
@@ -176,16 +168,9 @@ Changing history, grid, feature definitions, or node parameters invalidates down
 
 Stage 2 writes `probability_shift` with `shift_unit: probability_difference` and
 `shift_version: probability-difference-v1`. This is a shift-specific version;
-Stage 1 arrays and observed caches remain reusable. Recognized legacy `shift`
-and `probability_shift_pp` arrays are converted from percentage points on load.
-Unknown or conflicting unit declarations are rejected.
+Stage 1 arrays and observed caches do not depend on it. A shift artifact in any
+other units or version is rejected; rerun `compare`.
 
-Workspace `evaluate.min_dev` uses fractions when `evaluate.shift_unit` is
-`probability_difference`: 0.10 means a 10-percentage-point effect. Older declarations
-without `shift_unit` retain their percentage-point interpretation (10 means 0.10).
-New declarations should always specify the unit. These thresholds govern status
-inspection, not the Stage 4 statistical selection rule.
-
-Run `compare`, `validate`, `select`, and `forecast` to regenerate derived artifacts and views
-in the new units. Old validation and selection summaries are stale under the new
-scoring version. No Stage 1 remeasurement is required solely for this unit change.
+Workspace `evaluate.min_dev` is a probability difference in [0, 1]: 0.10 means a
+10-percentage-point effect. It governs the forecast's strongest-cell report, not
+the Stage 4 statistical selection rule.

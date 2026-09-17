@@ -81,11 +81,9 @@ def baseline_surface(ws: Workspace) -> np.ndarray | None:
 
 
 def materialized_shift(ws: Workspace, node_id: str) -> dict:
-    """Hydrate a thin Stage 2 result from its referenced Stage 1 arrays."""
+    """Hydrate a Stage 2 shift from its referenced Stage 1 arrays."""
     stored = artifact_io.load_shift(ws.shift_cube_path(node_id))
-    if "conditional_probability" in stored:
-        return stored
-    meta = stored.get("meta", {})
+    meta = stored["meta"]
     for artifact, expected in (
         (ws.cube_path(node_id), meta.get("source_sha256")),
         (ws.baseline_cube, meta.get("baseline_sha256")),
@@ -96,7 +94,4 @@ def materialized_shift(ws: Workspace, node_id: str) -> dict:
     baseline = baseline_surface(ws)
     if baseline is None:
         raise ValueError("baseline surface is unavailable")
-    return {
-        **surface, **stored, "baseline_probability": baseline,
-        "meta": meta or surface.get("meta", {}),
-    }
+    return {**surface, **stored, "baseline_probability": baseline}

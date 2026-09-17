@@ -11,7 +11,7 @@ from alphaverify.infrastructure.market_data import validate_market_data
 
 
 _MARKET_COLUMNS = ("open", "high", "low", "close", "volume")
-_REQUIRED_HISTORY_COLUMNS = ("index", "high", "low", "close")
+_REQUIRED_HISTORY_COLUMNS = ("index", *_MARKET_COLUMNS)
 
 
 def market_data_from_artifact(artifact: dict) -> pd.DataFrame:
@@ -21,12 +21,12 @@ def market_data_from_artifact(artifact: dict) -> pd.DataFrame:
         raise ValueError(f"artifact lacks ordered history ({', '.join(missing)})")
     index = pd.to_datetime(artifact["index"])
     data = pd.DataFrame(
-        {key: artifact[key].astype(float) for key in _MARKET_COLUMNS if key in artifact},
+        {key: artifact[key].astype(float) for key in _MARKET_COLUMNS},
         index=index,
     )
     data.index.name = "Date"
-    # Legacy artifacts may omit open/volume, but no stored row is silently dropped.
-    validate_market_data(data, require_full_ohlcv=False)
+    # No stored row is silently dropped.
+    validate_market_data(data)
     return data
 
 
@@ -59,9 +59,8 @@ def market_history_key(data: pd.DataFrame) -> str:
     columns do not change the identity; Stage 1 panels and Stage 3 restored histories
     of the same prices share one key.
     """
-    columns = [column for column in _MARKET_COLUMNS if column in data]
     digest = hashlib.sha256()
-    digest.update(str(tuple(columns)).encode())
+    digest.update(str(_MARKET_COLUMNS).encode())
     digest.update(data.index.asi8.tobytes())
-    digest.update(np.ascontiguousarray(data[columns].to_numpy(dtype=float)).tobytes())
+    digest.update(np.ascontiguousarray(data[list(_MARKET_COLUMNS)].to_numpy(dtype=float)).tobytes())
     return digest.hexdigest()

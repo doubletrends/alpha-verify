@@ -22,6 +22,7 @@ def _surface_cube() -> dict:
         "barriers": np.array([-0.10, 0.10]),
         "horizons": np.array([7, 14]),
         "bin_edges": np.array([-0.5, 0.5]),
+        "bin_assignments": np.array([0, 2], dtype=np.uint8),
         "index": np.array(["2024-01-01", "2024-01-02"]),
         "close": np.array([100.0, 101.0]),
     }
@@ -54,6 +55,7 @@ class ArtifactIoTests(unittest.TestCase):
                         "barriers",
                         "horizons",
                         "bin_edges",
+                        "bin_assignments",
                         "close",
                     },
                 )
@@ -73,34 +75,26 @@ class ArtifactIoTests(unittest.TestCase):
         )
         np.testing.assert_array_equal(loaded["index"], cube["index"])
 
-    def test_shift_schema_and_runtime_dtypes_are_stable(self) -> None:
-        cube = {
-            **_surface_cube(),
-            "probability_shift": np.full((2, 3, 2), 0.0425),
-            "baseline_probability": np.full((2, 2), 0.4),
-        }
+    def test_shift_owns_only_the_derived_shift_in_float64(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "shift.safetensors"
-            artifact_io.save_shift(cube, path, {"stage": 2})
+            artifact_io.save_shift(np.full((2, 3, 2), 0.0425), path, {"stage": 2})
+            with safe_open(path, framework="np") as stored:
+                self.assertEqual(list(stored.keys()), ["probability_shift"])
             loaded = artifact_io.load_shift(path)
 
-        for key in ("probability_shift", "conditional_probability", "baseline_probability"):
-            self.assertEqual(loaded[key].dtype, np.dtype(np.float64))
+        self.assertEqual(set(loaded), {"probability_shift", "meta"})
+        self.assertEqual(loaded["probability_shift"].dtype, np.dtype(np.float64))
         self.assertEqual(loaded["meta"], {"stage": 2, "artifact_schema_version": 2,
             "value": "probability_shift", "shift_unit": artifact_io.SHIFT_UNIT,
             "shift_version": artifact_io.SHIFT_VERSION})
 
-    def test_thin_shift_owns_only_the_derived_shift(self) -> None:
-        cube = {**_surface_cube(), "probability_shift": np.full((2, 3, 2), 0.0425)}
+    def test_shift_without_the_current_units_is_rejected(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "shift.safetensors"
-            artifact_io.save_shift(
-                cube, path, {"source_artifact": "01_surface/array/a.safetensors"}, thin=True,
-            )
-            with safe_open(path, framework="np") as stored:
-                self.assertEqual(list(stored.keys()), ["probability_shift"])
-            loaded = artifact_io.load_shift(path)
-        self.assertEqual(set(loaded), {"probability_shift", "meta"})
+            artifact_io._write_arrays(path, {"probability_shift": np.array([.1])}, {})
+            with self.assertRaisesRegex(ValueError, "rerun compare"):
+                artifact_io.load_shift(path)
 
     def test_thin_shift_materializes_from_stage1(self) -> None:
         class WorkspaceStub:
@@ -120,8 +114,8 @@ class ArtifactIoTests(unittest.TestCase):
             artifact_io.save_surface(node, ws.cube_path("a"), {"node": "a"})
             artifact_io.save_surface(baseline, ws.baseline_cube, {"node": "baseline"})
             artifact_io.save_shift(
-                {"probability_shift": np.full((2, 3, 2), 0.0425)}, ws.shift_cube_path("a"),
-                {"source_artifact": "01_surface/a.safetensors"}, thin=True,
+                np.full((2, 3, 2), 0.0425), ws.shift_cube_path("a"),
+                {"source_artifact": "01_surface/a.safetensors"},
             )
             loaded = materialized_shift(ws, "a")
         np.testing.assert_allclose(loaded["probability_shift"], 0.0425)

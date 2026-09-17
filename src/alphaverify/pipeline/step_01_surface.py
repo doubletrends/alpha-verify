@@ -30,8 +30,7 @@ def _build_cube(context: RunContext, node: dict) -> None:
     cube["index"] = data.index.astype(str).to_numpy()
     cube["feature_values"] = feature.reindex(data.index).to_numpy(float)
     for column in ("open", "high", "low", "close", "volume"):
-        if column in data:
-            cube[column] = data[column].to_numpy(float)
+        cube[column] = data[column].to_numpy(float)
 
     artifact_io.save_surface(cube, workspace.cube_path(node["id"]), {
         "node": node["id"],
@@ -40,7 +39,7 @@ def _build_cube(context: RunContext, node: dict) -> None:
         "params": node["params"],
         "workspace": workspace.dir.name,
         "data_provenance": data.attrs.get("provenance", {}),
-        "bin_labels": barrier.bin_labels(edges, feature),
+        "bin_labels": barrier.bin_labels(edges),
         "grid": "full",
         "generated": datetime.now(timezone.utc).isoformat(),
     })
