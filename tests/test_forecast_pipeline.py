@@ -148,13 +148,14 @@ def test_forecast_surfaces_match_stage1_counts_and_an_independent_joint_measurem
     surface = {node: artifact_io.load_surface(ws.cube_path(node)) for node in ("baseline", "a", "c")}
     used = [("a", ws.last_bins["a"]), ("c", ws.last_bins["c"])]
 
-    expected = combination.naive_bayes_probability(
+    expected, expected_counts = combination.naive_bayes_probability(
         surface["baseline"]["bin_hit_counts"][:, 0, :], surface["baseline"]["bin_observation_counts"][0],
         [surface[node]["bin_hit_counts"][:, b, :] for node, b in used],
         [surface[node]["bin_observation_counts"][b] for node, b in used],
     )
     combined = np.array(result["combined_probability"], dtype=float)
     np.testing.assert_allclose(combined, expected, rtol=0, atol=1e-12)
+    assert result["combined_observation_counts"] == expected_counts.astype(int).tolist()
 
     # Measure "every used condition held" as its own Stage 1 feature; bin 1 is the joint rate.
     both = np.all([feature_bins_from_artifact(surface[node]) == b for node, b in used], axis=0)

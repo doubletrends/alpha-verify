@@ -103,7 +103,7 @@ def score_histories(
     quantiles, counts, baselines, and horizon streaming. Return scores/validity
     plus the actual edges, so observed labels follow the recomputed bins.
     """
-    ohlcv = paths.to(dtype=torch.float64) if isinstance(paths, torch.Tensor) else tensor_runtime.tensor(paths)
+    ohlcv = tensor_runtime.tensor(paths)
     x = torch_features.compute(ohlcv, feature_name, params or {}) if features is None else features
     edges_t, measurements = barrier.measure_histories(
         ohlcv, x, barriers, horizons, requested_bin_count, bin_edges=bin_edges,
@@ -140,8 +140,7 @@ def _score_histories_many_batch(paths, policies: list[dict]) -> list[HistoryScor
     """
     if not policies:
         return []
-    ohlcv = (paths.to(device=tensor_runtime.device(), dtype=torch.float64)
-             if isinstance(paths, torch.Tensor) else tensor_runtime.tensor(paths))
+    ohlcv = tensor_runtime.tensor(paths)
     prepared = []
     feature_cache = {}
     for policy in policies:
@@ -197,20 +196,16 @@ def _score_histories_many_batch(paths, policies: list[dict]) -> list[HistoryScor
 
 
 def score_histories_many(
-    paths, policies: list[dict], *, batch_size: int | None = None, progress=None,
+    paths, policies: list[dict], *, batch_size: int, progress=None,
 ) -> list[HistoryScoreResult]:
-    """Score conditions together in bounded batches of market histories.
+    """Score conditions together in batches of ``batch_size`` market histories.
 
-    Without an explicit ``batch_size``, batches are sized to the device's memory budget.
+    ``replicate_batch_size`` sizes batches to a memory budget; scores do not depend on it.
     """
     if not policies:
         return []
     barriers = np.asarray(policies[0]["barriers"], dtype=float)
     horizons = np.asarray(policies[0]["horizons"], dtype=int)
-    if batch_size is None:
-        batch_size = replicate_batch_size(
-            paths.shape[1], len(policies), len(barriers), tensor_runtime.memory_budget_bytes()
-        )
     if batch_size < 1:
         raise ValueError("batch_size must be positive")
     if any(not np.array_equal(barriers, np.asarray(policy["barriers"], dtype=float))

@@ -10,13 +10,13 @@ import numpy as np
 
 BASELINE_NODE = "baseline"
 
-STAGE_DIRECTORIES = {
-    "surface": "01_surface",
-    "shift": "02_shift",
-    "validation": "03_validation",
-    "selection": "04_selection",
-    "forecast": "05_forecast",
-}
+# Pipeline order; each stage's number and artifact directory derive from its position.
+STAGES = ("surface", "shift", "validation", "selection", "forecast")
+STAGE_DIRECTORIES = {stage: f"{number:02d}_{stage}" for number, stage in enumerate(STAGES, 1)}
+
+
+def stage_number(stage: str) -> int:
+    return STAGES.index(stage) + 1
 
 
 @dataclass(frozen=True)
@@ -150,10 +150,6 @@ class Workspace:
     @property
     def barriers(self) -> np.ndarray:
         return self.config.barriers
-
-    @property
-    def barrier_step(self) -> float:
-        return self.config.barrier_step
 
     @property
     def n_bins(self) -> int:

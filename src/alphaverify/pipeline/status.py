@@ -8,26 +8,13 @@ import numpy as np
 
 from alphaverify.domain import shift
 from alphaverify.infrastructure import artifact_io
-from alphaverify.infrastructure.workspace import Workspace
+from alphaverify.infrastructure.workspace import STAGE_DIRECTORIES, Workspace
+from alphaverify.pipeline.context import materialized_shift
+from alphaverify.pipeline.reporting import no_strong_cell_line, strongest_cell_line
 from alphaverify.pipeline.step_03_validation import validation_summary_is_current
 from alphaverify.pipeline.step_04_selection import selection_summary_is_current
-from alphaverify.pipeline.context import materialized_shift
+from alphaverify.pipeline.step_05_forecast import forecast_is_current
 from alphaverify.presentation.display import format_barrier
-
-
-def no_strong_cell_line(ws: Workspace) -> str:
-    return f"no cell reaches {ws.min_dev:.1%} across {ws.min_run} adjacent barrier rows"
-
-
-def strongest_cell_line(ws: Workspace, best: dict) -> str:
-    """One strongest-cell result from ``shift.evaluate``, in inspection wording."""
-    return (
-        f"strongest cell: shift={best['dev']:+.1%}; "
-        f"P={best['conditional_probability']:.1%} "
-        f"vs {best['baseline_probability']:.1%} baseline "
-        f"at barrier={format_barrier(best['barrier'], ws.barriers)}, +{best['horizon']}{ws.horizon_unit} "
-        f"(run={best['run']}, n={best['bin_observation_count']})"
-    )
 
 
 def _print_node_status(ws: Workspace, node_id: str) -> None:
@@ -149,8 +136,6 @@ def cmd_status(ws: Workspace, node_id: str | None = None) -> None:
         print(f"  selection: {len(selected_rows)} cleared bins rendered in Stage 4")
     elif selection:
         print("  selection: stale - run select")
-    # Imported here: the forecast stage imports this module's wording helpers.
-    from alphaverify.pipeline.step_05_forecast import forecast_is_current
     forecast = artifact_io.read_json(ws.forecast_path)
     if forecast and forecast_is_current(ws, forecast):
         counts = forecast["summary"]
@@ -181,5 +166,5 @@ def cmd_status(ws: Workspace, node_id: str | None = None) -> None:
     print(f"  {'TOTAL':<15}" + "".join(f"{value:>9}" for value in totals))
     print(
         f"\n  full grid {len(ws.barriers)} barriers × {len(ws.horizons)} horizons   |   "
-        "03_validation tests all eligible condition bins across available nodes"
+        f"{STAGE_DIRECTORIES['validation']} tests all eligible condition bins across available nodes"
     )

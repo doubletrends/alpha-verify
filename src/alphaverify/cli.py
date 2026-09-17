@@ -20,7 +20,6 @@ from alphaverify.pipeline.status import cmd_status
 @dataclass(frozen=True)
 class Command:
     name: str
-    help: str
     summary: str
     handler: Callable[..., None]
     stage: str | None = None
@@ -30,42 +29,36 @@ class Command:
 COMMANDS = (
     Command(
         "measure",
-        "1. measure raw conditional probabilities",
         "Measure raw conditional probabilities",
         cmd_surface,
         stage="surface",
     ),
     Command(
         "compare",
-        "2. compare raw probabilities to the baseline",
         "Compare raw probabilities to baseline",
         cmd_shift,
         stage="shift",
     ),
     Command(
         "validate",
-        "3. validate all eligible condition bins against the null",
         "Validate all eligible bins vs null",
         cmd_validation,
         stage="validation",
     ),
     Command(
         "select",
-        "4. retain validation-cleared bins and render heatmaps",
         "Select cleared bins and heatmaps",
         cmd_selection,
         stage="selection",
     ),
     Command(
         "forecast",
-        "5. list cleared nodes and combine those active on the last stored bar",
         "Cleared nodes and their forecast",
         cmd_forecast,
         stage="forecast",
     ),
     Command(
         "status",
-        "show workspace or node artifact and validation status",
         "Show workspace or node results",
         cmd_status,
         accepts_node=True,
@@ -114,13 +107,13 @@ def overview(color: bool) -> str:
 
 
 class RootParser(argparse.ArgumentParser):
-    """Keep the root command overview distinct from subcommand option help."""
+    """Root help is the command overview; subcommands keep argparse option help."""
 
     def format_help(self) -> str:
         return overview(color_enabled())
 
 
-def _add_workspace(parser: argparse.ArgumentParser) -> None:
+def _add_run_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--workspace", metavar="NAME", default="nasdaq_daily")
     parser.add_argument(
         "--cuda",
@@ -130,19 +123,13 @@ def _add_workspace(parser: argparse.ArgumentParser) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = RootParser(
-        prog="alphaverify",
-        description=(
-            "Barrier-touch pipeline: conditional probability by barrier, bin, and horizon, "
-            "measured on a full grid and judged after subtracting the baseline."
-        )
-    )
+    parser = RootParser(prog="alphaverify")
     commands = parser.add_subparsers(
         dest="command", metavar="COMMAND", parser_class=argparse.ArgumentParser
     )
 
     for command in COMMANDS:
-        subparser = commands.add_parser(command.name, help=command.help)
+        subparser = commands.add_parser(command.name)
         if command.accepts_node:
             subparser.add_argument(
                 "node",
@@ -150,7 +137,7 @@ def build_parser() -> argparse.ArgumentParser:
                 metavar="NODE",
                 help="show detailed status for this node ID",
             )
-        _add_workspace(subparser)
+        _add_run_options(subparser)
     return parser
 
 

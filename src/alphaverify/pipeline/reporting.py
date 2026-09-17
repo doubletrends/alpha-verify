@@ -5,6 +5,9 @@ from __future__ import annotations
 from time import perf_counter
 import sys
 
+from alphaverify.infrastructure.workspace import Workspace, stage_number
+from alphaverify.presentation.display import format_barrier
+
 RULE = "=" * 60
 
 
@@ -20,39 +23,54 @@ def ansi_styles(enabled: bool) -> tuple[str, str, str, str]:
     return "\033[38;2;194;65;12m", "\033[1m", "\033[2m", "\033[0m"
 
 
+def no_strong_cell_line(ws: Workspace) -> str:
+    return f"no cell reaches {ws.min_dev:.1%} across {ws.min_run} adjacent barrier rows"
+
+
+def strongest_cell_line(ws: Workspace, best: dict) -> str:
+    """One strongest-cell result from ``shift.evaluate``, in inspection wording."""
+    return (
+        f"strongest cell: shift={best['dev']:+.1%}; "
+        f"P={best['conditional_probability']:.1%} "
+        f"vs {best['baseline_probability']:.1%} baseline "
+        f"at barrier={format_barrier(best['barrier'], ws.barriers)}, +{best['horizon']}{ws.horizon_unit} "
+        f"(run={best['run']}, n={best['bin_observation_count']})"
+    )
+
+
 class StageReport:
     """Report one stage without turning routine progress into log noise."""
 
     _HEADINGS = {
-        1: (
+        "surface": (
             "Conditional barrier-touch probabilities",
             "conditional_probability[barrier, bin, horizon]",
         ),
-        2: (
+        "shift": (
             "Conditional effect relative to the market baseline",
             "conditional_probability − baseline_probability",
         ),
-        3: (
+        "validation": (
             "Statistical validation against simulated price paths",
             "Is each condition-bin score larger than expected by chance?",
         ),
-        4: (
+        "selection": (
             "Selection of statistically cleared condition bins",
             "Retain every and only condition bin with raw p < 0.05",
         ),
-        5: (
+        "forecast": (
             "Cleared nodes and the forecast from those active on the last bar",
             "Naive Bayes over one active bin per family, checked against the historical joint rate",
         ),
     }
 
-    def __init__(self, number: int) -> None:
+    def __init__(self, stage: str) -> None:
         self._started = perf_counter()
-        title, calculation = self._HEADINGS[number]
+        title, calculation = self._HEADINGS[stage]
         accent, bold, dim, reset = ansi_styles(color_enabled())
         print(
             f"\n{accent}{RULE}{reset}\n"
-            f"{accent}{bold}Stage {number}:{reset} {bold}{title}{reset}\n"
+            f"{accent}{bold}Stage {stage_number(stage)}:{reset} {bold}{title}{reset}\n"
             f"{dim}{calculation}{reset}\n"
             f"{accent}{RULE}{reset}\n"
         )
