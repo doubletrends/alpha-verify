@@ -19,11 +19,11 @@ class CliContractTests(unittest.TestCase):
             "compare",
             "validate",
             "select",
-            "summarize",
             "forecast",
             "status",
         ):
             self.assertIn(command, help_text)
+        self.assertNotIn("summarize", help_text)
         for removed in ("--gate", "--family", "--rerun", "--read", "--fdr"):
             self.assertNotIn(removed, help_text)
         self.assertNotIn("--verbose", help_text)
@@ -36,7 +36,7 @@ class CliContractTests(unittest.TestCase):
     def test_commands_preserve_pipeline_order(self) -> None:
         self.assertEqual(
             [command.name for command in COMMANDS],
-            ["measure", "compare", "validate", "select", "summarize", "forecast", "status"],
+            ["measure", "compare", "validate", "select", "forecast", "status"],
         )
 
     def test_validation_has_no_stage_specific_options(self) -> None:

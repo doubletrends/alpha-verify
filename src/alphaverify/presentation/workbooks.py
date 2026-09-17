@@ -6,8 +6,8 @@ whole barrier-by-horizon face, so the workbook holds every value the cube holds 
 a faithful view of the measurement, not a summary of it.
 
 Stage 1 workbooks show raw conditional probabilities. Stage 2 shift workbooks show the
-same full grid after subtracting the unconditional baseline. The Stage 5 workbook is the
-one summary view: a row per node that cleared, listing its cleared bins.
+same full grid after subtracting the unconditional baseline. The Stage 5 forecast workbook
+holds the one summary view: a row per node that cleared, listing its cleared bins.
 """
 
 from __future__ import annotations
@@ -260,25 +260,6 @@ _SUMMARY_COLUMNS = (
 )
 
 
-def write_node_summary_xlsx(nodes: list[dict], path: Path) -> None:
-    """Stage 5 view: one row per node that cleared, ordered by its strongest bin."""
-    wb = Workbook()
-    ws = wb.active
-    ws.title = 'cleared nodes'
-    _write_table(ws, _SUMMARY_COLUMNS, [
-        (
-            node['node'], node['family'], node['feature'],
-            node['bins_cleared'], node['bins_tested'],
-            ', '.join(str(item['bin_number']) for item in node['bins']),
-            '; '.join(item['bin_label'] for item in node['bins']),
-            node['best_rank'], node['best_p_value'], node['best_q_value'],
-        )
-        for node in nodes
-    ])
-    path.parent.mkdir(parents=True, exist_ok=True)
-    wb.save(path)
-
-
 _CONDITION_COLUMNS = (
     ('family', 16, None),
     ('node', 24, None),
@@ -296,14 +277,16 @@ _CONDITION_COLUMNS = (
 def write_forecast_xlsx(
     path: Path, *, as_of: str, barriers: np.ndarray, horizons: np.ndarray, unit: str,
     combined: np.ndarray, combined_counts: np.ndarray, baseline: np.ndarray,
-    joint: np.ndarray, joint_counts: np.ndarray, conditions: list[dict],
+    joint: np.ndarray, joint_counts: np.ndarray, nodes: list[dict], conditions: list[dict],
 ) -> None:
     """
-    Stage 6 view: the naive Bayes surface beside the historical joint rate it assumes away.
+    Stage 5 view: the naive Bayes surface beside the historical joint rate it assumes away.
 
     Tabs show the combined probability, its shift from the baseline, the historical
     touch rate on bars where every contributing condition held, and their gap. Surfaces
     are ``(barrier, horizon)``; the combined n band is the weakest contributor's count.
+    The tables list the active conditions and, one row per node ordered by its strongest
+    bin, every node that cleared.
     """
     used = sum(1 for row in conditions if row['used'])
     title = f'Forecast —— as of {as_of} · {used} condition{"" if used == 1 else "s"}'
@@ -336,6 +319,16 @@ def write_forecast_xlsx(
             'yes' if row['used'] else 'no', row['note'],
         )
         for row in conditions
+    ])
+    _write_table(wb.create_sheet('cleared nodes'), _SUMMARY_COLUMNS, [
+        (
+            node['node'], node['family'], node['feature'],
+            node['bins_cleared'], node['bins_tested'],
+            ', '.join(str(item['bin_number']) for item in node['bins']),
+            '; '.join(item['bin_label'] for item in node['bins']),
+            node['best_rank'], node['best_p_value'], node['best_q_value'],
+        )
+        for node in nodes
     ])
     path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(path)

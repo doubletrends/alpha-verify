@@ -41,11 +41,7 @@ class StageReport:
             "Retain every and only condition bin with raw p < 0.05",
         ),
         5: (
-            "Summary of cleared nodes and bins",
-            "Group the selected condition bins by node",
-        ),
-        6: (
-            "Forecast from cleared conditions active on the last bar",
+            "Cleared nodes and the forecast from those active on the last bar",
             "Naive Bayes over one active bin per family, checked against the historical joint rate",
         ),
     }
