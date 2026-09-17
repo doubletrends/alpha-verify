@@ -22,7 +22,7 @@ def selection_summary_is_current(ws: Workspace, selection: dict) -> bool:
 
 
 def cmd_selection(ws: Workspace) -> None:
-    """Write the cleared-bin manifest and one full shift heatmap per bin."""
+    """Write the cleared-bin manifest and one heatmap-plus-null figure per bin."""
     report = StageReport(4)
     validation = artifact_io.read_json(ws.validation_summary_path)
     if not validation_summary_is_current(ws, validation):
@@ -62,22 +62,21 @@ def cmd_selection(ws: Workspace) -> None:
     artifact_io.write_json(ws.selection_summary_path, summary)
 
     # Deferred so commands that write no figures do not pay matplotlib's import.
-    from alphaverify.presentation import selection_plots
-    cubes = {node: materialized_shift(ws, node) for node in {row["node"] for row in selected}}
-    plots = selection_plots.write_selected_shift_heatmaps(
-        ws, selected, cubes,
-        MilestoneProgress(report, "writing selected-bin heatmaps", len(selected)),
+    from alphaverify.presentation import bin_figures
+    # The manifest stays compact; figures read each bin's null from its Stage 3 test row.
+    tests = {(row["node"], int(row["bin"])): row for row in validation.get("tests", [])}
+    figures = bin_figures.write_bin_figures(
+        ws.stage_dir("selection") / "plot",
+        [{**row, "null_scores": tests[(row["node"], int(row["bin"]))]["null_scores"]}
+         for row in selected],
+        {node: materialized_shift(ws, node) for node in {row["node"] for row in selected}},
+        workspace=ws.dir.name, horizon_unit=ws.horizon_unit,
+        progress=MilestoneProgress(report, "writing bin figures", len(selected)),
     )
-    distributions, missing_distributions = selection_plots.copy_selected_null_histograms(ws, selected)
     report.summary(
         f"selected {len(selected)} cleared bins across {summary['summary']['nodes']} nodes"
     )
     report.line(
-        f"wrote 1 manifest + {len(plots)} heatmaps + {len(distributions)} null distributions "
-        f"→ {ws.selection_summary_path.parent}"
+        f"wrote 1 manifest + {len(figures)} figures → {ws.selection_summary_path.parent}"
     )
-    if missing_distributions:
-        report.line(
-            f"{len(missing_distributions)} selected null distributions unavailable; rerun validate"
-        )
     report.completed()
