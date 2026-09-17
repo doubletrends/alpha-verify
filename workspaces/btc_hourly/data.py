@@ -11,7 +11,7 @@ DATASET_URL = (
     "bitcoin-technical-indicators-dataset/main/bitcoin-hourly-ohlcv.csv"
 )
 COLUMNS = ["DATETIME", "OPEN", "HIGH", "LOW", "CLOSE", "VOLUME_BTC"]
-CLEANING_VERSION = "btc-hourly-v1"
+CLEANING_VERSION = "btc-hourly-v2"
 
 
 def create_loader(*, start, asset, cache_dir):
@@ -36,12 +36,23 @@ def create_loader(*, start, asset, cache_dir):
             frame = frame.loc[frame.index >= pd.Timestamp(start)]
             frame = frame.apply(pd.to_numeric, errors="coerce").replace([np.inf, -np.inf], np.nan)
             frame = frame.dropna()  # Missing bars are removed, never filled or resampled.
+            # A few published bars have an open or close outside their own high-low range.
+            # Drop them rather than invent extremes that could create false barrier touches.
+            endpoints = frame[["open", "close"]]
+            ordered = (frame["low"] <= endpoints.min(axis=1)) & (frame["high"] >= endpoints.max(axis=1))
+            invalid_bars = frame.index[~ordered]
+            frame = frame.loc[ordered]
+            # A bar labelled h covers [h, h + 1h); the current hour is still forming.
+            complete_before = pd.Timestamp.now(tz="UTC").tz_localize(None).floor("h")
+            frame = frame.loc[frame.index < complete_before]
             frame.attrs["provenance"] = {
                 "requested_start": start, "asset": dict(asset),
                 "cleaning_version": CLEANING_VERSION, "time_basis": "UTC, timezone-naive",
                 "alignment": "raw timestamps; no resampling or filling; keep last duplicate",
                 "sources": {"ohlcv": {**info, "url": DATASET_URL,
-                                       "raw_rows": len(raw), "prepared_rows": len(frame)}},
+                                       "raw_rows": len(raw), "prepared_rows": len(frame),
+                                       "invalid_ohlc_bars_dropped": [str(bar) for bar in invalid_bars],
+                                       "complete_before": str(complete_before)}},
             }
             prepared = frame
         return prepared.copy()

@@ -89,3 +89,34 @@ def test_score_rescaling_preserves_comparisons_including_ties(monkeypatch):
     np.testing.assert_array_equal(new.score_supported, old.score_supported)
     np.testing.assert_array_equal(new.bin_score[1:] >= new.bin_score[0],
                                   old.bin_score[1:] >= old.bin_score[0])
+
+
+def test_evaluate_can_be_restricted_to_one_bin():
+    # Bin 0 has the larger run; restricting to bin 1 must report bin 1's own best cell.
+    shifts = np.array([[[.30], [.12]], [[.30], [.12]], [[0.], [0.]]])
+    cube = {
+        "probability_shift": shifts, "conditional_probability": shifts + .5,
+        "baseline_probability": np.full((3, 1), .5), "bin_hit_counts": np.full((3, 2, 1), 40),
+        "bin_observation_counts": np.full((2, 1), 100),
+        "barriers": np.array([-.02, -.01, .01]), "horizons": np.array([5]),
+    }
+    assert shift.evaluate(cube, .10, 50, 2)["best"]["bin"] == 0
+    best = shift.evaluate(cube, .10, 50, 2, bins=[1])["best"]
+    assert (best["bin"], best["dev"]) == (1, .12)
+
+
+def test_barrier_labels_are_exact_for_the_grid_step():
+    from alphaverify.infrastructure.workspace import WorkspaceConfig
+    from alphaverify.presentation.display import barrier_number_format, format_barrier
+
+    def grid(step, bound):
+        return WorkspaceConfig.from_meta({"asset": {}, "start_date": "2024-01-01",
+                                          "barriers": {"min": -bound, "max": bound, "step": step}}).barriers
+
+    whole, quarter = grid(.01, .2), grid(.0025, .03)
+    assert [format_barrier(value, whole) for value in (-.2, 0., .07)] == ["-20%", "+0%", "+7%"]
+    assert barrier_number_format(whole) == "+0%;-0%;0%"
+    labels = [format_barrier(value, quarter) for value in quarter]
+    assert labels[11:14] == ["-0.25%", "+0.00%", "+0.25%"] and len(set(labels)) == len(quarter)
+    assert barrier_number_format(quarter) == "+0.00%;-0.00%;0%"
+    assert format_barrier(.002, grid(.002, .03)) == "+0.2%"

@@ -42,10 +42,26 @@ def feature_from_artifact(artifact: dict, index: pd.Index) -> pd.Series:
     return values.reindex(index)
 
 
+def feature_bins_from_artifact(artifact: dict) -> np.ndarray:
+    """Each stored bar's condition bin under the artifact's stored edges, or -1 when missing.
+
+    Uses the Stage 1 left-edge convention: a value equal to an edge enters the lower bin.
+    """
+    values = np.asarray(artifact["feature_values"], dtype=float)
+    bins = np.searchsorted(np.asarray(artifact["bin_edges"], dtype=float), values, side="left")
+    return np.where(np.isfinite(values), bins, -1)
+
+
 def market_history_key(data: pd.DataFrame) -> str:
-    """Content identity for ordered market data shared by multiple nodes."""
+    """Content identity of a market history: its timestamps and OHLCV values in canonical order.
+
+    Price outcomes depend only on OHLCV, so a loader's column order and any auxiliary
+    columns do not change the identity; Stage 1 panels and Stage 3 restored histories
+    of the same prices share one key.
+    """
+    columns = [column for column in _MARKET_COLUMNS if column in data]
     digest = hashlib.sha256()
-    digest.update(str(tuple(data.columns)).encode())
+    digest.update(str(tuple(columns)).encode())
     digest.update(data.index.asi8.tobytes())
-    digest.update(np.ascontiguousarray(data.to_numpy(dtype=float)).tobytes())
+    digest.update(np.ascontiguousarray(data[columns].to_numpy(dtype=float)).tobytes())
     return digest.hexdigest()

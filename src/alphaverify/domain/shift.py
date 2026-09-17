@@ -47,12 +47,14 @@ def from_cube(cube: dict, baseline_probability: np.ndarray) -> dict:
     return out
 
 
-def evaluate(cube: dict, min_dev: float, min_bin_n: int, min_run: int) -> dict:
+def evaluate(cube: dict, min_dev: float, min_bin_n: int, min_run: int,
+             bins=None) -> dict:
     """
     Economic filter over a shift cube.
 
     A node passes when at least one bin/horizon has `min_run` adjacent barrier rows with
     the same-signed deviation from baseline, each at least `min_dev` in probability units.
+    `bins` restricts the search to those bin indices; by default every bin is searched.
     """
     dev = np.asarray(cube["probability_shift"], dtype=float)
     conditional_probability = np.asarray(cube["conditional_probability"], dtype=float)
@@ -65,7 +67,7 @@ def evaluate(cube: dict, min_dev: float, min_bin_n: int, min_run: int) -> dict:
     for j in range(horizon_count):
         t = int(horizons[j])
         best = None
-        for b in range(effective_bin_count):
+        for b in (range(effective_bin_count) if bins is None else bins):
             if bin_observation_counts[b, j] < min_bin_n:
                 continue
             col = dev[:, b, j]

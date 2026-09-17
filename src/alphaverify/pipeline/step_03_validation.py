@@ -7,7 +7,7 @@ import math
 
 import numpy as np
 
-from alphaverify.domain import barrier, scoring, validation
+from alphaverify.domain import barrier, scoring, tensor_runtime, validation
 from alphaverify.domain.features import is_ohlcv_feature
 from alphaverify.infrastructure import artifact_io
 from alphaverify.infrastructure.artifact_history import (
@@ -135,12 +135,15 @@ def cmd_validation(ws: Workspace) -> None:
             simulated_paths = validation.simulated_ohlc_tensor(
                 data, N_NULL_REPLICATES, SEED
             )
-            null_steps = math.ceil(
-                len(simulated_paths) / validation.REPLICATE_BATCH_SIZE
+            batch_size = validation.replicate_batch_size(
+                simulated_paths.shape[1], len(pending), len(pending[0][3]["barriers"]),
+                tensor_runtime.memory_budget_bytes(),
             )
             nulls = validation.score_histories_many(
-                simulated_paths, [item[3] for item in pending],
-                progress=MilestoneProgress(report, "scoring null matrices", null_steps),
+                simulated_paths, [item[3] for item in pending], batch_size=batch_size,
+                progress=MilestoneProgress(
+                    report, "scoring null matrices", math.ceil(len(simulated_paths) / batch_size)
+                ),
             )
             for (identities, scores, valid, _), null in zip(pending, nulls):
                 for b in np.flatnonzero(valid):
@@ -171,12 +174,16 @@ def cmd_validation(ws: Workspace) -> None:
     }
     artifact_io.write_json(ws.validation_summary_path, summary)
     # Deferred so commands that write no figures do not pay matplotlib's import.
-    from alphaverify.presentation import validation_plots
-    plots = validation_plots.write_bin_score_null_histograms(
-        ws, summary, MilestoneProgress(report, "writing plots", len(records)),
+    from alphaverify.presentation import bin_figures
+    figures = bin_figures.write_bin_figures(
+        ws.stage_dir("validation") / "plot",
+        records,
+        {node: materialized_shift(ws, node) for node in {row["node"] for row in records}},
+        workspace=ws.dir.name, horizon_unit=ws.horizon_unit,
+        progress=MilestoneProgress(report, "writing bin figures", len(records)),
     )
     report.summary(f"cleared {len(cleared)} of {len(records)} with raw p < {RAW_P_THRESHOLD}; skipped {len(skipped)} unsupported bins")
     if missing:
         report.line(f"incomplete: {len(missing)} nodes lack shift arrays; run measure and compare")
-    report.line(f"wrote 1 summary + {len(plots)} plots → {ws.validation_summary_path.parent}")
+    report.line(f"wrote 1 summary + {len(figures)} figures → {ws.validation_summary_path.parent}")
     report.completed()

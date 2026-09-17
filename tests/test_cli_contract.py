@@ -19,6 +19,8 @@ class CliContractTests(unittest.TestCase):
             "compare",
             "validate",
             "select",
+            "summarize",
+            "forecast",
             "status",
         ):
             self.assertIn(command, help_text)
@@ -34,7 +36,7 @@ class CliContractTests(unittest.TestCase):
     def test_commands_preserve_pipeline_order(self) -> None:
         self.assertEqual(
             [command.name for command in COMMANDS],
-            ["measure", "compare", "validate", "select", "status"],
+            ["measure", "compare", "validate", "select", "summarize", "forecast", "status"],
         )
 
     def test_validation_has_no_stage_specific_options(self) -> None:

@@ -10,10 +10,34 @@ from alphaverify.domain import barrier, scoring, tensor_runtime, torch_features
 from alphaverify.domain.notation import HistoryScoreResult, OhlcvComponent
 
 REPLICATE_BATCH_SIZE = 256
+# Peak scoring memory per bar per replicate, measured on float64 CUDA kernels and rounded up:
+# a fixed share plus a share per scored condition and per signed barrier.
+_BYTES_PER_BAR = 80
+_BYTES_PER_BAR_PER_CONDITION = 25
+_BYTES_PER_BAR_PER_BARRIER = 10
+
+
+def replicate_batch_size(n_bars: int, n_conditions: int, n_barriers: int, memory_budget: int) -> int:
+    """Replicates to score together: the most that fit the budget, between 1 and REPLICATE_BATCH_SIZE.
+
+    Scores do not depend on the batch size, so this only bounds memory.
+    """
+    per_replicate = n_bars * (
+        _BYTES_PER_BAR
+        + _BYTES_PER_BAR_PER_CONDITION * n_conditions
+        + _BYTES_PER_BAR_PER_BARRIER * n_barriers
+    )
+    return int(max(1, min(REPLICATE_BATCH_SIZE, memory_budget // max(per_replicate, 1))))
 
 
 def simulated_ohlc_tensor(data: pd.DataFrame, n_replicates: int, seed: int):
-    """Fit and draw the shared OHLC ensemble on the configured Torch device."""
+    """Fit and draw the shared OHLC ensemble on the configured device; return it in host memory.
+
+    The draw is one call, because chunked draws do not reproduce the same stream.
+    Each finished series moves to host memory before the next is computed, so the
+    device holds the drawn components and at most a few series at a time. Scoring
+    moves one replicate batch back to the device.
+    """
     ohlcv = barrier.ohlcv_array(data)
     open_, high, low, close, observed_volume = (
         ohlcv[:, component] for component in OhlcvComponent
@@ -40,7 +64,9 @@ def simulated_ohlc_tensor(data: pd.DataFrame, n_replicates: int, seed: int):
     synthetic_components = torch.randn(
         (n_replicates, len(data), 4),
         dtype=torch.float64, device=device, generator=generator,
-    ) @ cholesky_factor.T + component_mean
+    ) @ cholesky_factor.T
+    synthetic_components += component_mean
+    ensemble = torch.empty((n_replicates, len(data), 5), dtype=torch.float64)
     initial_close = torch.as_tensor(close[0], dtype=torch.float64, device=device)
     log_open = synthetic_components[:, :, 0]
     log_close = synthetic_components[:, :, 1]
@@ -49,16 +75,18 @@ def simulated_ohlc_tensor(data: pd.DataFrame, n_replicates: int, seed: int):
         (initial_close.expand(n_replicates, 1), synthetic_close[:, :-1]), dim=1
     )
     synthetic_open = previous * torch.exp(log_open)
-    synthetic_high = torch.maximum(synthetic_open, synthetic_close) * torch.exp(
-        synthetic_components[:, :, 2]
-    )
-    synthetic_low = torch.minimum(synthetic_open, synthetic_close) * torch.exp(
-        synthetic_components[:, :, 3]
-    )
-    volume = torch.as_tensor(
-        observed_volume, dtype=torch.float64, device=device,
-    ).expand(n_replicates, -1)
-    return torch.stack((synthetic_open, synthetic_high, synthetic_low, synthetic_close, volume), dim=-1)
+    del previous
+    ensemble[:, :, OhlcvComponent.HIGH] = (
+        torch.maximum(synthetic_open, synthetic_close) * torch.exp(synthetic_components[:, :, 2])
+    ).cpu()
+    ensemble[:, :, OhlcvComponent.LOW] = (
+        torch.minimum(synthetic_open, synthetic_close) * torch.exp(synthetic_components[:, :, 3])
+    ).cpu()
+    del synthetic_components, log_open, log_close
+    ensemble[:, :, OhlcvComponent.OPEN] = synthetic_open.cpu()
+    ensemble[:, :, OhlcvComponent.CLOSE] = synthetic_close.cpu()
+    ensemble[:, :, OhlcvComponent.VOLUME] = torch.as_tensor(observed_volume, dtype=torch.float64)
+    return ensemble
 
 
 def score_histories(
@@ -112,7 +140,8 @@ def _score_histories_many_batch(paths, policies: list[dict]) -> list[HistoryScor
     """
     if not policies:
         return []
-    ohlcv = paths.to(dtype=torch.float64) if isinstance(paths, torch.Tensor) else tensor_runtime.tensor(paths)
+    ohlcv = (paths.to(device=tensor_runtime.device(), dtype=torch.float64)
+             if isinstance(paths, torch.Tensor) else tensor_runtime.tensor(paths))
     prepared = []
     feature_cache = {}
     for policy in policies:
@@ -168,15 +197,22 @@ def _score_histories_many_batch(paths, policies: list[dict]) -> list[HistoryScor
 
 
 def score_histories_many(
-    paths, policies: list[dict], *, batch_size: int = REPLICATE_BATCH_SIZE, progress=None,
+    paths, policies: list[dict], *, batch_size: int | None = None, progress=None,
 ) -> list[HistoryScoreResult]:
-    """Score conditions together in bounded batches of market histories."""
-    if batch_size < 1:
-        raise ValueError("batch_size must be positive")
+    """Score conditions together in bounded batches of market histories.
+
+    Without an explicit ``batch_size``, batches are sized to the device's memory budget.
+    """
     if not policies:
         return []
     barriers = np.asarray(policies[0]["barriers"], dtype=float)
     horizons = np.asarray(policies[0]["horizons"], dtype=int)
+    if batch_size is None:
+        batch_size = replicate_batch_size(
+            paths.shape[1], len(policies), len(barriers), tensor_runtime.memory_budget_bytes()
+        )
+    if batch_size < 1:
+        raise ValueError("batch_size must be positive")
     if any(not np.array_equal(barriers, np.asarray(policy["barriers"], dtype=float))
            or not np.array_equal(horizons, np.asarray(policy["horizons"], dtype=int))
            for policy in policies[1:]):
