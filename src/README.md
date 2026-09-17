@@ -232,7 +232,7 @@ Do not copy formulas, paths, or configuration into a second executable source. D
 | Change bin scoring | `domain/scoring.py` | Observed/null validation share this kernel; update its version and parity tests |
 | Change the null | `domain/validation.py` | Stage 3 metadata, bin figures, current-summary check, and statistical disclosure |
 | Change a workbook or bin figure | `presentation/workbooks.py` or `presentation/bin_figures.py` | Keep machine-readable artifacts unchanged |
-| Add or rename a CLI command | `cli.py` | Pipeline order and CLI contract tests |
+| Add or rename a CLI command | `cli.py` | Stage-order test in `tests/test_architecture_boundaries.py` |
 
 Run the [test suite](../tests/README.md) after any source change. A real workspace rerun is additionally required for changes to market data, numerical kernels, feature definitions, bin scoring, null generation, or presentation artifacts.
 
