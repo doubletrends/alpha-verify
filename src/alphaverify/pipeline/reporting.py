@@ -5,8 +5,7 @@ from __future__ import annotations
 from time import perf_counter
 import sys
 
-from alphaverify.infrastructure.workspace import Workspace, stage_number
-from alphaverify.presentation.display import format_barrier
+from alphaverify.infrastructure.workspace import stage_number
 
 RULE = "=" * 60
 
@@ -21,21 +20,6 @@ def ansi_styles(enabled: bool) -> tuple[str, str, str, str]:
     if not enabled:
         return "", "", "", ""
     return "\033[38;2;194;65;12m", "\033[1m", "\033[2m", "\033[0m"
-
-
-def no_strong_cell_line(ws: Workspace) -> str:
-    return f"no cell reaches {ws.min_dev:.1%} across {ws.min_run} adjacent barrier rows"
-
-
-def strongest_cell_line(ws: Workspace, best: dict) -> str:
-    """One strongest-cell result from ``shift.evaluate``, in inspection wording."""
-    return (
-        f"strongest cell: shift={best['dev']:+.1%}; "
-        f"P={best['conditional_probability']:.1%} "
-        f"vs {best['baseline_probability']:.1%} baseline "
-        f"at barrier={format_barrier(best['barrier'], ws.barriers)}, +{best['horizon']}{ws.horizon_unit} "
-        f"(run={best['run']}, n={best['bin_observation_count']})"
-    )
 
 
 class StageReport:

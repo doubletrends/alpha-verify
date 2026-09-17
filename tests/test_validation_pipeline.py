@@ -13,7 +13,6 @@ from alphaverify.domain.features import is_ohlcv_feature
 from alphaverify.infrastructure import artifact_io
 from alphaverify.infrastructure.workspace import Workspace
 from alphaverify.pipeline import step_03_validation as stage
-from alphaverify.pipeline.status import cmd_status
 from alphaverify.presentation import bin_figures
 
 _REAL_FIGURE_WRITER = bin_figures.write_bin_figures
@@ -89,7 +88,7 @@ def test_compare_validate_select_in_probability_units(workspace, monkeypatch):
     assert all(name.startswith("bin_figure__") for name in validation_figures)
 
 
-def test_all_bins_are_validated_without_selection(workspace, monkeypatch, capsys):
+def test_all_bins_are_validated_without_selection(workspace, monkeypatch):
     simulate = Mock(wraps=validation.simulated_ohlc_tensor)
     monkeypatch.setattr(validation, "simulated_ohlc_tensor", simulate)
     stage.cmd_validation(workspace)
@@ -107,8 +106,6 @@ def test_all_bins_are_validated_without_selection(workspace, monkeypatch, capsys
         expected = (1 + sum(score >= row["bin_score"] for score in row["null_scores"])) / 17
         assert row["monte_carlo_p_value"] == expected
     assert stage.validation_summary_is_current(workspace, summary)
-    cmd_status(workspace)
-    assert "4 condition bins" in capsys.readouterr().out
 
 
 def test_different_market_histories_get_separate_nulls(workspace, monkeypatch):

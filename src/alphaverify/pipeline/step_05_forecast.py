@@ -14,7 +14,7 @@ from alphaverify.infrastructure.artifact_history import (
 )
 from alphaverify.infrastructure.workspace import STAGE_DIRECTORIES, Workspace
 from alphaverify.pipeline.context import RunContext, materialized_shift
-from alphaverify.pipeline.reporting import StageReport, no_strong_cell_line, strongest_cell_line
+from alphaverify.pipeline.reporting import StageReport
 from alphaverify.pipeline.step_04_selection import selection_summary_is_current
 from alphaverify.presentation import workbooks
 from alphaverify.presentation.display import format_barrier
@@ -30,17 +30,6 @@ METHOD = {
     "min_bin_n": barrier.MIN_BIN_N,
     "joint": "historical touch rate on bars where every contributing condition held",
 }
-
-
-def forecast_is_current(ws: Workspace, forecast: dict) -> bool:
-    """Require a complete forecast from the current selection bytes and this method."""
-    selection = artifact_io.read_json(ws.selection_summary_path)
-    if (not forecast or not forecast.get("complete")
-            or forecast.get("artifact") != STAGE_DIRECTORIES["forecast"]
-            or forecast.get("method") != METHOD
-            or not selection_summary_is_current(ws, selection)):
-        return False
-    return forecast.get("selection_sha256") == artifact_io.file_sha256(ws.selection_summary_path)
 
 
 def cleared_nodes(selected: list[dict], tested_bins: Counter) -> list[dict]:
@@ -93,6 +82,19 @@ def active_conditions(nodes: list[dict], cubes: dict[str, dict], baseline_index)
             chosen[row["family"]] = row
             row["used"] = True
     return active
+
+
+def _strongest_cell_line(ws: Workspace, best: dict | None) -> str:
+    """One used condition's strongest cell from ``shift.evaluate``, or why it has none."""
+    if not best:
+        return f"no cell reaches {ws.min_dev:.1%} across {ws.min_run} adjacent barrier rows"
+    return (
+        f"strongest cell: shift={best['dev']:+.1%}; "
+        f"P={best['conditional_probability']:.1%} "
+        f"vs {best['baseline_probability']:.1%} baseline "
+        f"at barrier={format_barrier(best['barrier'], ws.barriers)}, +{best['horizon']}{ws.horizon_unit} "
+        f"(run={best['run']}, n={best['bin_observation_count']})"
+    )
 
 
 def _json_surface(values: np.ndarray) -> list:
@@ -205,7 +207,7 @@ def cmd_forecast(ws: Workspace) -> None:
             best = shift.evaluate(
                 cubes[row["node"]], ws.min_dev, ws.min_bin_n, ws.min_run, bins=[row["bin"]]
             )["best"]
-            report.line(f"        {strongest_cell_line(ws, best) if best else no_strong_cell_line(ws)}")
+            report.line(f"        {_strongest_cell_line(ws, best)}")
         else:
             report.line(f"        {row['note']}")
 

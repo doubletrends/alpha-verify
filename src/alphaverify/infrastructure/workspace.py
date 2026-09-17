@@ -213,11 +213,5 @@ class Workspace:
     def has_cube(self, node_id: str) -> bool:
         return self.cube_path(node_id).exists()
 
-    def has_surface(self, node_id: str) -> bool:
-        return self.surface_path(node_id).exists()
-
     def has_shift_cube(self, node_id: str) -> bool:
         return self.shift_cube_path(node_id).exists()
-
-    def has_shift_surface(self, node_id: str) -> bool:
-        return self.shift_surface_path(node_id).exists()
