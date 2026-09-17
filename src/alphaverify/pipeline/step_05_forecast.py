@@ -7,16 +7,14 @@ from datetime import datetime, timezone
 
 import numpy as np
 
-from alphaverify.domain import combination, shift
-from alphaverify.domain.barrier import MIN_BIN_N
+from alphaverify.domain import barrier, combination, shift
 from alphaverify.infrastructure import artifact_io
 from alphaverify.infrastructure.artifact_history import (
     feature_bins_from_artifact, market_data_from_artifact,
 )
-from alphaverify.infrastructure.workspace import Workspace
+from alphaverify.infrastructure.workspace import STAGE_DIRECTORIES, Workspace
 from alphaverify.pipeline.context import RunContext, materialized_shift
-from alphaverify.pipeline.reporting import StageReport
-from alphaverify.pipeline.status import no_strong_cell_line, strongest_cell_line
+from alphaverify.pipeline.reporting import StageReport, no_strong_cell_line, strongest_cell_line
 from alphaverify.pipeline.step_04_selection import selection_summary_is_current
 from alphaverify.presentation import workbooks
 from alphaverify.presentation.display import format_barrier
@@ -29,7 +27,7 @@ METHOD = {
     "combination": "naive Bayes per cell: logit baseline + sum(logit condition - logit baseline); "
                    "conditions treated as independent given the outcome",
     "smoothing": "(hits + 1) / (n + 2) before log-odds",
-    "min_bin_n": MIN_BIN_N,
+    "min_bin_n": barrier.MIN_BIN_N,
     "joint": "historical touch rate on bars where every contributing condition held",
 }
 
@@ -38,7 +36,7 @@ def forecast_is_current(ws: Workspace, forecast: dict) -> bool:
     """Require a complete forecast from the current selection bytes and this method."""
     selection = artifact_io.read_json(ws.selection_summary_path)
     if (not forecast or not forecast.get("complete")
-            or forecast.get("artifact") != "05_forecast"
+            or forecast.get("artifact") != STAGE_DIRECTORIES["forecast"]
             or forecast.get("method") != METHOD
             or not selection_summary_is_current(ws, selection)):
         return False
@@ -103,7 +101,7 @@ def _json_surface(values: np.ndarray) -> list:
 
 def cmd_forecast(ws: Workspace) -> None:
     """Write the cleared nodes and the combined forecast for the last stored bar."""
-    report = StageReport(5)
+    report = StageReport("forecast")
     selection = artifact_io.read_json(ws.selection_summary_path)
     if not selection_summary_is_current(ws, selection):
         report.line("selection is missing or stale; run select first")
@@ -133,33 +131,28 @@ def cmd_forecast(ws: Workspace) -> None:
 
     baseline_hits = baseline_cube["bin_hit_counts"][:, 0, :]
     baseline_counts = baseline_cube["bin_observation_counts"][0]
-    combined = combination.naive_bayes_probability(
+    combined, combined_counts = combination.naive_bayes_probability(
         baseline_hits, baseline_counts,
         [cubes[row["node"]]["bin_hit_counts"][:, row["bin"], :] for row in used],
         [cubes[row["node"]]["bin_observation_counts"][row["bin"]] for row in used],
     )
     baseline = combination.smoothed_probability(baseline_hits, baseline_counts[None, :])
-    combined_counts = np.min(
-        [baseline_counts] + [cubes[row["node"]]["bin_observation_counts"][row["bin"]] for row in used],
-        axis=0,
-    )
 
     outcomes = RunContext(ws).observed_outcomes(
         market_data_from_artifact(baseline_cube), barriers, horizons
     )
-    selected = horizons - 1
-    price_eligible = (np.isfinite(outcomes["downside_excursion"][selected])
-                      & np.isfinite(outcomes["upside_excursion"][selected]))
     holds = np.ones(len(baseline_cube["index"]), dtype=bool)
     for row in used:
         holds &= feature_bins_from_artifact(cubes[row["node"]]) == row["bin"]
-    joint, joint_counts = combination.joint_touch_rate(holds, outcomes["touch_mask"], price_eligible)
+    joint, joint_counts = combination.joint_touch_rate(
+        holds, outcomes["touch_mask"], barrier.observed_price_eligibility(outcomes, horizons)
+    )
     violations = combination.nesting_violations(combined, barriers, horizons)
 
     forecast = {
         "workspace": ws.dir.name,
         "generated": datetime.now(timezone.utc).isoformat(),
-        "artifact": "05_forecast",
+        "artifact": STAGE_DIRECTORIES["forecast"],
         "complete": True,
         "source": ws.selection_summary_path.relative_to(ws.dir).as_posix(),
         "selection_sha256": selection_sha256,
@@ -233,7 +226,7 @@ def cmd_forecast(ws: Workspace) -> None:
         )
     else:
         report.line(
-            f"historical joint: fewer than {MIN_BIN_N} bars where every used condition held; "
+            f"historical joint: fewer than {barrier.MIN_BIN_N} bars where every used condition held; "
             "no calibration check possible"
         )
     report.line(f"nesting: {violations} adjacent cells break barrier or horizon ordering")

@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from alphaverify.cli import COMMANDS, build_parser
+from alphaverify.infrastructure.workspace import STAGES
 from alphaverify.pipeline.status import cmd_status
 
 
@@ -37,6 +38,11 @@ class CliContractTests(unittest.TestCase):
         self.assertEqual(
             [command.name for command in COMMANDS],
             ["measure", "compare", "validate", "select", "forecast", "status"],
+        )
+
+    def test_stage_commands_mirror_the_stage_order(self) -> None:
+        self.assertEqual(
+            tuple(command.stage for command in COMMANDS if command.stage), STAGES
         )
 
     def test_validation_has_no_stage_specific_options(self) -> None:

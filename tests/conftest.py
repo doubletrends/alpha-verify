@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from alphaverify.infrastructure import artifact_io
-from alphaverify.infrastructure.workspace import Workspace
+from alphaverify.infrastructure.workspace import STAGE_DIRECTORIES, Workspace
 from alphaverify.pipeline import step_03_validation as validation_stage
 
 
@@ -56,8 +56,8 @@ def selected_workspace(tmp_path):
          "null_scores": np.linspace(0, .11, 1000).tolist()},
     ]
     summary = {
-        "workspace": "example", "artifact": "03_validation", "complete": True,
-        "method": validation_stage._method(),
+        "workspace": "example", "artifact": STAGE_DIRECTORIES["validation"], "complete": True,
+        "method": validation_stage.METHOD,
         "input_fingerprint": validation_stage.input_fingerprint(ws),
         "missing_nodes": [], "summary": {"nodes": 2, "tested": 2, "skipped": 0, "cleared": 1},
         "tests": rows, "skipped_bins": [],

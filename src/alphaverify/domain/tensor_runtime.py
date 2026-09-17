@@ -32,6 +32,9 @@ def memory_budget_bytes() -> int:
 
 
 def tensor(value, *, dtype=torch.float64) -> torch.Tensor:
+    """A kernel input on the selected device, in ``dtype``."""
+    if isinstance(value, torch.Tensor):
+        return value.to(device=_DEVICE, dtype=dtype)
     # pandas and safetensors may expose read-only NumPy views. Own the I/O-boundary
     # copy before entering kernels, which never mutate their source tensors.
     return torch.as_tensor(np.array(value, copy=True), dtype=dtype, device=_DEVICE)

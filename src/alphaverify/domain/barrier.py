@@ -75,6 +75,11 @@ def bin_indices(values: torch.Tensor, edges: torch.Tensor) -> torch.Tensor:
     return torch.searchsorted(edges.contiguous(), values.contiguous(), right=False)
 
 
+def price_eligibility(downside_excursion, upside_excursion):
+    """Bars whose forward window is fully observed: both excursions exist."""
+    return torch.isfinite(downside_excursion) & torch.isfinite(upside_excursion)
+
+
 def barrier_touch_matrix(downside_excursion, upside_excursion, barriers):
     """Return the shared ``history × time × delta`` price-touch matrix."""
     barriers_tensor = torch.as_tensor(
@@ -82,7 +87,7 @@ def barrier_touch_matrix(downside_excursion, upside_excursion, barriers):
     )
     if barriers_tensor.ndim != 1:
         raise ValueError("barriers must be a vector")
-    price_eligible = torch.isfinite(downside_excursion) & torch.isfinite(upside_excursion)
+    price_eligible = price_eligibility(downside_excursion, upside_excursion)
     if not len(barriers_tensor):
         empty = torch.empty(
             (*downside_excursion.shape, 0), dtype=torch.bool,
@@ -228,11 +233,8 @@ def observed_outcomes(data: pd.DataFrame, barriers, horizons) -> dict:
     barriers = np.asarray(barriers, dtype=float)
     horizons = np.asarray(horizons, dtype=int)
     downside_excursion, upside_excursion = forward_extremes_upto(data, int(horizons.max()))
-    selected = horizons - 1
     touch_mask, price_eligible = barrier_touch_matrix(
-        tensor_runtime.tensor(downside_excursion[selected]),
-        tensor_runtime.tensor(upside_excursion[selected]),
-        barriers,
+        *_horizon_excursions(downside_excursion, upside_excursion, horizons), barriers,
     )
     baseline_probability, _ = reduce_baseline_touch_matrix(touch_mask, price_eligible)
     return {
@@ -241,6 +243,19 @@ def observed_outcomes(data: pd.DataFrame, barriers, horizons) -> dict:
         "touch_mask": touch_mask.cpu().numpy(),
         "baseline_probability": baseline_probability.T.cpu().numpy(),
     }
+
+
+def observed_price_eligibility(outcomes: dict, horizons) -> np.ndarray:
+    """``(horizon, time)`` price eligibility of ``observed_outcomes`` at the requested horizons."""
+    return price_eligibility(*_horizon_excursions(
+        outcomes["downside_excursion"], outcomes["upside_excursion"], horizons,
+    )).cpu().numpy()
+
+
+def _horizon_excursions(downside_excursion, upside_excursion, horizons):
+    """Rows of a ``(horizon, time)`` excursion ladder, which starts at horizon 1."""
+    rows = np.asarray(horizons, dtype=int) - 1
+    return tensor_runtime.tensor(downside_excursion[rows]), tensor_runtime.tensor(upside_excursion[rows])
 
 
 def measure_histories(paths, features, barriers, horizons, requested_bin_count, *,
@@ -256,8 +271,8 @@ def measure_histories(paths, features, barriers, horizons, requested_bin_count, 
     all eligible market dates independently of feature warm-up.
     Stage 1 may supply its cached excursion ladder for a single history.
     """
-    paths = paths.to(dtype=torch.float64) if isinstance(paths, torch.Tensor) else tensor_runtime.tensor(paths)
-    x = features.to(dtype=torch.float64) if isinstance(features, torch.Tensor) else tensor_runtime.tensor(features)
+    paths = tensor_runtime.tensor(paths)
+    x = tensor_runtime.tensor(features)
     if paths.ndim != 3 or paths.shape[-1] != 5:
         raise ValueError("paths must have (history, time, OHLCV) axes")
     if x.ndim != 2 or x.shape[1] != paths.shape[1] or x.shape[0] not in (1, paths.shape[0]):
@@ -270,10 +285,7 @@ def measure_histories(paths, features, barriers, horizons, requested_bin_count, 
     if bin_edges is None:
         edges_t = batched_bin_edges(x, requested_bin_count)
     else:
-        edges_t = (bin_edges.to(dtype=torch.float64)
-                   if isinstance(bin_edges, torch.Tensor)
-                   else tensor_runtime.tensor(bin_edges))
-        edges_t = edges_t.expand(paths.shape[0], -1).contiguous()
+        edges_t = tensor_runtime.tensor(bin_edges).expand(paths.shape[0], -1).contiguous()
     effective_bin_count = edges_t.shape[1] + 1
     indices = (bin_indices(x, edges_t) if bin_assignments is None else
                torch.as_tensor(bin_assignments, dtype=torch.long, device=paths.device))
@@ -313,7 +325,7 @@ def measure_histories(paths, features, barriers, horizons, requested_bin_count, 
                 shared_touch, price_ok = barrier_touch_matrix(lo, hi, barriers)
             else:
                 shared_touch = touches_t[horizon_index]
-                price_ok = torch.isfinite(lo) & torch.isfinite(hi)
+                price_ok = price_eligibility(lo, hi)
             probabilities, hits, counts, observed = reduce_touch_matrix(
                 shared_touch, price_ok, x, indices, effective_bin_count, min_n,
             )
