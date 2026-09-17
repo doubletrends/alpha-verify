@@ -24,7 +24,7 @@ def _log_odds(probability: np.ndarray) -> np.ndarray:
 
 def naive_bayes_probability(
     baseline_hits, baseline_counts, condition_hits, condition_counts, min_n: int = MIN_BIN_N,
-) -> np.ndarray:
+) -> tuple[np.ndarray, np.ndarray]:
     """Per-cell naive Bayes combination of conditions in log-odds form.
 
         logit P(touch | conditions) = logit P_baseline + sum_k (logit P_k - logit P_baseline)
@@ -32,9 +32,10 @@ def naive_bayes_probability(
     Each condition contributes its odds ratio against the unconditional baseline,
     as if conditions were independent given the outcome. Correlated conditions
     therefore overstate the combined shift. Rates are smoothed before taking
-    log-odds. A cell is unsupported (NaN) when the baseline or any condition has
-    fewer than ``min_n`` observations at that horizon. With no conditions the
-    result is the smoothed baseline.
+    log-odds. A cell's support is its weakest contributor: the fewest observations
+    at that horizon across the baseline and every condition. Returns the
+    ``(barrier, horizon)`` probability, NaN below ``min_n`` support, and the
+    ``(horizon,)`` support counts. With no conditions the result is the smoothed baseline.
     """
     baseline_hits = np.asarray(baseline_hits, dtype=float)
     baseline_counts = np.asarray(baseline_counts, dtype=float)
@@ -42,15 +43,16 @@ def naive_bayes_probability(
         raise ValueError("baseline hits must be (barrier, horizon) with (horizon,) counts")
     baseline = _log_odds(smoothed_probability(baseline_hits, baseline_counts[None, :]))
     log_odds = baseline.copy()
-    supported = np.broadcast_to(baseline_counts[None, :] >= min_n, baseline.shape).copy()
+    support = baseline_counts.copy()
     for hits, counts in zip(condition_hits, condition_counts, strict=True):
         hits = np.asarray(hits, dtype=float)
         counts = np.asarray(counts, dtype=float)
         if hits.shape != baseline_hits.shape or counts.shape != baseline_counts.shape:
             raise ValueError("condition surfaces must match the baseline axes")
         log_odds += _log_odds(smoothed_probability(hits, counts[None, :])) - baseline
-        supported &= counts[None, :] >= min_n
-    return np.where(supported, 1.0 / (1.0 + np.exp(-log_odds)), np.nan)
+        support = np.minimum(support, counts)
+    probability = np.where(support[None, :] >= min_n, 1.0 / (1.0 + np.exp(-log_odds)), np.nan)
+    return probability, support
 
 
 def joint_touch_rate(

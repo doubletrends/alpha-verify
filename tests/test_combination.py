@@ -16,10 +16,10 @@ def logit(p):
 def test_no_condition_is_the_smoothed_baseline_and_one_condition_is_its_own_rate():
     hits, counts = np.array([[10., 40.]]), np.array([100., 100.])
     baseline = combination.smoothed_probability(hits, counts[None, :])
-    np.testing.assert_allclose(combination.naive_bayes_probability(hits, counts, [], []), baseline)
+    np.testing.assert_allclose(combination.naive_bayes_probability(hits, counts, [], [])[0], baseline)
     condition_hits, condition_counts = np.array([[30., 5.]]), np.array([60., 60.])
     np.testing.assert_allclose(
-        combination.naive_bayes_probability(hits, counts, [condition_hits], [condition_counts]),
+        combination.naive_bayes_probability(hits, counts, [condition_hits], [condition_counts])[0],
         (condition_hits + 1) / (condition_counts[None, :] + 2),
     )
 
@@ -29,14 +29,20 @@ def test_two_conditions_add_their_log_odds_ratios():
     first, second = (np.array([[40.]]), np.array([58.])), (np.array([[9.]]), np.array([48.]))
     base, p1, p2 = 21 / 100, 41 / 60, 10 / 50
     expected = 1 / (1 + np.exp(-(logit(base) + (logit(p1) - logit(base)) + (logit(p2) - logit(base)))))
-    actual = combination.naive_bayes_probability(hits, counts, [first[0], second[0]], [first[1], second[1]])
+    actual, support = combination.naive_bayes_probability(
+        hits, counts, [first[0], second[0]], [first[1], second[1]]
+    )
     np.testing.assert_allclose(actual, [[expected]])
+    np.testing.assert_array_equal(support, [48.])
 
 
 def test_thin_baseline_or_condition_cells_are_unsupported():
     hits, counts = np.zeros((1, 2)), np.array([100., 29.])
-    result = combination.naive_bayes_probability(hits, counts, [np.zeros((1, 2))], [np.array([29., 100.])])
+    result, support = combination.naive_bayes_probability(
+        hits, counts, [np.zeros((1, 2))], [np.array([29., 100.])]
+    )
     assert np.isnan(result).all()
+    np.testing.assert_array_equal(support, [29., 29.])
     with pytest.raises(ValueError):
         combination.naive_bayes_probability(hits, counts, [np.zeros((2, 2))], [counts])
 

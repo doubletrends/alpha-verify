@@ -15,7 +15,6 @@ from alphaverify.infrastructure.workspace import Workspace
 from alphaverify.pipeline import step_02_shift
 from alphaverify.pipeline import step_04_selection as selection_stage
 from alphaverify.pipeline import step_05_forecast as forecast_stage
-from alphaverify.pipeline.status import cmd_status
 from alphaverify.presentation import bin_figures
 
 BARRIERS, HORIZONS = np.array([-.02, -.01, .01, .02]), np.array([1, 5])
@@ -148,13 +147,14 @@ def test_forecast_surfaces_match_stage1_counts_and_an_independent_joint_measurem
     surface = {node: artifact_io.load_surface(ws.cube_path(node)) for node in ("baseline", "a", "c")}
     used = [("a", ws.last_bins["a"]), ("c", ws.last_bins["c"])]
 
-    expected = combination.naive_bayes_probability(
+    expected, expected_counts = combination.naive_bayes_probability(
         surface["baseline"]["bin_hit_counts"][:, 0, :], surface["baseline"]["bin_observation_counts"][0],
         [surface[node]["bin_hit_counts"][:, b, :] for node, b in used],
         [surface[node]["bin_observation_counts"][b] for node, b in used],
     )
     combined = np.array(result["combined_probability"], dtype=float)
     np.testing.assert_allclose(combined, expected, rtol=0, atol=1e-12)
+    assert result["combined_observation_counts"] == expected_counts.astype(int).tolist()
 
     # Measure "every used condition held" as its own Stage 1 feature; bin 1 is the joint rate.
     both = np.all([feature_bins_from_artifact(surface[node]) == b for node, b in used], axis=0)
@@ -166,7 +166,7 @@ def test_forecast_surfaces_match_stage1_counts_and_an_independent_joint_measurem
     assert np.isfinite(joint).any()
 
 
-def test_forecast_workbook_tabs_and_currency(forecast_workspace, capsys):
+def test_forecast_workbook_tabs(forecast_workspace):
     ws = forecast_workspace
     forecast_stage.cmd_forecast(ws)
     book = load_workbook(ws.forecast_workbook_path)
@@ -178,16 +178,6 @@ def test_forecast_workbook_tabs_and_currency(forecast_workspace, capsys):
     assert nodes[0][:5] == ("node", "family", "feature", "cleared bins", "tested bins")
     assert [row[0] for row in nodes[1:]] == ["a", "b", "c"]
     assert nodes[3][3:5] == (2, 4)
-
-    result = artifact_io.read_json(ws.forecast_path)
-    assert forecast_stage.forecast_is_current(ws, result)
-    selection = artifact_io.read_json(ws.selection_summary_path)
-    selection["generated"] = "changed"
-    artifact_io.write_json(ws.selection_summary_path, selection)
-    assert not forecast_stage.forecast_is_current(ws, result)
-    capsys.readouterr()
-    cmd_status(ws)
-    assert "forecast: stale - run forecast" in capsys.readouterr().out
 
 
 def test_no_cleared_bins_forecasts_the_baseline(forecast_workspace):

@@ -33,14 +33,11 @@ def _barrier_reflection(barriers) -> tuple[np.ndarray, np.ndarray]:
     return mirror, weights
 
 
-def _tensor(value):
-    return value if isinstance(value, torch.Tensor) else tensor_runtime.tensor(value)
-
-
 def baseline_shifts(conditional_probability, baseline_probability):
     """Probability differences; axes are (..., signed barrier, bin, horizon)."""
     return (
-        _tensor(conditional_probability) - _tensor(baseline_probability).unsqueeze(-2)
+        tensor_runtime.tensor(conditional_probability)
+        - tensor_runtime.tensor(baseline_probability).unsqueeze(-2)
     )
 
 
@@ -56,9 +53,9 @@ def bin_scores(conditional_probability, baseline_probability,
     validity distinguishes unsupported bins from supported zero-score bins.
     This function performs no I/O and exposes no individual cell operations.
     """
-    conditional_probability = _tensor(conditional_probability)
-    baseline_probability = _tensor(baseline_probability)
-    bin_observation_counts = _tensor(bin_observation_counts)
+    conditional_probability = tensor_runtime.tensor(conditional_probability)
+    baseline_probability = tensor_runtime.tensor(baseline_probability)
+    bin_observation_counts = tensor_runtime.tensor(bin_observation_counts)
     if (conditional_probability.ndim < 3
             or conditional_probability.shape[-3] != len(barriers)
             or baseline_probability.shape != (

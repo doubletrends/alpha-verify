@@ -47,12 +47,12 @@ def _build_cube(context: RunContext, node: dict) -> None:
 
 
 def _write_surface_arrays(
-    workspace: Workspace, progress: MilestoneProgress
+    workspace: Workspace, nodes: list[dict], progress: MilestoneProgress
 ) -> tuple[int, list[str]]:
     context = RunContext(workspace)
     written = 0
     warnings = []
-    for node in workspace.catalog.all_nodes():
+    for node in nodes:
         try:
             _build_cube(context, node)
         except Exception as error:
@@ -65,12 +65,8 @@ def _write_surface_arrays(
 
 
 def _render_surface(
-    workspace: Workspace, progress: MilestoneProgress
+    workspace: Workspace, nodes: list[dict], progress: MilestoneProgress
 ) -> tuple[int, list[str]]:
-    nodes = [
-        node for node in workspace.catalog.all_nodes()
-        if workspace.has_cube(node["id"])
-    ]
     if not nodes:
         return 0, ["no full surface arrays available; run measure first"]
     written = 0
@@ -95,18 +91,19 @@ def _render_surface(
 
 def cmd_surface(workspace: Workspace) -> None:
     """Write full surface arrays and their workbook views."""
-    report = StageReport(1)
+    report = StageReport("surface")
     nodes = workspace.catalog.all_nodes()
     report.line(
         f"measuring {len(nodes)} nodes · {len(workspace.barriers)} barriers × "
         f"{workspace.n_bins} bins × {len(workspace.horizons)} horizons"
     )
     arrays, warnings = _write_surface_arrays(
-        workspace, MilestoneProgress(report, "calculating arrays", len(nodes))
+        workspace, nodes, MilestoneProgress(report, "calculating arrays", len(nodes))
     )
     render_nodes = [node for node in nodes if workspace.has_cube(node["id"])]
     workbooks_written, render_warnings = _render_surface(
-        workspace, MilestoneProgress(report, "writing spreadsheets", len(render_nodes))
+        workspace, render_nodes,
+        MilestoneProgress(report, "writing spreadsheets", len(render_nodes)),
     )
     warnings.extend(render_warnings)
     report.summary(
