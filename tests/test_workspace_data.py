@@ -123,6 +123,21 @@ def test_btc_daily_coinmetrics_preserves_missing_observations(tmp_path, monkeypa
     assert panel["hash_rate"].isna().all()
 
 
+def test_btc_daily_excludes_the_forming_utc_day(tmp_path, monkeypatch):
+    ws = Workspace("btc_daily")
+    module = load_workspace_module(ws.dir, "data", required=True)
+    today = pd.Timestamp.now(tz="UTC").tz_localize(None).normalize()
+    raw = bars().rename(columns=str.title)
+    raw.index = pd.date_range(end=today, periods=len(raw))
+    raw.loc[today, "Close"] = raw.loc[today, "High"] + 1  # A live bar can outrun its high.
+    monkeypatch.setattr(module, "download", Mock(return_value=raw))
+    loader = module.create_loader(start="2024-01-01", asset=ws.asset, cache_dir=tmp_path)
+    panel = loader(["ohlcv"])
+    validate_market_data(panel)
+    assert panel.index[-1] == today - pd.Timedelta(days=1)
+    assert panel.attrs["provenance"]["sources"]["ohlcv"]["complete_before"] == today.date().isoformat()
+
+
 def test_hourly_policy_converts_utc_and_keeps_last_duplicate(tmp_path, monkeypatch):
     ws = Workspace("btc_hourly")
     module = load_workspace_module(ws.dir, "data", required=True)
