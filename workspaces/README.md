@@ -13,8 +13,10 @@ workspaces/<name>/
   00_cache/                  generated per-history observed outcomes
   01_surface/                generated measurement artifacts
   02_shift/                  generated baseline-relative artifacts
-  03_validation/             generated null results and plots
-  04_selection/              generated cleared-bin manifest and heatmaps
+  03_validation/             generated null results and bin figures
+  04_selection/              generated cleared-bin manifest and bin figures
+  05_summary/                generated cleared-node summary and workbook
+  06_forecast/               generated forecast from active cleared bins and workbook
 ```
 
 `universe.json` is the source of truth for cross-file experiment facts. `alphaverify.infrastructure.workspace.Workspace` loads it into an immutable runtime configuration and node catalog. Do not duplicate asset symbols, grids, horizons, or feature parameters in package code.
@@ -74,7 +76,7 @@ The workspace decides how to handle sessions, time zones, duplicate dates, missi
 
 All three loaders snapshot the selected source frames before cleaning as content-addressed CSVs under `00_data/`. These are decoded source-frame snapshots, not exact HTTP payload archives. Stage 1 stores `data_provenance` containing cleaning version, time basis, alignment, source identifiers, snapshot hashes, and raw/prepared row counts. Source snapshots are audit inputs; loaders currently fetch again on a new run rather than offering automatic snapshot replay.
 
-The daily loaders drop incomplete OHLCV rows, keep the last duplicate, and reject invalid OHLC ordering through core validation. BTC daily also excludes the current UTC day's still-forming bar and records that cutoff as `complete_before` in source provenance. BTC hourly converts timestamps to UTC, keeps the last duplicate, drops incomplete bars, and never resamples or fills missing bars. These explicit policies can change a remeasurement of previously malformed data. Earlier stored artifacts with missing prices are now rejected instead of silently losing rows. Rebuild measurement and downstream stages to apply new cleaning; changing `data.py` alone does not rewrite or invalidate existing stored results.
+The daily loaders drop incomplete OHLCV rows, keep the last duplicate, and reject invalid OHLC ordering through core validation. BTC daily also excludes the current UTC day's still-forming bar and records that cutoff as `complete_before` in source provenance. BTC hourly converts timestamps to UTC, keeps the last duplicate, drops incomplete bars, drops the few published bars whose open or close lies outside their own high-low range (recorded as `invalid_ohlc_bars_dropped`), excludes the still-forming hour (recorded as `complete_before`), and never resamples, fills, or repairs bars. These explicit policies can change a remeasurement of previously malformed data. Earlier stored artifacts with missing prices are now rejected instead of silently losing rows. Rebuild measurement and downstream stages to apply new cleaning; changing `data.py` alone does not rewrite or invalidate existing stored results.
 
 ## Optional `plugin.py`
 
@@ -94,8 +96,10 @@ Current examples:
 | `00_cache` | internal | Per-history excursions, touch matrix, and baseline | None |
 | `01_surface` | `measure` | Per-node SafeTensors probability cube and embedded ordered history | Per-node XLSX workbook |
 | `02_shift` | `compare` | Per-node shift tensor plus Stage 1 references/fingerprints | Per-node XLSX workbook |
-| `03_validation` | `validate` | `validation.json` with fingerprint, observed scores, null scores, p95, and raw p-values | Per-bin null-histogram PNG |
-| `04_selection` | `select` | `selection.json` containing every validation-cleared bin | Per-selected-bin shift heatmap and copied null-distribution PNG |
+| `03_validation` | `validate` | `validation.json` with fingerprint, observed scores, null scores, p95, and raw p-values | Per-tested-bin figure: shift heatmap beside the null distribution |
+| `04_selection` | `select` | `selection.json` containing every validation-cleared bin, ranked by raw p with Benjamini–Hochberg q-values and the count expected by chance | The same standard figure for each selected bin |
+| `05_summary` | `summarize` | `summary.json` listing each node that cleared, with its cleared bins, counts, and best rank, p, and q | `summary.xlsx` with one row per cleared node |
+| `06_forecast` | `forecast` | `forecast.json` with active bins, the one-per-family choice, and naive Bayes, baseline, and historical joint surfaces | `forecast.xlsx` with naive Bayes, shift, joint, gap, and conditions tabs |
 
 Stage 3 uses Stage 2 as its completion gate and reads histories and observed condition data from the referenced Stage 1 artifacts, with no provider calls. Observed excursions, touches, baselines, and bin assignments come from the versioned source cache. Synthetic batches generate one touch matrix per horizon and share it across every node. `validation.json` fingerprints both Stage 1 and Stage 2 source bytes, node declarations, bin count, measurement version, and simulation settings.
 
@@ -121,7 +125,7 @@ A daily BTC (`BTC-USD`) comparison workspace from 2015 with a −20% to +20% gri
 
 ### `btc_hourly`
 
-An exploratory hourly BTC workspace from 2018 with a −10% to +10% grid and 1- to 48-hour horizons. It uses the publisher's raw OHLCV columns and recomputes indicators locally; it does not trust precomputed indicator columns from the source dataset.
+An exploratory hourly BTC workspace from 2018 with a −3% to +3% grid in 0.25% steps and 1- to 12-hour horizons. The grid is matched to hourly volatility (about 0.7% per hour and 2.35% over 12 hours since 2018), where baseline touch rates span roughly 1% to 88%, and was fixed before any hourly validation result. It uses the publisher's raw OHLCV columns and recomputes indicators locally; it does not trust precomputed indicator columns from the source dataset.
 
 The GitHub media URL in its `data.py` deliberately dereferences a Git LFS object. The workspace explicitly chooses this historical dataset rather than Yahoo hourly history.
 
@@ -130,12 +134,16 @@ The GitHub media URL in its `data.py` deliberately dereferences a Git LFS object
 Run from the repository root and keep the stages in order:
 
 ```powershell
-alphaverify measure  --workspace nasdaq_daily
-alphaverify compare  --workspace nasdaq_daily
-alphaverify validate --workspace nasdaq_daily
-alphaverify select   --workspace nasdaq_daily
-alphaverify status   --workspace nasdaq_daily
+alphaverify measure   --workspace nasdaq_daily
+alphaverify compare   --workspace nasdaq_daily
+alphaverify validate  --workspace nasdaq_daily
+alphaverify select    --workspace nasdaq_daily
+alphaverify summarize --workspace nasdaq_daily
+alphaverify forecast  --workspace nasdaq_daily
+alphaverify status    --workspace nasdaq_daily
 ```
+
+`forecast` combines the cleared bins active on the last bar stored by `measure`; rerun the pipeline for newer data.
 
 Every command accepts `--cuda` when CUDA is available through PyTorch. A command reuses data and price excursions in memory only for that command; the next stage reads persisted artifacts.
 
@@ -153,8 +161,8 @@ If a workbook is open in Excel, a stage may report it as locked while continuing
 2. Set the asset, date range, barrier grid, horizons, bin count in `universe.json`.
 3. Keep the baseline node and give every node a unique ID, registered feature, valid parameters, and declared data sources.
 4. Implement `data.py`, including source selection, cleaning, alignment, and provenance. Add `plugin.py` only for custom features. Keep reusable numerical behavior in `src/alphaverify/`.
-5. Run `measure`, `compare`, `validate`, and `select` in order, then inspect workspace and representative node status.
-6. Review shift workbooks, null histograms, selected heatmaps, and JSON manifests; a successful command alone does not validate their scientific interpretation.
+5. Run `measure`, `compare`, `validate`, `select`, `summarize`, and `forecast` in order, then inspect workspace and representative node status.
+6. Review shift workbooks, bin figures, and JSON manifests; a successful command alone does not validate their scientific interpretation.
 7. Add or update [tests](../tests/README.md) when the declaration introduces a repository-level source, schema, plugin, or path contract.
 
 Changing history, grid, feature definitions, or node parameters invalidates downstream interpretation even if old artifacts remain readable. Prefer a clean new workspace identity for materially different experiments; otherwise rerun the full pipeline and use the input fingerprint to detect stale validation.
@@ -173,6 +181,6 @@ without `shift_unit` retain their percentage-point interpretation (10 means 0.10
 New declarations should always specify the unit. These thresholds govern status
 inspection, not the Stage 4 statistical selection rule.
 
-Run `compare`, `validate`, and `select` to regenerate derived artifacts and views
+Run `compare`, `validate`, `select`, `summarize`, and `forecast` to regenerate derived artifacts and views
 in the new units. Old validation and selection summaries are stale under the new
 scoring version. No Stage 1 remeasurement is required solely for this unit change.

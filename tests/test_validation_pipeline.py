@@ -14,9 +14,9 @@ from alphaverify.infrastructure import artifact_io
 from alphaverify.infrastructure.workspace import Workspace
 from alphaverify.pipeline import step_03_validation as stage
 from alphaverify.pipeline.status import cmd_status
-from alphaverify.presentation import validation_plots
+from alphaverify.presentation import bin_figures
 
-_REAL_HISTOGRAM_WRITER = validation_plots.write_bin_score_null_histograms
+_REAL_FIGURE_WRITER = bin_figures.write_bin_figures
 
 
 @pytest.fixture
@@ -50,7 +50,7 @@ def workspace(tmp_path, monkeypatch):
         cube.update(index=data.index.astype(str).to_numpy(), feature_values=feature.to_numpy())
         artifact_io.save_shift(cube, ws.shift_cube_path(node["id"]), {"bin_labels": ["low", "high"]})
     monkeypatch.setattr(stage, "N_NULL_REPLICATES", 16)
-    monkeypatch.setattr(validation_plots, "write_bin_score_null_histograms", Mock(return_value=[]))
+    monkeypatch.setattr(bin_figures, "write_bin_figures", Mock(return_value=[]))
     return ws
 
 
@@ -77,12 +77,16 @@ def test_compare_validate_select_in_probability_units(workspace, monkeypatch):
     assert np.nanmax(np.abs(stored["probability_shift"])) <= 1
     assert workspace.shift_surface_path("a").exists()
     # Restore the actual renderer (the fixture replaces it to keep other tests lean).
-    monkeypatch.setattr(validation_plots, "write_bin_score_null_histograms",
-                        _REAL_HISTOGRAM_WRITER)
+    monkeypatch.setattr(bin_figures, "write_bin_figures", _REAL_FIGURE_WRITER)
     stage.cmd_validation(workspace)
     step_04_selection.cmd_selection(workspace)
     selected = artifact_io.read_json(workspace.selection_summary_path)
     assert step_04_selection.selection_summary_is_current(workspace, selected)
+    # Both stages write the same standard figure for a bin they share.
+    validation_figures = {p.name for p in (workspace.stage_dir("validation") / "plot").glob("*.png")}
+    selection_figures = {p.name for p in (workspace.stage_dir("selection") / "plot").glob("*.png")}
+    assert selection_figures <= validation_figures
+    assert all(name.startswith("bin_figure__") for name in validation_figures)
 
 
 def test_all_bins_are_validated_without_selection(workspace, monkeypatch, capsys):
@@ -251,14 +255,12 @@ def test_identical_history_has_same_score_and_validity_as_observed_or_null(
 
 def test_plot_uses_node_bin_identity_without_rank(workspace, monkeypatch):
     # Restore the actual renderer and exercise it with a complete stage result.
-    import importlib
-    renderer = importlib.reload(validation_plots).write_bin_score_null_histograms
-    monkeypatch.setattr(validation_plots, "write_bin_score_null_histograms", renderer)
+    monkeypatch.setattr(bin_figures, "write_bin_figures", _REAL_FIGURE_WRITER)
     stage.cmd_validation(workspace)
     plots = list((workspace.validation_summary_path.parent / "plot").glob("*.png"))
     assert len(plots) == 4
     assert {p.name for p in plots} == {
-        f"null_histogram__{node}__bin_{b:02d}.png" for node in ("a", "b") for b in (1, 2)
+        f"bin_figure__{node}__bin_{b:02d}.png" for node in ("a", "b") for b in (1, 2)
     }
     assert all(p.stat().st_size > 1000 for p in plots)
     workspace.shift_cube_path("b").unlink()

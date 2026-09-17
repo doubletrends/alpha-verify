@@ -13,6 +13,8 @@ from alphaverify.pipeline.step_01_surface import cmd_surface
 from alphaverify.pipeline.step_02_shift import cmd_shift
 from alphaverify.pipeline.step_03_validation import cmd_validation
 from alphaverify.pipeline.step_04_selection import cmd_selection
+from alphaverify.pipeline.step_05_summary import cmd_summary
+from alphaverify.pipeline.step_06_forecast import cmd_forecast
 from alphaverify.pipeline.status import cmd_status
 
 
@@ -54,6 +56,20 @@ COMMANDS = (
         "Select cleared bins and heatmaps",
         cmd_selection,
         stage="selection",
+    ),
+    Command(
+        "summarize",
+        "5. summarize which nodes and bins cleared",
+        "Summarize cleared nodes and bins",
+        cmd_summary,
+        stage="summary",
+    ),
+    Command(
+        "forecast",
+        "6. combine cleared bins active on the last stored bar",
+        "Forecast from active cleared bins",
+        cmd_forecast,
+        stage="forecast",
     ),
     Command(
         "status",
