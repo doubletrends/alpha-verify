@@ -78,11 +78,46 @@ def test_selection_contains_every_and_only_cleared_bin(selected_workspace, monke
     result = artifact_io.read_json(selected_workspace.selection_summary_path)
     assert result["complete"]
     assert [(row["node"], row["bin"]) for row in result["selected"]] == [("a", 0)]
-    assert result["summary"] == {"bins": 1, "nodes": 1}
+    assert result["summary"] == {"bins": 1, "nodes": 1, "tested": 2, "expected_by_chance": .1}
     assert "null_scores" not in result["selected"][0]
     rendered_rows = render.call_args.args[1]
     assert len(rendered_rows[0]["null_scores"]) == 1000
     assert selection_stage.selection_summary_is_current(selected_workspace, result)
+
+
+def test_ranking_uses_evidence_only_with_q_values_across_all_tests(selected_workspace, monkeypatch):
+    monkeypatch.setattr(bin_figures, "write_bin_figures", Mock(return_value=[]))
+    validation = artifact_io.read_json(selected_workspace.validation_summary_path)
+    template = validation["tests"][0]
+    # b/0 ties a/0 on p with a much larger score; a/1 has the strongest evidence and the smallest score.
+    validation["tests"] += [
+        {**template, "node": "b", "bin": 0, "bin_score": .90},
+        {**template, "node": "a", "bin": 1, "bin_number": 2, "bin_score": .05,
+         "monte_carlo_p_value": .004},
+    ]
+    validation["cleared"] = [
+        {key: value for key, value in row.items() if key != "null_scores"}
+        for row in validation["tests"] if row["cleared"]
+    ]
+    artifact_io.write_json(selected_workspace.validation_summary_path, validation)
+
+    selection_stage.cmd_selection(selected_workspace)
+    result = artifact_io.read_json(selected_workspace.selection_summary_path)
+    ranked = [(row["node"], row["bin"], row["rank"]) for row in result["selected"]]
+    assert ranked == [("a", 1, 1), ("a", 0, 2), ("b", 0, 2)]
+    # Sorted p over all four tests: .004 .01 .01 .20 -> q = .04/3 for the three cleared bins.
+    assert [row["q_value"] for row in result["selected"]] == pytest.approx([.04 / 3] * 3)
+    assert result["summary"]["tested"] == 4
+    assert result["summary"]["expected_by_chance"] == pytest.approx(.2)
+
+
+def test_manifest_without_the_current_ranking_is_stale(selected_workspace, monkeypatch):
+    monkeypatch.setattr(bin_figures, "write_bin_figures", Mock(return_value=[]))
+    selection_stage.cmd_selection(selected_workspace)
+    result = artifact_io.read_json(selected_workspace.selection_summary_path)
+    assert selection_stage.selection_summary_is_current(selected_workspace, result)
+    del result["method"]["ranking"]
+    assert not selection_stage.selection_summary_is_current(selected_workspace, result)
 
 
 def test_selection_renders_heatmap_beside_null_distribution(selected_workspace, monkeypatch):
