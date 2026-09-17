@@ -32,7 +32,7 @@ def _write_shift_array(
             artifact_io.save_shift(
                 shift.from_cube(full, baseline),
                 ws.shift_cube_path(node["id"]),
-                {**full["meta"], "grid": "shift", "value": "probability_shift",
+                {**full["meta"],
                  "source_artifact": str(source.relative_to(ws.dir)),
                  "source_sha256": artifact_io.file_sha256(source),
                  "baseline_artifact": str(ws.baseline_cube.relative_to(ws.dir)),

@@ -32,7 +32,7 @@ from alphaverify.domain.notation import MIN_BIN_N, MeasurementSlice, OhlcvCompon
 MEASUREMENT_VERSION = "shared-outcome-cache-float64-v2"
 
 
-def bin_edges(feature: pd.Series, n_bins: int = 10) -> np.ndarray:
+def bin_edges(feature: pd.Series, n_bins: int) -> np.ndarray:
     """
     Interior quantile edges of the feature, so each bin holds ~1/n_bins of the sample.
 

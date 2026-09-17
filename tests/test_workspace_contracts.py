@@ -79,9 +79,10 @@ class WorkspaceContractTests(unittest.TestCase):
             root = Path(directory) / "workspaces"
             declaration = root / "example" / "universe.json"
             artifact_io.write_json(declaration, {
-                "meta": {"asset": {"ticker": "TEST"}, "start_date": "2024-01-01",
+                "meta": {"asset": {"ticker": "TEST", "interval": "1d"}, "start_date": "2024-01-01",
+                         "min_obs": 100, "n_bins": 10,
                          "barriers": {"min": -.02, "max": .02, "step": .02},
-                         "horizons": {"min": 1, "max": 3}},
+                         "horizons": {"min": 1, "max": 3}, "evaluate": {"min_dev": .10, "min_bin_n": 50, "min_run": 2}},
                 "families": {},
             })
             ws = Workspace("example", root)

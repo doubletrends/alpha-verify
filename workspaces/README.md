@@ -39,6 +39,8 @@ The document contains `meta` and `families` objects.
 | `n_bins` | Quantile-bin count for conditional features |
 | `evaluate` | `min_dev`, `min_bin_n`, and `min_run` for the forecast's strongest-cell report |
 
+Every field except `workspace` is a required setting, including `asset.interval`, which sets the horizon unit. The core supplies no defaults, so a declaration missing one fails when the workspace is opened.
+
 The `evaluate` block does not gate any stage. It controls the strongest-cell line `forecast` prints for each condition it uses.
 
 ### `families`
@@ -49,7 +51,7 @@ Each family maps to a list of node declarations. Every node must provide:
 - `family`: family label, matching its enclosing family and artifact grouping;
 - `category`: descriptive grouping for consumers;
 - `feature`: a registered feature name;
-- `params`: feature arguments;
+- `params`: feature arguments, each required by the feature that reads it;
 - `data`: ordered source names understood by this workspace's `data.py`;
 - `derived_from`: provenance hint or `null`.
 
