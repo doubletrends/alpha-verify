@@ -53,9 +53,9 @@ def forecast_workspace(tmp_path, monkeypatch):
         for node, (family, _) in FEATURES.items()
     ]
     artifact_io.write_json(tmp_path / "workspaces" / "example" / "universe.json", {
-        "meta": {"asset": {"ticker": "TEST"}, "start_date": "2024-01-01", "n_bins": 4,
-                 "barriers": {"min": -.02, "max": .02, "step": .01},
-                 "horizons": {"min": 1, "max": 5}},
+        "meta": {"asset": {"ticker": "TEST", "interval": "1d"}, "start_date": "2024-01-01",
+                 "min_obs": 100, "n_bins": 4, "barriers": {"min": -.02, "max": .02, "step": .01},
+                 "horizons": {"min": 1, "max": 5}, "evaluate": {"min_dev": .10, "min_bin_n": 50, "min_run": 2}},
         "families": {"all": nodes},
     })
     ws = Workspace("example", tmp_path / "workspaces")

@@ -38,39 +38,28 @@ class WorkspaceConfig:
 
     @classmethod
     def from_meta(cls, meta: dict) -> "WorkspaceConfig":
-        asset = meta["asset"]
-        horizons = meta.get("horizons", {})
-        barriers = meta.get("barriers", meta.get("Delta", meta.get("\u0394", {})))
-        evaluate = meta.get("evaluate", {})
-        # Unmarked declarations predate fractional shifts and express min_dev in pp.
-        shift_unit = evaluate.get("shift_unit", "percentage_points")
-        if shift_unit not in ("percentage_points", "probability_difference"):
-            raise ValueError(f"unknown evaluate.shift_unit: {shift_unit}")
-        min_dev = float(evaluate.get(
-            "min_dev", 10.0 if shift_unit == "percentage_points" else 0.10,
-        ))
-        if shift_unit == "percentage_points":
-            min_dev /= 100.0
+        horizons, barriers, evaluate = meta["horizons"], meta["barriers"], meta["evaluate"]
+        min_dev = float(evaluate["min_dev"])
         if not np.isfinite(min_dev) or not 0 <= min_dev <= 1:
             raise ValueError("evaluate.min_dev must represent a probability difference in [0, 1]")
         return cls(
-            asset=dict(asset),
+            asset=dict(meta["asset"]),
             start_date=meta["start_date"],
-            min_obs=int(meta.get("min_obs", 100)),
-            t_min=int(horizons.get("min", 1)),
-            t_max=int(horizons.get("max", 30)),
-            barrier_min=float(barriers.get("min", -0.20)),
-            barrier_max=float(barriers.get("max", 0.20)),
-            barrier_step=float(barriers.get("step", 0.01)),
-            n_bins=int(meta.get("n_bins", 10)),
+            min_obs=int(meta["min_obs"]),
+            t_min=int(horizons["min"]),
+            t_max=int(horizons["max"]),
+            barrier_min=float(barriers["min"]),
+            barrier_max=float(barriers["max"]),
+            barrier_step=float(barriers["step"]),
+            n_bins=int(meta["n_bins"]),
             min_dev=min_dev,
-            min_bin_n=int(evaluate.get("min_bin_n", 50)),
-            min_run=int(evaluate.get("min_run", 2)),
+            min_bin_n=int(evaluate["min_bin_n"]),
+            min_run=int(evaluate["min_run"]),
         )
 
     @property
     def horizon_unit(self) -> str:
-        return "h" if self.asset.get("interval", "1d").endswith("h") else "d"
+        return "h" if self.asset["interval"].endswith("h") else "d"
 
     @property
     def horizons(self) -> np.ndarray:
@@ -103,12 +92,6 @@ class NodeCatalog:
 
     def all_nodes(self) -> list[dict]:
         return [node for nodes in self.raw["families"].values() for node in nodes]
-
-    def find(self, node_id: str) -> dict:
-        for node in self.all_nodes():
-            if node["id"] == node_id:
-                return node
-        raise ValueError(f"Node '{node_id}' not found in universe.json")
 
 
 class Workspace:

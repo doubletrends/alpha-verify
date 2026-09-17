@@ -13,7 +13,6 @@
 | `alphaverify.pipeline.step_03_validation.cmd_validation` | Stage 3 `validate` implementation |
 | `alphaverify.pipeline.step_04_selection.cmd_selection` | Stage 4 `select` implementation |
 | `alphaverify.pipeline.step_05_forecast.cmd_forecast` | Stage 5 `forecast` implementation |
-| `alphaverify.pipeline.status.cmd_status` | Read-only workspace and node inspection |
 
 The CLI constructs `Workspace(args.workspace)` relative to `Path.cwd() / "workspaces"`; run it from the repository root unless calling the Python API with an explicit workspace directory.
 
@@ -24,7 +23,7 @@ src/alphaverify/
   cli.py              command definitions and dispatch
   domain/             numerical and statistical rules
   infrastructure/     workspace, source, plugin, and persistence adapters
-  pipeline/           stage orchestration and status reporting
+  pipeline/           stage orchestration and progress reporting
   presentation/       XLSX and PNG views of existing artifacts
 ```
 
@@ -34,10 +33,10 @@ Owns barrier-touch calculations, feature transforms, baseline subtraction, bin s
 
 Key modules:
 
-- `barrier.py` owns `measure_histories()`: quantile edges, the shared incremental excursion ladder, conditional probabilities, counts, and each history's baseline. Stage 1 collects its horizon slices into cubes. It also owns `ohlcv_array()`, the canonical OHLCV order with the legacy fallback for histories lacking open or volume, and `observed_outcomes()`, the per-history excursions, touch matrix, and baseline that Stage 1 and Stage 3 reuse.
+- `barrier.py` owns `measure_histories()`: quantile edges, the shared incremental excursion ladder, conditional probabilities, counts, and each history's baseline. Stage 1 collects its horizon slices into cubes. It also owns `ohlcv_array()`, a history in canonical OHLCV order, and `observed_outcomes()`, the per-history excursions, touch matrix, and baseline that Stage 1 and Stage 3 reuse.
 - `features.py` registers built-in features and routes core transforms to `torch_features.py`.
 - `combination.py` owns Stage 5 forecast arithmetic: smoothed rates, the per-cell naive Bayes log-odds combination, the historical joint touch rate, and barrier/horizon nesting checks.
-- `shift.py` defines the Stage 2 probability-difference shift and the practical-effect inspection used by node status.
+- `shift.py` defines the Stage 2 probability-difference shift and the practical-effect search behind each used condition's strongest-cell line in the forecast report.
 - `scoring.py` owns baseline subtraction, cell eligibility, barrier weights, and the full-grid bin score; cell contributions are private to the bin scorer.
 - `validation.py` fits and samples the synthetic OHLC null. Its `score_histories()` measures and scores both the observed batch of one and simulated batches through the same path.
 - `multiple_testing.py` converts the raw Monte Carlo p-values of every tested bin into Benjamini–Hochberg q-values.
@@ -57,10 +56,10 @@ Owns artifact persistence, workspace declarations, prepared-data validation, and
 
 Owns sequencing, progress reporting, failure isolation by node, timestamps, provenance metadata, and the transition between domain operations and persisted artifacts. A pipeline module may use domain, infrastructure, and presentation APIs. It should not redefine their calculations or schemas.
 
-`RunContext` creates a fresh workspace data boundary and feature registry for one command, loads optional feature registrations, caches prepared panels, and persists and reuses each history's observed outcomes (calculated by `barrier.observed_outcomes()`). Data code is loaded only when measurement requests inputs; validation from stored artifacts does not load providers. Stored history is validated without silently dropping rows; legacy histories may omit open and volume.
+`RunContext` creates a fresh workspace data boundary and feature registry for one command, loads optional feature registrations, caches prepared panels, and persists and reuses each history's observed outcomes (calculated by `barrier.observed_outcomes()`). Data code is loaded only when measurement requests inputs; validation from stored artifacts does not load providers. Stored history is validated as complete OHLCV without silently dropping rows.
 
-`domain/notation.py` is the code-level notation contract. It names canonical
-tensor axes, fixes the OHLCV component order, provides typed measurement
+`domain/notation.py` is the code-level notation contract. It fixes the
+OHLCV component order, provides typed measurement
 and scoring results, and holds `MIN_BIN_N`, the observation count below which
 measurement, scoring, and forecast combination treat a bin as unsupported. Public numerical boundaries use descriptive ASCII names;
 short symbols are confined to `mathematics.tex`.
@@ -169,7 +168,7 @@ For each eligible condition bin, validation recomputes the complete linearly bar
 
 `skipped_bins` records observed bins without eligible cells. Missing declared Stage 2 nodes are listed in `missing_nodes` and make the summary incomplete.
 
-`validation.json` fingerprints Stage 1 and Stage 2 file contents, node declarations, and requested bin count. Its method records measurement/scoring/null versions, seed, path count, threshold, and invalid-null policy. Status rejects incomplete or mismatched results. Run `measure` and `compare` after this cache/schema change before treating a validation result as current.
+`validation.json` fingerprints Stage 1 and Stage 2 file contents, node declarations, and requested bin count. Its method records measurement/scoring/null versions, seed, path count, threshold, and invalid-null policy. Selection rejects incomplete or mismatched results. Run `measure` and `compare` after this cache/schema change before treating a validation result as current.
 
 ### Stage 4: `select`
 
@@ -229,7 +228,7 @@ Do not copy formulas, paths, or configuration into a second executable source. D
 | Add a reusable OHLCV indicator | `domain/torch_features.py`, then `domain/features.py` | Synthetic-path recomputation and observed/null parity tests |
 | Add or change a data source | Workspace `data.py` | Cleaning, timestamp availability, alignment, snapshots, and common input validation |
 | Add an experiment-only feature | Workspace `plugin.py` | [`workspaces/README.md`](../workspaces/README.md) contract |
-| Change a stage artifact | `infrastructure/workspace.py` (paths) and `artifact_io.py` (schemas) | Downstream loaders, fingerprints, status, and artifact tests |
+| Change a stage artifact | `infrastructure/workspace.py` (paths) and `artifact_io.py` (schemas) | Downstream loaders, fingerprints, and artifact tests |
 | Change bin scoring | `domain/scoring.py` | Observed/null validation share this kernel; update its version and parity tests |
 | Change the null | `domain/validation.py` | Stage 3 metadata, bin figures, current-summary check, and statistical disclosure |
 | Change a workbook or bin figure | `presentation/workbooks.py` or `presentation/bin_figures.py` | Keep machine-readable artifacts unchanged |
@@ -237,4 +236,4 @@ Do not copy formulas, paths, or configuration into a second executable source. D
 
 Run the [test suite](../tests/README.md) after any source change. A real workspace rerun is additionally required for changes to market data, numerical kernels, feature definitions, bin scoring, null generation, or presentation artifacts.
 
-Shift units use a separate `probability-difference-v1` artifact contract. Legacy percentage-point arrays convert on load; new writes use `probability_shift`. See [workspace migration guidance](../workspaces/README.md#probability-difference-shift-units).
+Shift units use a separate `probability-difference-v1` artifact contract; shifts in any other units or version are rejected. See [shift units](../workspaces/README.md#probability-difference-shift-units).

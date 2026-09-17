@@ -92,7 +92,7 @@ def simulated_ohlc_tensor(data: pd.DataFrame, n_replicates: int, seed: int):
 def score_histories(
     paths, features: np.ndarray | None, barriers: np.ndarray, horizons: np.ndarray,
     requested_bin_count: int,
-    feature_name: str | None = None, params: dict | None = None, progress=None,
+    feature_name: str | None = None, params: dict | None = None,
     *, bin_edges: np.ndarray | None = None, touch_mask=None,
     baseline_probability=None, bin_assignments=None,
 ) -> HistoryScoreResult:
@@ -121,8 +121,6 @@ def score_histories(
         )
         bin_score += result.bin_score
         score_supported |= result.score_supported
-        if progress is not None:
-            progress.advance()
     return HistoryScoreResult(
         bin_score=bin_score.cpu().numpy(),
         score_supported=score_supported.cpu().numpy(),
@@ -171,7 +169,7 @@ def _score_histories_many_batch(paths, policies: list[dict]) -> list[HistoryScor
             downside_excursion, upside_excursion, barriers
         )
         baseline_probability = barrier.reduce_baseline_touch_matrix(
-            touch_mask, price_eligible, ohlcv.dtype
+            touch_mask, price_eligible
         )[0].unsqueeze(-1)
         for item in prepared:
             conditional_probability, _, bin_observation_counts, _ = barrier.reduce_touch_matrix(

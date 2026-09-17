@@ -32,7 +32,7 @@ from alphaverify.domain.notation import MIN_BIN_N, MeasurementSlice, OhlcvCompon
 MEASUREMENT_VERSION = "shared-outcome-cache-float64-v2"
 
 
-def bin_edges(feature: pd.Series, n_bins: int = 10) -> np.ndarray:
+def bin_edges(feature: pd.Series, n_bins: int) -> np.ndarray:
     """
     Interior quantile edges of the feature, so each bin holds ~1/n_bins of the sample.
 
@@ -102,7 +102,7 @@ def barrier_touch_matrix(downside_excursion, upside_excursion, barriers):
 
 
 def reduce_touch_matrix(touch_mask, price_eligible, feature_values,
-                        bin_assignments, effective_bin_count, min_n=MIN_BIN_N):
+                        bin_assignments, effective_bin_count):
     """Reduce one shared touch matrix through a condition's bin assignment."""
     condition_eligible = price_eligible & torch.isfinite(feature_values)
     bin_observation_counts = feature_values.new_zeros(
@@ -123,7 +123,7 @@ def reduce_touch_matrix(touch_mask, price_eligible, feature_values,
         (touch_mask & condition_eligible.unsqueeze(-1)).to(feature_values.dtype),
     )
     conditional_probability = torch.where(
-        bin_observation_counts.unsqueeze(-1) >= min_n,
+        bin_observation_counts.unsqueeze(-1) >= MIN_BIN_N,
         bin_hit_counts / bin_observation_counts.unsqueeze(-1).clamp_min(1),
         float("nan"),
     )
@@ -131,24 +131,23 @@ def reduce_touch_matrix(touch_mask, price_eligible, feature_values,
             bin_observation_counts, condition_eligible.sum(dim=1))
 
 
-def reduce_baseline_touch_matrix(touch_mask, price_eligible,
-                                 dtype=torch.float64, min_n=MIN_BIN_N):
-    """Reduce a previously generated shared touch matrix to baseline rates."""
-    eligible_observation_count = price_eligible.sum(dim=1).to(dtype)
+def reduce_baseline_touch_matrix(touch_mask, price_eligible):
+    """Reduce a previously generated shared touch matrix to float64 baseline rates."""
+    eligible_observation_count = price_eligible.sum(dim=1).to(torch.float64)
     if touch_mask.shape[-1] == 0:
         empty = torch.empty(
-            (touch_mask.shape[0], 0), dtype=dtype, device=touch_mask.device
+            (touch_mask.shape[0], 0), dtype=torch.float64, device=touch_mask.device
         )
         return empty, eligible_observation_count
-    hit_count = touch_mask.sum(dim=1).to(dtype)
+    hit_count = touch_mask.sum(dim=1).to(torch.float64)
     return torch.where(
-        eligible_observation_count.unsqueeze(-1) >= min_n,
+        eligible_observation_count.unsqueeze(-1) >= MIN_BIN_N,
         hit_count / eligible_observation_count.unsqueeze(-1).clamp_min(1),
         float("nan"),
     ), eligible_observation_count
 
 
-def bin_labels(edges: np.ndarray, feature: pd.Series | None = None) -> list[str]:
+def bin_labels(edges: np.ndarray) -> list[str]:
     """
     One interval label per bin, written the way the condition reads:
 
@@ -168,17 +167,10 @@ def bin_labels(edges: np.ndarray, feature: pd.Series | None = None) -> list[str]
 
 
 def ohlcv_array(data: pd.DataFrame) -> np.ndarray:
-    """A history's ``(time, OHLCV)`` float64 array in canonical component order.
-
-    Legacy histories may omit open and volume: open falls back to close, the
-    missing extremes to the bar's open/close envelope, and volume to ones.
-    """
-    close = data["close"].to_numpy(float)
-    open_ = data["open"].to_numpy(float) if "open" in data else close
-    high = data["high"].to_numpy(float) if "high" in data else np.maximum(open_, close)
-    low = data["low"].to_numpy(float) if "low" in data else np.minimum(open_, close)
-    volume = data["volume"].to_numpy(float) if "volume" in data else np.ones(len(data))
-    return np.stack((open_, high, low, close, volume), axis=-1)
+    """A history's ``(time, OHLCV)`` float64 array in canonical component order."""
+    return np.stack(
+        [data[component.name.lower()].to_numpy(float) for component in OhlcvComponent], axis=-1,
+    )
 
 
 def ohlcv_tensor(data: pd.DataFrame) -> torch.Tensor:
@@ -257,7 +249,7 @@ def _horizon_excursions(downside_excursion, upside_excursion, horizons):
 
 
 def measure_histories(paths, features, barriers, horizons, requested_bin_count, *,
-                      bin_edges=None, min_n=MIN_BIN_N, excursions=None,
+                      bin_edges=None, excursions=None,
                       touch_mask=None, baseline_probability=None,
                       bin_assignments=None):
     """Return bin edges and an iterator of measured float64 horizon slices.
@@ -325,9 +317,9 @@ def measure_histories(paths, features, barriers, horizons, requested_bin_count, 
                 shared_touch = touches_t[horizon_index]
                 price_ok = price_eligibility(lo, hi)
             probabilities, hits, counts, observed = reduce_touch_matrix(
-                shared_touch, price_ok, x, indices, effective_bin_count, min_n,
+                shared_touch, price_ok, x, indices, effective_bin_count,
             )
-            baseline = (reduce_baseline_touch_matrix(shared_touch, price_ok, paths.dtype, min_n)[0]
+            baseline = (reduce_baseline_touch_matrix(shared_touch, price_ok)[0]
                         if baselines_t is None else baselines_t[:, :, horizon_index])
             yield MeasurementSlice(
                 conditional_probability=probabilities.unsqueeze(-1),
@@ -340,13 +332,13 @@ def measure_histories(paths, features, barriers, horizons, requested_bin_count, 
 
 
 def touch_tensor(data: pd.DataFrame, feature: pd.Series, horizons: np.ndarray,
-                 barriers: np.ndarray, bin_edges: np.ndarray, min_n: int = MIN_BIN_N,
+                 barriers: np.ndarray, bin_edges: np.ndarray,
                  excursions: tuple[np.ndarray, np.ndarray] | None = None,
                  touch_mask=None, baseline_probability=None) -> dict:
     """Stage 1 adapter: collect the shared history measurements into one cube."""
     _, measurements = measure_histories(
         ohlcv_tensor(data), feature.to_numpy(float)[None], barriers, horizons,
-        len(bin_edges) + 1, bin_edges=bin_edges, min_n=min_n,
+        len(bin_edges) + 1, bin_edges=bin_edges,
         excursions=excursions, touch_mask=touch_mask,
         baseline_probability=baseline_probability,
     )

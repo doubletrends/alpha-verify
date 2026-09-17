@@ -16,7 +16,9 @@ def selected_workspace(tmp_path):
     ]
     declaration = tmp_path / "workspaces" / "example" / "universe.json"
     artifact_io.write_json(declaration, {
-        "meta": {"asset": {"ticker": "TEST"}, "start_date": "2024-01-01", "n_bins": 2},
+        "meta": {"asset": {"ticker": "TEST", "interval": "1d"}, "start_date": "2024-01-01",
+                 "min_obs": 100, "n_bins": 2, "barriers": {"min": -.20, "max": .20, "step": .01},
+                 "horizons": {"min": 1, "max": 30}, "evaluate": {"min_dev": .10, "min_bin_n": 50, "min_run": 2}},
         "families": {"test": nodes},
     })
     ws = Workspace("example", tmp_path / "workspaces")
@@ -29,20 +31,29 @@ def selected_workspace(tmp_path):
             [[.45, .50], [.55, .60]],
         ])
         baseline = np.array([[.25, .30], [1., 1.], [.50, .55]])
-        cube = {
-            "prob": probability,
-            "base": baseline,
-            "probability_shift": probability - baseline[:, None, :] + offset / 100,
-            "hits": np.full_like(probability, 40, dtype=int),
-            "bin_n": np.full((2, 2), 80), "n_obs": np.array([160, 158]),
-            "\u0394s": deltas, "horizons": horizons, "edges": np.array([.5]),
+        surface = {
+            "conditional_probability": probability,
+            "bin_hit_counts": np.full_like(probability, 40, dtype=int),
+            "bin_observation_counts": np.full((2, 2), 80),
+            "eligible_observation_count": np.array([160, 158]),
+            "barriers": deltas, "horizons": horizons, "bin_edges": np.array([.5]),
+            "bin_assignments": np.array([0, 1], dtype=np.uint8),
             "index": np.array(["2024-01-01", "2024-01-02"]),
-            "high": np.array([101., 102.]), "low": np.array([99., 100.]),
-            "close": np.array([100., 101.]), "feature_values": np.array([0., 1.]),
+            "open": np.array([100., 101.]), "high": np.array([101., 102.]),
+            "low": np.array([99., 100.]), "close": np.array([100., 101.]),
+            "volume": np.ones(2), "feature_values": np.array([0., 1.]),
         }
-        artifact_io.save_shift(cube, ws.shift_cube_path(node["id"]), {
-            "node": node["id"], "bin_labels": ["x < 0.5", "0.5 < x"],
-        })
+        meta = {"node": node["id"], "bin_labels": ["x < 0.5", "0.5 < x"]}
+        artifact_io.save_surface(surface, ws.cube_path(node["id"]), meta)
+        artifact_io.save_shift(
+            probability - baseline[:, None, :] + offset / 100, ws.shift_cube_path(node["id"]), meta,
+        )
+    artifact_io.save_surface({
+        **surface, "conditional_probability": baseline[:, None, :],
+        "bin_hit_counts": surface["bin_hit_counts"][:, :1],
+        "bin_observation_counts": surface["bin_observation_counts"][:1],
+        "bin_edges": np.array([]), "bin_assignments": np.zeros(2, dtype=np.uint8),
+    }, ws.baseline_cube, {"node": "baseline", "bin_labels": ["all"]})
     rows = [
         {"node": "a", "family": "test", "feature": "day_of_week", "params": {},
          "bin": 0, "bin_number": 1, "bin_label": "x < 0.5", "bin_score": .12,

@@ -86,7 +86,7 @@ def active_conditions(nodes: list[dict], cubes: dict[str, dict], baseline_index)
 
 
 def _strongest_cell_line(ws: Workspace, best: dict | None) -> str:
-    """One used condition's strongest cell from ``shift.evaluate``, or why it has none."""
+    """One used condition's strongest cell from ``shift.strongest_cell``, or why it has none."""
     if not best:
         return f"no cell reaches {ws.min_dev:.1%} across {ws.min_run} adjacent barrier rows"
     return (
@@ -205,9 +205,9 @@ def cmd_forecast(ws: Workspace) -> None:
             f"p={row['monte_carlo_p_value']:.4f}   q={row['q_value']:.3f}"
         )
         if row["used"]:
-            best = shift.evaluate(
-                cubes[row["node"]], ws.min_dev, ws.min_bin_n, ws.min_run, bins=[row["bin"]]
-            )["best"]
+            best = shift.strongest_cell(
+                cubes[row["node"]], row["bin"], ws.min_dev, ws.min_bin_n, ws.min_run
+            )
             report.line(f"        {_strongest_cell_line(ws, best)}")
         else:
             report.line(f"        {row['note']}")

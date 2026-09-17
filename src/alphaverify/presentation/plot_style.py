@@ -49,15 +49,14 @@ plt.rcParams.update({
 })
 
 
-def frame(ax, grid_axis: str | None = "y") -> None:
-    """Apply the pipeline figures' minimal axis chrome."""
+def frame(ax) -> None:
+    """Apply the pipeline figures' minimal axis chrome with horizontal gridlines."""
     for side in ("top", "right"):
         ax.spines[side].set_visible(False)
     for side in ("left", "bottom"):
         ax.spines[side].set_color(GRID)
-    if grid_axis:
-        ax.set_axisbelow(True)
-        ax.grid(True, axis=grid_axis, color=GRID, linewidth=0.6, linestyle="-")
+    ax.set_axisbelow(True)
+    ax.grid(True, axis="y", color=GRID, linewidth=0.6, linestyle="-")
 
 
 def wrap(text: str, width: int) -> str:
@@ -67,10 +66,10 @@ def wrap(text: str, width: int) -> str:
     )
 
 
-def title(fig, title_text: str, subtitle: str, y: float = 0.98) -> None:
+def title(fig, title_text: str, subtitle: str) -> None:
     fig.text(
         0.012,
-        y,
+        0.98,
         wrap(title_text, 82),
         ha="left",
         va="top",
@@ -80,7 +79,7 @@ def title(fig, title_text: str, subtitle: str, y: float = 0.98) -> None:
     )
     fig.text(
         0.012,
-        y - 0.055,
+        0.925,
         wrap(subtitle, 108),
         ha="left",
         va="top",
