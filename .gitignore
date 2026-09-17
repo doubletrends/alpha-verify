@@ -19,7 +19,7 @@ workspaces/*/*
 !workspaces/_shared/*.py
 
 # LaTeX Output
-.aux
-.log
-.out
-.toc
+*.aux
+*.log
+*.out
+*.toc
