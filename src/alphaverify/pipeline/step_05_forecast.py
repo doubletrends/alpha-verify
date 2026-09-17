@@ -1,7 +1,8 @@
-"""Stage 6: combine the cleared conditions active on the last stored bar into one forecast."""
+"""Stage 5: which nodes cleared, and the forecast from those active on the last stored bar."""
 
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime, timezone
 
 import numpy as np
@@ -16,9 +17,11 @@ from alphaverify.infrastructure.workspace import Workspace
 from alphaverify.pipeline.context import RunContext, materialized_shift
 from alphaverify.pipeline.reporting import StageReport
 from alphaverify.pipeline.status import no_strong_cell_line, strongest_cell_line
-from alphaverify.pipeline.step_05_summary import node_summary_is_current
+from alphaverify.pipeline.step_04_selection import selection_summary_is_current
 from alphaverify.presentation import workbooks
 from alphaverify.presentation.display import format_barrier
+
+_BIN_FIELDS = ("bin", "bin_number", "bin_label", "rank", "monte_carlo_p_value", "q_value")
 
 METHOD = {
     "active": "the last stored bar's feature value falls in a cleared bin under stored Stage 1 edges",
@@ -32,20 +35,39 @@ METHOD = {
 
 
 def forecast_is_current(ws: Workspace, forecast: dict) -> bool:
-    """Require a complete forecast from the current summary bytes and this method."""
-    summary = artifact_io.read_json(ws.node_summary_path)
+    """Require a complete forecast from the current selection bytes and this method."""
+    selection = artifact_io.read_json(ws.selection_summary_path)
     if (not forecast or not forecast.get("complete")
-            or forecast.get("artifact") != "06_forecast"
+            or forecast.get("artifact") != "05_forecast"
             or forecast.get("method") != METHOD
-            or not node_summary_is_current(ws, summary)):
+            or not selection_summary_is_current(ws, selection)):
         return False
-    return forecast.get("summary_sha256") == artifact_io.file_sha256(ws.node_summary_path)
+    return forecast.get("selection_sha256") == artifact_io.file_sha256(ws.selection_summary_path)
 
 
-def active_conditions(summary: dict, cubes: dict[str, dict], baseline_index) -> list[dict]:
+def cleared_nodes(selected: list[dict], tested_bins: Counter) -> list[dict]:
+    """Group ranked selected bins by node; nodes follow their strongest bin's rank."""
+    nodes: dict[str, dict] = {}
+    for row in selected:
+        node = nodes.setdefault(row["node"], {
+            "node": row["node"], "family": row["family"],
+            "feature": row["feature"], "params": row["params"],
+            "bins_tested": tested_bins[row["node"]], "bins_cleared": 0, "bins": [],
+        })
+        node["bins_cleared"] += 1
+        node["bins"].append({field: row[field] for field in _BIN_FIELDS})
+    for node in nodes.values():
+        node["bins"].sort(key=lambda item: item["bin"])
+        node["best_rank"] = min(item["rank"] for item in node["bins"])
+        node["best_p_value"] = min(item["monte_carlo_p_value"] for item in node["bins"])
+        node["best_q_value"] = min(item["q_value"] for item in node["bins"])
+    return sorted(nodes.values(), key=lambda node: (node["best_rank"], node["node"]))
+
+
+def active_conditions(nodes: list[dict], cubes: dict[str, dict], baseline_index) -> list[dict]:
     """Cleared bins holding on the last stored bar, marked used under the one-per-family rule."""
     active = []
-    for node in summary["nodes"]:
+    for node in nodes:
         cube = cubes[node["node"]]
         same_history = np.array_equal(cube["index"], baseline_index)
         latest_bin = int(feature_bins_from_artifact(cube)[-1])
@@ -80,27 +102,33 @@ def _json_surface(values: np.ndarray) -> list:
 
 
 def cmd_forecast(ws: Workspace) -> None:
-    """Write the combined forecast manifest and workbook for the last stored bar."""
-    report = StageReport(6)
-    summary = artifact_io.read_json(ws.node_summary_path)
-    if not node_summary_is_current(ws, summary):
-        report.line("summary is missing or stale; run summarize first")
+    """Write the cleared nodes and the combined forecast for the last stored bar."""
+    report = StageReport(5)
+    selection = artifact_io.read_json(ws.selection_summary_path)
+    if not selection_summary_is_current(ws, selection):
+        report.line("selection is missing or stale; run select first")
         report.completed()
         return
 
-    summary_sha256 = artifact_io.file_sha256(ws.node_summary_path)
+    selection_sha256 = artifact_io.file_sha256(ws.selection_summary_path)
+    validation = artifact_io.read_json(ws.validation_summary_path)
+    tested_bins = Counter(row["node"] for row in validation.get("tests", []))
+    nodes = cleared_nodes(selection.get("selected", []), tested_bins)
+    bins_tested = sum(tested_bins.values())
+    bins_cleared = sum(node["bins_cleared"] for node in nodes)
+    expected_by_chance = selection["summary"]["expected_by_chance"]
+
     baseline_cube = artifact_io.load_surface(ws.baseline_cube)
     barriers = np.asarray(baseline_cube["barriers"], dtype=float)
     horizons = np.asarray(baseline_cube["horizons"], dtype=int)
     as_of = str(baseline_cube["index"][-1])
-    counts = summary["summary"]
     report.line(
-        f"checking {counts['bins_cleared']} cleared bins across {counts['nodes_cleared']} nodes "
+        f"checking {bins_cleared} cleared bins across {len(nodes)} nodes "
         f"on the last stored bar, {as_of}"
     )
 
-    cubes = {node["node"]: materialized_shift(ws, node["node"]) for node in summary["nodes"]}
-    conditions = active_conditions(summary, cubes, baseline_cube["index"])
+    cubes = {node["node"]: materialized_shift(ws, node["node"]) for node in nodes}
+    conditions = active_conditions(nodes, cubes, baseline_cube["index"])
     used = [row for row in conditions if row["used"]]
 
     baseline_hits = baseline_cube["bin_hit_counts"][:, 0, :]
@@ -131,17 +159,20 @@ def cmd_forecast(ws: Workspace) -> None:
     forecast = {
         "workspace": ws.dir.name,
         "generated": datetime.now(timezone.utc).isoformat(),
-        "artifact": "06_forecast",
+        "artifact": "05_forecast",
         "complete": True,
-        "source": ws.node_summary_path.relative_to(ws.dir).as_posix(),
-        "summary_sha256": summary_sha256,
+        "source": ws.selection_summary_path.relative_to(ws.dir).as_posix(),
+        "selection_sha256": selection_sha256,
         "method": METHOD,
         "as_of": as_of,
         "summary": {
-            "bins_cleared": counts["bins_cleared"], "bins_active": len(conditions),
-            "conditions_used": len(used), "nesting_violations": violations,
-            "expected_by_chance": counts["expected_by_chance"], "bins_tested": counts["bins_tested"],
+            "nodes_tested": len(tested_bins), "nodes_cleared": len(nodes),
+            "bins_tested": bins_tested, "bins_cleared": bins_cleared,
+            "expected_by_chance": expected_by_chance,
+            "bins_active": len(conditions), "conditions_used": len(used),
+            "nesting_violations": violations,
         },
+        "nodes": nodes,
         "conditions": conditions,
         "barriers": barriers.tolist(),
         "horizons": horizons.tolist(),
@@ -151,8 +182,8 @@ def cmd_forecast(ws: Workspace) -> None:
         "joint_probability": _json_surface(joint),
         "joint_observation_counts": joint_counts.astype(int).tolist(),
     }
-    if artifact_io.file_sha256(ws.node_summary_path) != summary_sha256:
-        raise RuntimeError("Stage 5 summary changed during forecast; rerun forecast")
+    if artifact_io.file_sha256(ws.selection_summary_path) != selection_sha256:
+        raise RuntimeError("Stage 4 selection changed during forecast; rerun forecast")
     artifact_io.write_json(ws.forecast_path, forecast)
 
     warnings = []
@@ -160,14 +191,15 @@ def cmd_forecast(ws: Workspace) -> None:
         workbooks.write_forecast_xlsx(
             ws.forecast_workbook_path, as_of=as_of, barriers=barriers, horizons=horizons,
             unit=ws.horizon_unit, combined=combined, combined_counts=combined_counts,
-            baseline=baseline, joint=joint, joint_counts=joint_counts, conditions=conditions,
+            baseline=baseline, joint=joint, joint_counts=joint_counts,
+            nodes=nodes, conditions=conditions,
         )
     except PermissionError:
         warnings.append("forecast workbook locked; close it in Excel and re-run")
 
     report.summary(
-        f"active: {len(conditions)} of {counts['bins_cleared']} cleared bins; "
-        f"{len(used)} used, at most one per family"
+        f"{len(nodes)} of {len(tested_bins)} tested nodes cleared {bins_cleared} bins; "
+        f"{len(conditions)} active on the last bar, {len(used)} used, at most one per family"
     )
     for row in conditions:
         status = "used   " if row["used"] else "skipped"
@@ -206,7 +238,7 @@ def cmd_forecast(ws: Workspace) -> None:
         )
     report.line(f"nesting: {violations} adjacent cells break barrier or horizon ordering")
     report.line(
-        f"about {counts['expected_by_chance']:.1f} of {counts['bins_tested']} bins would clear by chance; "
+        f"about {expected_by_chance:.1f} of {bins_tested} bins would clear by chance; "
         "shifts are in-sample estimates for bins selected as extreme"
     )
     workbook = 0 if warnings else 1

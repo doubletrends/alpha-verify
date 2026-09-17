@@ -15,8 +15,7 @@ workspaces/<name>/
   02_shift/                  generated baseline-relative artifacts
   03_validation/             generated null results and bin figures
   04_selection/              generated cleared-bin manifest and bin figures
-  05_summary/                generated cleared-node summary and workbook
-  06_forecast/               generated forecast from active cleared bins and workbook
+  05_forecast/               generated cleared nodes, forecast from active cleared bins, and workbook
 ```
 
 `universe.json` is the source of truth for cross-file experiment facts. `alphaverify.infrastructure.workspace.Workspace` loads it into an immutable runtime configuration and node catalog. Do not duplicate asset symbols, grids, horizons, or feature parameters in package code.
@@ -98,8 +97,7 @@ Current examples:
 | `02_shift` | `compare` | Per-node shift tensor plus Stage 1 references/fingerprints | Per-node XLSX workbook |
 | `03_validation` | `validate` | `validation.json` with fingerprint, observed scores, null scores, p95, and raw p-values | Per-tested-bin figure: shift heatmap beside the null distribution |
 | `04_selection` | `select` | `selection.json` containing every validation-cleared bin, ranked by raw p with Benjamini–Hochberg q-values and the count expected by chance | The same standard figure for each selected bin |
-| `05_summary` | `summarize` | `summary.json` listing each node that cleared, with its cleared bins, counts, and best rank, p, and q | `summary.xlsx` with one row per cleared node |
-| `06_forecast` | `forecast` | `forecast.json` with active bins, the one-per-family choice, and naive Bayes, baseline, and historical joint surfaces | `forecast.xlsx` with naive Bayes, shift, joint, gap, and conditions tabs |
+| `05_forecast` | `forecast` | `forecast.json` listing each node that cleared (its cleared bins, counts, and best rank, p, and q), the active bins, the one-per-family choice, and naive Bayes, baseline, and historical joint surfaces | `forecast.xlsx` with naive Bayes, shift, joint, gap, conditions, and cleared-nodes tabs |
 
 Stage 3 uses Stage 2 as its completion gate and reads histories and observed condition data from the referenced Stage 1 artifacts, with no provider calls. Observed excursions, touches, baselines, and bin assignments come from the versioned source cache. Synthetic batches generate one touch matrix per horizon and share it across every node. `validation.json` fingerprints both Stage 1 and Stage 2 source bytes, node declarations, bin count, measurement version, and simulation settings.
 
@@ -138,7 +136,6 @@ alphaverify measure   --workspace nasdaq_daily
 alphaverify compare   --workspace nasdaq_daily
 alphaverify validate  --workspace nasdaq_daily
 alphaverify select    --workspace nasdaq_daily
-alphaverify summarize --workspace nasdaq_daily
 alphaverify forecast  --workspace nasdaq_daily
 alphaverify status    --workspace nasdaq_daily
 ```
@@ -161,7 +158,7 @@ If a workbook is open in Excel, a stage may report it as locked while continuing
 2. Set the asset, date range, barrier grid, horizons, bin count in `universe.json`.
 3. Keep the baseline node and give every node a unique ID, registered feature, valid parameters, and declared data sources.
 4. Implement `data.py`, including source selection, cleaning, alignment, and provenance. Add `plugin.py` only for custom features. Keep reusable numerical behavior in `src/alphaverify/`.
-5. Run `measure`, `compare`, `validate`, `select`, `summarize`, and `forecast` in order, then inspect workspace and representative node status.
+5. Run `measure`, `compare`, `validate`, `select`, and `forecast` in order, then inspect workspace and representative node status.
 6. Review shift workbooks, bin figures, and JSON manifests; a successful command alone does not validate their scientific interpretation.
 7. Add or update [tests](../tests/README.md) when the declaration introduces a repository-level source, schema, plugin, or path contract.
 
@@ -181,6 +178,6 @@ without `shift_unit` retain their percentage-point interpretation (10 means 0.10
 New declarations should always specify the unit. These thresholds govern status
 inspection, not the Stage 4 statistical selection rule.
 
-Run `compare`, `validate`, `select`, `summarize`, and `forecast` to regenerate derived artifacts and views
+Run `compare`, `validate`, `select`, and `forecast` to regenerate derived artifacts and views
 in the new units. Old validation and selection summaries are stale under the new
 scoring version. No Stage 1 remeasurement is required solely for this unit change.
