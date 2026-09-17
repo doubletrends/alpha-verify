@@ -81,6 +81,14 @@ The daily loaders drop incomplete OHLCV rows, keep the last duplicate, and rejec
 
 Plugins now expose `register(features)` and own custom feature registrations only. Move former `register(sources, features)` source logic into `data.py`. Each run gets a fresh feature registry; a plugin should not write stage artifacts or invoke pipeline commands.
 
+A plugin may use only this host API; everything else in `alphaverify` is internal and may change without notice:
+
+| Entry point | Use |
+|---|---|
+| `features.register_torch(name, feature)` | Register `feature(data, params)`, returning a one-dimensional tensor aligned to `data.index` |
+| `alphaverify.domain.tensor_runtime.tensor(values)` | Place a numeric array on the run's selected device as float64 |
+| `alphaverify.domain.torch_features.rolling_mean(values, window)` | Rolling mean over the last axis of a `(rows, time)` tensor, for non-OHLC input columns |
+
 Current examples:
 
 - `btc_daily/data.py` owns Yahoo and CoinMetrics inputs; `plugin.py` registers on-chain and halving-cycle features.

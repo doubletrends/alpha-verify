@@ -6,8 +6,7 @@ import numpy as np
 import torch
 
 from alphaverify.domain import tensor_runtime
-from alphaverify.domain.barrier import MIN_BIN_N
-from alphaverify.domain.notation import BinScoreResult
+from alphaverify.domain.notation import MIN_BIN_N, BinScoreResult
 
 SCORING_VERSION = "baseline-relative-bin-v5-probability-difference"
 

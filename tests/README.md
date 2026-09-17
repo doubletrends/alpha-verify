@@ -23,7 +23,7 @@ python -m pytest -q tests/test_validation_pipeline.py
 
 | Module | Contract protected |
 |---|---|
-| `test_architecture_boundaries.py` | Absolute package imports; inward-only domain dependencies; infrastructure ownership of array persistence; flat infrastructure/presentation packages; presentation independence; Stage 3 consumption of Stage 2 artifacts |
+| `test_architecture_boundaries.py` | Absolute package imports; declared layer dependencies (cli → pipeline → presentation → domain, with infrastructure and domain importing no other layer); an acyclic module graph; stages importing only earlier stages; infrastructure ownership of array persistence; flat infrastructure/presentation packages; Stage 3 consumption of Stage 2 artifacts |
 | `test_combination.py` | Naive Bayes identities for zero, one, and two conditions; unsupported thin cells; historical joint rates equal to Stage 1 for all bars and a single condition; nesting violations; stored-edge bin membership with the Stage 1 tie convention |
 | `test_artifact_io.py` | JSON fallback and round-trip behavior; SafeTensors keys and metadata; stable stored/runtime dtypes for surface and shift cubes |
 | `test_cli_contract.py` | Supported command set and order; workspace/CUDA option parsing; optional node status; rejection of removed or unsupported flags |

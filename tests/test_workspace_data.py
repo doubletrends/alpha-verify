@@ -13,7 +13,7 @@ from alphaverify.infrastructure.market_data import WorkspaceData, validate_marke
 from alphaverify.infrastructure.workspace import Workspace
 from alphaverify.infrastructure.workspace_plugins import load_workspace_module
 from alphaverify.pipeline.context import RunContext
-from alphaverify.pipeline.step_01_surface import _build_cube
+from alphaverify.pipeline.step_01_surface import cmd_surface
 
 
 def bars():
@@ -181,11 +181,10 @@ def test_measurement_retains_workspace_provenance(tmp_path, monkeypatch):
                  "horizons": {"min": 1, "max": 1}}, "families": {"_base": [node]},
     })
     ws = Workspace("example", tmp_path)
-    context = RunContext(ws)
     data = bars()
     data.attrs["provenance"] = {"cleaning_version": "fixture-v1", "sources": {"ohlcv": {"sha256": "fixture"}}}
-    monkeypatch.setattr(context.data, "fetch", Mock(return_value=data))
-    _build_cube(context, node)
+    monkeypatch.setattr(WorkspaceData, "fetch", Mock(return_value=data))
+    cmd_surface(ws)
     assert artifact_io.load_surface(ws.cube_path("baseline"))["meta"]["data_provenance"] == data.attrs["provenance"]
 
 

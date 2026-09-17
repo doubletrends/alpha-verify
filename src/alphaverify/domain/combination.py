@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from alphaverify.domain.barrier import MIN_BIN_N
+from alphaverify.domain.notation import MIN_BIN_N
 
 
 def smoothed_probability(hit_counts, observation_counts) -> np.ndarray:
