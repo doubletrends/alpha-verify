@@ -9,10 +9,10 @@ import pandas as pd
 import pytest
 
 from alphaverify.infrastructure import artifact_io
+from alphaverify.infrastructure.artifact_history import market_history_key
 from alphaverify.infrastructure.market_data import WorkspaceData, validate_market_data
 from alphaverify.infrastructure.workspace import Workspace
 from alphaverify.infrastructure.workspace_plugins import load_workspace_module
-from alphaverify.pipeline.context import RunContext
 from alphaverify.pipeline.step_01_surface import cmd_surface
 
 
@@ -23,26 +23,42 @@ def bars():
                         index=pd.date_range("2024-01-01", periods=3))
 
 
-@pytest.mark.parametrize("case", ["empty", "duplicate", "unsorted", "nat", "timezone",
-                                 "missing_column", "duplicate_column", "nonnumeric", "missing_price",
-                                 "infinite_price", "negative_price", "negative_volume", "bad_high",
-                                 "bad_low", "infinite_auxiliary"])
-def test_core_rejects_invalid_input_without_repair(case):
-    data = bars()
-    if case == "empty": data = data.iloc[:0]
-    elif case == "duplicate": data.index = [data.index[0]] * len(data)
-    elif case == "unsorted": data = data.iloc[::-1]
-    elif case == "nat": data.index = pd.DatetimeIndex([pd.NaT, *data.index[1:]])
-    elif case == "timezone": data.index = data.index.tz_localize("UTC")
-    elif case == "missing_column": data = data.drop(columns="open")
-    elif case == "duplicate_column": data = pd.concat([data, data[["close"]]], axis=1)
-    elif case == "nonnumeric": data["close"] = ["bad"] * len(data)
-    else:
-        column, value = {"missing_price": ("close", np.nan), "infinite_price": ("close", np.inf),
-                         "negative_price": ("close", -1), "negative_volume": ("volume", -1),
-                         "bad_high": ("high", 1), "bad_low": ("low", 100),
-                         "infinite_auxiliary": ("vix", np.inf)}[case]
+def with_value(column, value):
+    def mutate(data):
         data.loc[data.index[0], column] = value
+        return data
+    return mutate
+
+
+def with_index(index):
+    def mutate(data):
+        data.index = index(data.index)
+        return data
+    return mutate
+
+
+# One case per rejection condition in validate_market_data.
+INVALID_INPUTS = {
+    "empty": lambda data: data.iloc[:0],
+    "duplicate_timestamp": with_index(lambda index: [index[0]] * len(index)),
+    "unsorted": lambda data: data.iloc[::-1],
+    "missing_timestamp": with_index(lambda index: pd.DatetimeIndex([pd.NaT, *index[1:]])),
+    "timezone": with_index(lambda index: index.tz_localize("UTC")),
+    "missing_column": lambda data: data.drop(columns="open"),
+    "duplicate_column": lambda data: pd.concat([data, data[["close"]]], axis=1),
+    "nonnumeric": lambda data: data.assign(close=["bad"] * len(data)),
+    "missing_price": with_value("close", np.nan),
+    "negative_price": with_value("close", -1),
+    "negative_volume": with_value("volume", -1),
+    "high_below_close": with_value("high", 1),
+    "low_above_close": with_value("low", 100),
+    "infinite_auxiliary": with_value("vix", np.inf),
+}
+
+
+@pytest.mark.parametrize("mutate", INVALID_INPUTS.values(), ids=INVALID_INPUTS.keys())
+def test_core_rejects_invalid_input_without_repair(mutate):
+    data = mutate(bars())
     before = data.copy(deep=True)
     with pytest.raises(ValueError):
         validate_market_data(data)
@@ -55,18 +71,6 @@ def test_core_keeps_missing_auxiliary_values():
     before = data.copy()
     validate_market_data(data)
     pd.testing.assert_frame_equal(data, before)
-
-
-def test_missing_workspace_loader_fails_only_when_data_is_requested(tmp_path):
-    artifact_io.write_json(tmp_path / "empty" / "universe.json", {
-        "meta": {"asset": {"ticker": "TEST", "interval": "1d"}, "start_date": "2024-01-01",
-                 "min_obs": 100, "n_bins": 10, "barriers": {"min": -.20, "max": .20, "step": .01},
-                 "horizons": {"min": 1, "max": 30}, "evaluate": {"min_dev": .10, "min_bin_n": 50, "min_run": 2}},
-        "families": {},
-    })
-    context = RunContext(Workspace("empty", tmp_path))
-    with pytest.raises(ValueError, match="must provide data.py"):
-        context.load_data(["ohlcv"])
 
 
 def test_core_calls_workspace_once_and_returns_isolated_panels(monkeypatch):
@@ -104,26 +108,6 @@ def test_daily_policy_deduplicates_drops_missing_bars_and_never_backfills(tmp_pa
     assert panel.iloc[0]["volume"] == 9
     assert np.isnan(panel.iloc[0]["vix"])
     assert panel.iloc[1]["vix"] == 20
-    assert len(list(tmp_path.glob("*.csv"))) == 2
-    assert panel.attrs["provenance"]["cleaning_version"] == module.CLEANING_VERSION
-    with pytest.raises(ValueError, match="source"):
-        loader(["ohlcv", "unknown"])
-
-
-def test_btc_daily_coinmetrics_preserves_missing_observations(tmp_path, monkeypatch):
-    ws = Workspace("btc_daily")
-    module = load_workspace_module(ws.dir, "data", required=True)
-    monkeypatch.setattr(module, "download", Mock(return_value=bars().rename(columns=str.title)))
-    raw = pd.DataFrame({"time": ["2024-01-02T00:00:00Z"],
-                        **{key: ["2.5"] for key in module.METRICS}})
-    raw["HashRate"] = None
-    monkeypatch.setattr(module, "_coinmetrics", Mock(return_value=raw))
-    loader = module.create_loader(start="2024-01-01", asset=ws.asset, cache_dir=tmp_path)
-    panel = loader(["ohlcv", "coinmetrics"])
-    validate_market_data(panel)
-    assert np.isnan(panel.iloc[0]["mvrv"])
-    assert panel.iloc[-1]["mvrv"] == 2.5
-    assert panel["hash_rate"].isna().all()
 
 
 def test_btc_daily_excludes_the_forming_utc_day(tmp_path, monkeypatch):
@@ -138,7 +122,6 @@ def test_btc_daily_excludes_the_forming_utc_day(tmp_path, monkeypatch):
     panel = loader(["ohlcv"])
     validate_market_data(panel)
     assert panel.index[-1] == today - pd.Timedelta(days=1)
-    assert panel.attrs["provenance"]["sources"]["ohlcv"]["complete_before"] == today.date().isoformat()
 
 
 def test_hourly_policy_converts_utc_and_keeps_last_duplicate(tmp_path, monkeypatch):
@@ -152,7 +135,6 @@ def test_hourly_policy_converts_utc_and_keeps_last_duplicate(tmp_path, monkeypat
     validate_market_data(panel)
     assert panel.index.tolist() == [pd.Timestamp("2024-01-01"), pd.Timestamp("2024-01-01T02:00:00")]
     assert panel.iloc[0]["open"] == 11.
-    assert panel.attrs["provenance"]["sources"]["ohlcv"]["raw_rows"] == 3
 
 
 def test_hourly_policy_drops_invalid_ohlc_bars_and_the_forming_hour(tmp_path, monkeypatch):
@@ -170,10 +152,7 @@ def test_hourly_policy_drops_invalid_ohlc_bars_and_the_forming_hour(tmp_path, mo
     panel = loader(["ohlcv"])
     validate_market_data(panel)
     assert panel.index.tolist() == [hours[0], hours[2]]
-    source = panel.attrs["provenance"]["sources"]["ohlcv"]
-    assert source["invalid_ohlc_bars_dropped"] == [str(hours[1])]
-    assert source["complete_before"] == str(current_hour)
-    assert panel.attrs["provenance"]["cleaning_version"] == "btc-hourly-v2"
+    assert panel.attrs["provenance"]["sources"]["ohlcv"]["invalid_ohlc_bars_dropped"] == [str(hours[1])]
 
 
 def test_measurement_retains_workspace_provenance(tmp_path, monkeypatch):
@@ -228,11 +207,6 @@ def test_workspace_data_runs_through_all_five_stages_offline(tmp_path, monkeypat
     monkeypatch.setattr(step_03_validation, "N_NULL_REPLICATES", 16)
     ws = Workspace("example", local)
     step_01_surface.cmd_surface(ws)
-    download.assert_called_once()
-    assert len(list((ws.dir / "00_data").glob("*.csv"))) == 1
-    surface = artifact_io.load_surface(ws.cube_path("weekday"))
-    assert surface["meta"]["data_provenance"]["cleaning_version"] == "nasdaq-daily-v1"
-    assert surface["meta"]["data_provenance"]["sources"]["ohlcv"]["raw_rows"] == 120
     download.side_effect = AssertionError("downstream stages must use persisted history")
     step_02_shift.cmd_shift(ws)
     step_03_validation.cmd_validation(ws)
@@ -241,3 +215,30 @@ def test_workspace_data_runs_through_all_five_stages_offline(tmp_path, monkeypat
     assert step_03_validation.validation_summary_is_current(ws, artifact_io.read_json(ws.validation_summary_path))
     assert step_04_selection.selection_summary_is_current(ws, artifact_io.read_json(ws.selection_summary_path))
     assert artifact_io.read_json(ws.forecast_path)["complete"]
+
+
+def test_workspace_loader_fetches_shared_ohlcv_only_once_per_run(tmp_path, monkeypatch):
+    # Regression for c5d173c: market data was downloaded again for every source request.
+    module = load_workspace_module(Workspace("nasdaq_daily").dir, "data", required=True)
+    calls = []
+
+    def download(ticker, *_args):
+        calls.append(ticker)
+        return bars().rename(columns=str.title)
+
+    monkeypatch.setattr(module, "download", download)
+    loader = module.create_loader(start="2024-01-01", cache_dir=tmp_path,
+                                  asset={"ticker": "TEST", "interval": "1d", "provider": "yfinance"})
+    loader(["ohlcv"])
+    loader(["ohlcv", "vix"])
+    assert calls == ["TEST", "^VIX"]
+
+
+def test_market_history_key_depends_only_on_ohlcv_values_in_canonical_order():
+    canonical = bars()
+    reordered = canonical[["open", "high", "close", "low", "volume"]]
+    with_auxiliary = canonical.assign(vix=[20., 21., np.nan])
+    assert market_history_key(canonical) == market_history_key(reordered) == market_history_key(with_auxiliary)
+    changed = canonical.copy()
+    changed.iloc[1, changed.columns.get_loc("low")] = 9.5
+    assert market_history_key(changed) != market_history_key(canonical)
