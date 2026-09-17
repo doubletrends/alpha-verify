@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 import numpy as np
 
 from alphaverify.domain import barrier, combination, shift
+from alphaverify.domain.notation import MIN_BIN_N
 from alphaverify.infrastructure import artifact_io
 from alphaverify.infrastructure.artifact_history import (
     feature_bins_from_artifact, market_data_from_artifact,
@@ -27,7 +28,7 @@ METHOD = {
     "combination": "naive Bayes per cell: logit baseline + sum(logit condition - logit baseline); "
                    "conditions treated as independent given the outcome",
     "smoothing": "(hits + 1) / (n + 2) before log-odds",
-    "min_bin_n": barrier.MIN_BIN_N,
+    "min_bin_n": MIN_BIN_N,
     "joint": "historical touch rate on bars where every contributing condition held",
 }
 
@@ -228,7 +229,7 @@ def cmd_forecast(ws: Workspace) -> None:
         )
     else:
         report.line(
-            f"historical joint: fewer than {barrier.MIN_BIN_N} bars where every used condition held; "
+            f"historical joint: fewer than {MIN_BIN_N} bars where every used condition held; "
             "no calibration check possible"
         )
     report.line(f"nesting: {violations} adjacent cells break barrier or horizon ordering")

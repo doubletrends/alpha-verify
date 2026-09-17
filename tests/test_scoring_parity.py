@@ -6,6 +6,7 @@ import pytest
 import torch
 
 from alphaverify.domain import barrier, scoring, shift, validation
+from alphaverify.domain.notation import MIN_BIN_N
 
 
 def history(n=420, seed=7):
@@ -149,7 +150,7 @@ def test_persistable_observed_cache_matches_uncached_measurement():
     ) & ok[:, :, None]
     counts = ok.sum(axis=1)
     baseline = np.where(
-        counts[:, None] >= barrier.MIN_BIN_N,
+        counts[:, None] >= MIN_BIN_N,
         touches.sum(axis=1) / np.maximum(counts[:, None], 1),
         np.nan,
     ).T

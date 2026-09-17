@@ -12,6 +12,9 @@ from enum import IntEnum
 
 import torch
 
+# Below this many observations a bin's rate is not worth reporting.
+MIN_BIN_N = 30
+
 
 class OhlcvComponent(IntEnum):
     """Positions on the final axis of an OHLCV history tensor."""

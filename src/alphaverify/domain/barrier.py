@@ -27,10 +27,8 @@ import numpy as np
 import pandas as pd
 import torch
 from alphaverify.domain import tensor_runtime
-from alphaverify.domain.notation import MeasurementSlice, OhlcvComponent
+from alphaverify.domain.notation import MIN_BIN_N, MeasurementSlice, OhlcvComponent
 
-# Below this many observations a bin's rate is not worth reporting.
-MIN_BIN_N = 30
 MEASUREMENT_VERSION = "shared-outcome-cache-float64-v2"
 
 

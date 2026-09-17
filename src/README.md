@@ -60,8 +60,9 @@ Owns sequencing, progress reporting, failure isolation by node, timestamps, prov
 `RunContext` creates a fresh workspace data boundary and feature registry for one command, loads optional feature registrations, caches prepared panels, and persists and reuses each history's observed outcomes (calculated by `barrier.observed_outcomes()`). Data code is loaded only when measurement requests inputs; validation from stored artifacts does not load providers. Stored history is validated without silently dropping rows; legacy histories may omit open and volume.
 
 `domain/notation.py` is the code-level notation contract. It names canonical
-tensor axes, fixes the OHLCV component order, and provides typed measurement
-and scoring results. Public numerical boundaries use descriptive ASCII names;
+tensor axes, fixes the OHLCV component order, provides typed measurement
+and scoring results, and holds `MIN_BIN_N`, the observation count below which
+measurement, scoring, and forecast combination treat a bin as unsupported. Public numerical boundaries use descriptive ASCII names;
 short symbols are confined to `mathematics.tex`.
 
 ### `presentation/`
