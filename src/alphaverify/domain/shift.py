@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import torch
 from alphaverify.domain import tensor_runtime
 from alphaverify.domain.scoring import baseline_shifts
 
@@ -48,12 +47,7 @@ def from_cube(cube: dict, baseline_probability: np.ndarray) -> dict:
     return out
 
 
-def evaluate(
-    cube: dict,
-    min_dev: float = 0.10,
-    min_bin_n: int = 50,
-    min_run: int = 2,
-) -> dict:
+def evaluate(cube: dict, min_dev: float, min_bin_n: int, min_run: int) -> dict:
     """
     Economic filter over a shift cube.
 

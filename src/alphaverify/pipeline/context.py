@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
-import hashlib
 import numpy as np
 import pandas as pd
 
 from alphaverify.domain import barrier
 from alphaverify.domain.features import FeatureRegistry, register_builtin_features
 from alphaverify.infrastructure import artifact_io
+from alphaverify.infrastructure.artifact_history import market_history_key
 from alphaverify.infrastructure.market_data import WorkspaceData
-from alphaverify.infrastructure.workspace import BASELINE_NODE, Workspace
+from alphaverify.infrastructure.workspace import Workspace
 from alphaverify.infrastructure.workspace_plugins import load_workspace_plugin
-from alphaverify.infrastructure.artifacts import market_history_key
 
 
 class RunContext:
@@ -23,7 +22,6 @@ class RunContext:
         self.data = WorkspaceData(workspace)
         self.features = FeatureRegistry()
         self._data: dict[tuple[str, ...], pd.DataFrame] = {}
-        self._excursions: dict[tuple[tuple[str, ...], int], tuple[np.ndarray, np.ndarray]] = {}
         self._outcomes: dict[tuple, dict] = {}
         self._feature_primitives: dict[int, dict] = {}
         register_builtin_features(self.features)
@@ -47,17 +45,8 @@ class RunContext:
             raise ValueError(f"only {n_valid} valid observations")
         return data, feat
 
-    def forward_excursions(
-        self, sources: list[str], data: pd.DataFrame, t_max: int
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """Reuse deterministic price excursions for nodes sharing a source panel."""
-        key = (tuple(sources), int(t_max))
-        if key not in self._excursions:
-            self._excursions[key] = barrier.forward_extremes_upto(data, int(t_max))
-        return self._excursions[key]
-
     def observed_outcomes(self, data: pd.DataFrame, barriers=None, horizons=None) -> dict:
-        """Load or build the versioned source-level observed outcome cache."""
+        """Load or build the persisted, versioned observed outcomes of one history."""
         barriers = (
             self.workspace.barriers if barriers is None
             else np.asarray(barriers, dtype=float)
@@ -77,32 +66,7 @@ class RunContext:
         }
         cached = artifact_io.load_observed_cache(path) if path.exists() else {}
         if cached.get("meta") != expected:
-            downside_excursion, upside_excursion = barrier.forward_extremes_upto(
-                data, int(horizons.max())
-            )
-            selected = horizons - 1
-            downside_selected = downside_excursion[selected]
-            upside_selected = upside_excursion[selected]
-            price_eligible = np.isfinite(downside_selected) & np.isfinite(upside_selected)
-            barrier_axis = barriers.reshape(1, 1, -1)
-            touch_mask = np.where(
-                barrier_axis < 0,
-                downside_selected[:, :, None] <= barrier_axis,
-                upside_selected[:, :, None] >= barrier_axis,
-            ) & price_eligible[:, :, None]
-            eligible_observation_count = price_eligible.sum(axis=1)
-            hit_count = touch_mask.sum(axis=1)
-            baseline_probability = np.where(
-                eligible_observation_count[:, None] >= barrier.MIN_BIN_N,
-                hit_count / np.maximum(eligible_observation_count[:, None], 1),
-                np.nan,
-            ).T
-            cached = {
-                "downside_excursion": downside_excursion,
-                "upside_excursion": upside_excursion,
-                "touch_mask": touch_mask,
-                "baseline_probability": baseline_probability,
-            }
+            cached = barrier.observed_outcomes(data, barriers, horizons)
             artifact_io.save_observed_cache(cached, path, expected)
             cached["meta"] = expected
         self._outcomes[memory_key] = cached
@@ -127,7 +91,7 @@ def materialized_shift(ws: Workspace, node_id: str) -> dict:
         (ws.cube_path(node_id), meta.get("source_sha256")),
         (ws.baseline_cube, meta.get("baseline_sha256")),
     ):
-        if expected and hashlib.sha256(artifact.read_bytes()).hexdigest() != expected:
+        if expected and artifact_io.file_sha256(artifact) != expected:
             raise ValueError(f"Stage 1 source changed for {node_id}; rerun compare")
     surface = artifact_io.load_surface(ws.cube_path(node_id))
     baseline = baseline_surface(ws)

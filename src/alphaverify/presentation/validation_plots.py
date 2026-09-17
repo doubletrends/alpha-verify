@@ -16,7 +16,7 @@ from alphaverify.presentation.plot_style import (
     save as _save,
     title as _title,
 )
-from alphaverify.presentation.workbooks import feature_label
+from alphaverify.presentation.display import feature_label
 
 
 def write_bin_score_null_histograms(ws, summary: dict, progress=None) -> list[Path]:

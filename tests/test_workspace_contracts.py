@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from alphaverify.infrastructure.artifacts import feature_from_artifact, market_data_from_artifact
+from alphaverify.infrastructure.artifact_history import feature_from_artifact, market_data_from_artifact
 from alphaverify.infrastructure.workspace_plugins import load_workspace_module
 from alphaverify.infrastructure.workspace import Workspace
 from alphaverify.pipeline.context import RunContext

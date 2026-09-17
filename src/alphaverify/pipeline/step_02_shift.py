@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-
 from alphaverify.domain import shift
 from alphaverify.infrastructure import artifact_io
 from alphaverify.infrastructure.workspace import BASELINE_NODE, Workspace
@@ -12,41 +10,45 @@ from alphaverify.pipeline.reporting import MilestoneProgress, StageReport
 from alphaverify.presentation import workbooks
 
 
-def _write_shift_array(ws: Workspace, progress: MilestoneProgress) -> list[str]:
+def _write_shift_array(ws: Workspace, progress: MilestoneProgress) -> tuple[int, list[str]]:
     nodes = [
         node for node in ws.catalog.all_nodes()
         if ws.has_cube(node["id"])
     ]
     if not nodes:
-        return ["no full surface arrays available; run measure first"]
+        return 0, ["no full surface arrays available; run measure first"]
 
     baseline = baseline_surface(ws)
     if baseline is None:
-        return ["no baseline surface array available; run measure first"]
+        return 0, ["no baseline surface array available; run measure first"]
 
     nodes = [node for node in nodes if node["id"] == BASELINE_NODE] + [
         node for node in nodes if node["id"] != BASELINE_NODE
     ]
-    skipped = {}
+    written = 0
+    warnings = []
     for node in nodes:
         try:
-            full = artifact_io.load_surface(ws.cube_path(node["id"]))
+            source = ws.cube_path(node["id"])
+            full = artifact_io.load_surface(source)
             shifted = shift.from_cube(full, baseline)
             artifact_io.save_shift(
                 shifted,
                 ws.shift_cube_path(node["id"]),
                 {**full["meta"], "grid": "shift", "value": "probability_shift",
-                 "source_artifact": str(ws.cube_path(node["id"]).relative_to(ws.dir)),
-                 "source_sha256": hashlib.sha256(ws.cube_path(node["id"]).read_bytes()).hexdigest(),
+                 "source_artifact": str(source.relative_to(ws.dir)),
+                 "source_sha256": artifact_io.file_sha256(source),
                  "baseline_artifact": str(ws.baseline_cube.relative_to(ws.dir)),
-                 "baseline_sha256": hashlib.sha256(ws.baseline_cube.read_bytes()).hexdigest()},
+                 "baseline_sha256": artifact_io.file_sha256(ws.baseline_cube)},
                 thin=True,
             )
         except Exception as error:
-            skipped[node["id"]] = str(error)
+            warnings.append(f"shift skipped {node['id']}: {error}")
+        else:
+            written += 1
         finally:
             progress.advance()
-    return [f"shift skipped {node}: {error}" for node, error in skipped.items()]
+    return written, warnings
 
 
 def _render_shift(ws: Workspace, progress: MilestoneProgress) -> tuple[int, list[str]]:
@@ -65,8 +67,6 @@ def _render_shift(ws: Workspace, progress: MilestoneProgress) -> tuple[int, list
                 cube,
                 ws.shift_surface_path(node["id"]),
                 node["id"],
-                node["feature"],
-                node["params"],
                 ws.horizon_unit,
             )
         except PermissionError:
@@ -80,23 +80,23 @@ def _render_shift(ws: Workspace, progress: MilestoneProgress) -> tuple[int, list
 
 def cmd_shift(ws: Workspace) -> None:
     """Write full baseline-subtracted shift arrays and workbooks."""
-    report = StageReport(2, "compare", ws.dir.name)
+    report = StageReport(2)
     nodes = [node for node in ws.catalog.all_nodes() if ws.has_cube(node["id"])]
     report.line(
         f"shifting {len(nodes)} nodes against baseline · "
         f"{len(ws.barriers) * ws.n_bins * len(ws.horizons):,} cells per full-bin node"
     )
-    warnings = _write_shift_array(
+    arrays, warnings = _write_shift_array(
         ws, MilestoneProgress(report, "calculating arrays", len(nodes))
     )
     render_nodes = [node for node in nodes if ws.has_shift_cube(node["id"])]
-    written, render_warnings = _render_shift(
+    workbooks_written, render_warnings = _render_shift(
         ws, MilestoneProgress(report, "writing spreadsheets", len(render_nodes))
     )
     warnings.extend(render_warnings)
     report.summary(
-        f"wrote {len(nodes) - sum('shift skipped' in warning for warning in warnings)} arrays "
-        f"+ {written} workbooks → {ws.dir.relative_to(ws.root_dir)}/02_shift"
+        f"wrote {arrays} arrays + {workbooks_written} workbooks → "
+        f"{ws.stage_dir('shift').relative_to(ws.root_dir)}"
     )
     report.completed()
     StageReport.warnings(warnings)

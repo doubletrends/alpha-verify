@@ -1,7 +1,11 @@
-"""Typed NPZ persistence for pipeline artifacts."""
+"""Typed array and JSON persistence for pipeline artifacts.
+
+New array artifacts are SafeTensors; ``.npz`` remains readable for legacy workspaces.
+"""
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -68,6 +72,12 @@ def write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
 
 
+def file_sha256(path: Path) -> str:
+    """Content fingerprint used to tie derived artifacts to their exact inputs."""
+    with path.open("rb") as source:
+        return hashlib.file_digest(source, "sha256").hexdigest()
+
+
 def _history_payload(artifact: dict) -> dict:
     return {
         key: np.asarray(artifact[key], dtype=str) if key == "index" else artifact[key]
@@ -76,7 +86,7 @@ def _history_payload(artifact: dict) -> dict:
     }
 
 
-def _write_npz(path: Path, payload: dict, meta: dict) -> None:
+def _write_arrays(path: Path, payload: dict, meta: dict) -> None:
     """Persist an array artifact, using SafeTensors when requested by its suffix."""
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.suffix == ".safetensors":
@@ -106,7 +116,7 @@ def _write_npz(path: Path, payload: dict, meta: dict) -> None:
     )
 
 
-def _read_npz(path: Path, float64_keys: tuple[str, ...] = ()) -> dict:
+def _read_arrays(path: Path, float64_keys: tuple[str, ...] = ()) -> dict:
     if path.suffix == ".safetensors":
         artifact = dict(load_safetensors(str(path)))
         with safe_open(str(path), framework="np") as stored:
@@ -145,21 +155,21 @@ def save_surface(cube: dict, path: Path, meta: dict) -> None:
            if "bin_assignments" in cube or "bin_indices" in cube else {}),
         **_history_payload(cube),
     }
-    _write_npz(path, payload, meta)
+    _write_arrays(path, payload, meta)
 
 
 def load_surface(path: Path) -> dict:
     """Load a Stage 1 surface cube."""
-    return _read_npz(path, ("conditional_probability",))
+    return _read_arrays(path, ("conditional_probability",))
 
 
 def save_observed_cache(cache: dict, path: Path, meta: dict) -> None:
     """Persist source-level observed outcomes shared by every condition node."""
-    _write_npz(path, cache, meta)
+    _write_arrays(path, cache, meta)
 
 
 def load_observed_cache(path: Path) -> dict:
-    return _read_npz(
+    return _read_arrays(
         path, ("downside_excursion", "upside_excursion", "baseline_probability")
     )
 
@@ -170,7 +180,7 @@ def save_shift(cube: dict, path: Path, meta: dict, *, thin: bool = False) -> Non
     meta = {**meta, "value": "probability_shift",
             "shift_version": SHIFT_VERSION, "shift_unit": SHIFT_UNIT}
     if thin:
-        _write_npz(
+        _write_arrays(
             path, {"probability_shift": values.astype(np.float32)}, meta
         )
         return
@@ -186,12 +196,12 @@ def save_shift(cube: dict, path: Path, meta: dict, *, thin: bool = False) -> Non
         "bin_edges": _array_value(cube, "bin_edges"),
         **_history_payload(cube),
     }
-    _write_npz(path, payload, meta)
+    _write_arrays(path, payload, meta)
 
 
 def load_shift(path: Path) -> dict:
     """Load probability differences, converting recognized legacy pp fields once."""
-    cube = _read_npz(
+    cube = _read_arrays(
         path, ("probability_shift", "conditional_probability", "baseline_probability")
     )
     if "probability_shift" in cube:
