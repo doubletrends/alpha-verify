@@ -5,47 +5,26 @@ import pytest
 from openpyxl import load_workbook
 
 from alphaverify.domain import scoring, shift
-from alphaverify.infrastructure import artifact_io
 from alphaverify.infrastructure.workspace import WorkspaceConfig
 from alphaverify.presentation import workbooks
 
-
-@pytest.mark.parametrize("suffix", [".npz", ".safetensors"])
-@pytest.mark.parametrize("field", ["shift", "probability_shift_pp"])
-def test_legacy_shift_converts_once_and_rewrites_in_new_units(tmp_path, suffix, field):
-    old = tmp_path / ("old" + suffix)
-    new = tmp_path / ("new" + suffix)
-    values = np.array([[[-10., 20., np.nan]]])
-    artifact_io._write_arrays(old, {field: values}, {"value": field})
-    loaded = artifact_io.load_shift(old)
-    np.testing.assert_allclose(loaded["probability_shift"], values / 100, equal_nan=True)
-    assert field not in loaded
-    artifact_io.save_shift(loaded, new, loaded["meta"], thin=True)
-    np.testing.assert_allclose(artifact_io.load_shift(new)["probability_shift"],
-                               values / 100, equal_nan=True)
+META = {
+    "asset": {"ticker": "TEST", "interval": "1d"}, "start_date": "2024-01-01",
+    "min_obs": 100, "n_bins": 10, "barriers": {"min": -.20, "max": .20, "step": .01},
+    "horizons": {"min": 1, "max": 30}, "evaluate": {"min_dev": .10, "min_bin_n": 50, "min_run": 2},
+}
 
 
-@pytest.mark.parametrize("payload,meta", [
-    ({"probability_shift": np.array([.1])}, {}),
-    ({"probability_shift_pp": np.array([10.])}, {"shift_unit": "probability_difference"}),
-    ({"shift": np.array([10.]), "probability_shift_pp": np.array([10.])}, {}),
-])
-def test_unknown_or_conflicting_artifact_units_are_rejected(tmp_path, payload, meta):
-    path = tmp_path / "bad.npz"
-    artifact_io._write_arrays(path, payload, meta)
+def test_threshold_is_a_probability_difference():
+    assert WorkspaceConfig.from_meta(META).min_dev == .10
     with pytest.raises(ValueError):
-        artifact_io.load_shift(path)
+        WorkspaceConfig.from_meta({**META, "evaluate": {**META["evaluate"], "min_dev": 10}})
 
 
-def test_threshold_migration_preserves_effect_and_default():
-    meta = {"asset": {"ticker": "TEST"}, "start_date": "2024-01-01"}
-    old = WorkspaceConfig.from_meta({**meta, "evaluate": {"min_dev": 10}})
-    new = WorkspaceConfig.from_meta({**meta, "evaluate": {
-        "min_dev": .10, "shift_unit": "probability_difference",
-    }})
-    assert old.min_dev == new.min_dev == WorkspaceConfig.from_meta(meta).min_dev == .10
-    with pytest.raises(ValueError):
-        WorkspaceConfig.from_meta({**meta, "evaluate": {"shift_unit": "unknown"}})
+@pytest.mark.parametrize("field", sorted(META))
+def test_every_meta_setting_must_be_declared(field):
+    with pytest.raises(KeyError):
+        WorkspaceConfig.from_meta({key: value for key, value in META.items() if key != field})
 
 
 def test_shift_storage_threshold_and_workbook_share_probability_units(tmp_path):
@@ -57,12 +36,14 @@ def test_shift_storage_threshold_and_workbook_share_probability_units(tmp_path):
         "barriers": np.array([.01, .02]), "horizons": np.array([1]),
         "bin_edges": np.array([]), "meta": {"bin_labels": ["all"]},
     }
-    result = shift.from_cube(cube, np.array([[.125], [.5]]))
+    baseline = np.array([[.125], [.5]])
+    result = {**cube, "probability_shift": shift.from_cube(cube, baseline),
+              "baseline_probability": baseline}
     np.testing.assert_array_equal(result["probability_shift"], [[[.125]], [[.25]]])
-    assert shift.evaluate(result, min_dev=.125, min_bin_n=50, min_run=2)["passed"]
-    assert not shift.evaluate(result, min_dev=.126, min_bin_n=50, min_run=2)["passed"]
+    assert shift.strongest_cell(result, 0, min_dev=.125, min_bin_n=50, min_run=2) is not None
+    assert shift.strongest_cell(result, 0, min_dev=.126, min_bin_n=50, min_run=2) is None
     path = tmp_path / "shift.xlsx"
-    workbooks.write_shift_xlsx(result, path, "example")
+    workbooks.write_shift_xlsx(result, path, "example", "d")
     book = load_workbook(path)
     sheet = book.active
     assert sheet.cell(5, 2).value == .25
@@ -91,8 +72,8 @@ def test_score_rescaling_preserves_comparisons_including_ties(monkeypatch):
                                   old.bin_score[1:] >= old.bin_score[0])
 
 
-def test_evaluate_can_be_restricted_to_one_bin():
-    # Bin 0 has the larger run; restricting to bin 1 must report bin 1's own best cell.
+def test_strongest_cell_reports_the_requested_bin():
+    # Bin 0 has the larger run; bin 1 must report its own best cell.
     shifts = np.array([[[.30], [.12]], [[.30], [.12]], [[0.], [0.]]])
     cube = {
         "probability_shift": shifts, "conditional_probability": shifts + .5,
@@ -100,8 +81,8 @@ def test_evaluate_can_be_restricted_to_one_bin():
         "bin_observation_counts": np.full((2, 1), 100),
         "barriers": np.array([-.02, -.01, .01]), "horizons": np.array([5]),
     }
-    assert shift.evaluate(cube, .10, 50, 2)["best"]["bin"] == 0
-    best = shift.evaluate(cube, .10, 50, 2, bins=[1])["best"]
+    assert shift.strongest_cell(cube, 0, .10, 50, 2)["dev"] == .30
+    best = shift.strongest_cell(cube, 1, .10, 50, 2)
     assert (best["bin"], best["dev"]) == (1, .12)
 
 
@@ -110,8 +91,9 @@ def test_barrier_labels_are_exact_for_the_grid_step():
     from alphaverify.presentation.display import barrier_number_format, format_barrier
 
     def grid(step, bound):
-        return WorkspaceConfig.from_meta({"asset": {}, "start_date": "2024-01-01",
-                                          "barriers": {"min": -bound, "max": bound, "step": step}}).barriers
+        return WorkspaceConfig.from_meta(
+            {**META, "barriers": {"min": -bound, "max": bound, "step": step}}
+        ).barriers
 
     whole, quarter = grid(.01, .2), grid(.0025, .03)
     assert [format_barrier(value, whole) for value in (-.2, 0., .07)] == ["-20%", "+0%", "+7%"]

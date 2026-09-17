@@ -1052,8 +1052,8 @@ cache tensors. Feature values, quantile edges, and integer bin assignments
 are retained in the node artifact.
 
 Shift arrays use \texttt{probability\_shift} in probability-difference units.
-A separate shift version governs legacy conversion and invalidates old
-validation results without changing Stage~1 measurements. Percentage
+A separate shift version identifies these units; a shift in any other units
+or version is rejected, without changing Stage~1 measurements. Percentage
 formatting is applied only in presentation.
 
 Stage~2 stores only the shifts plus cryptographic references to its node

@@ -89,11 +89,9 @@ def cmd_validation(ws: Workspace) -> None:
             data = market_data_from_artifact(cube)
             outcomes = context.observed_outcomes(data, cube["barriers"], cube["horizons"])
             fixed = not is_ohlcv_feature(node["feature"])
-            # Both roles may use the stored condition; the observed role also
-            # reuses Stage 1 bins for core features, which the null recomputes.
-            cached_condition = fixed or "bin_assignments" in cube
-            features = (feature_from_artifact(cube, data.index).to_numpy(float)[None]
-                        if cached_condition else None)
+            # The observed role reuses the Stage 1 condition; the null reuses it
+            # only for fixed conditions and recomputes core features.
+            features = feature_from_artifact(cube, data.index).to_numpy(float)[None]
             policy = {
                 "features": features if fixed else None,
                 "bin_edges": cube["bin_edges"] if fixed else None,
@@ -103,13 +101,10 @@ def cmd_validation(ws: Workspace) -> None:
             }
             observed = validation.score_histories(
                 barrier.ohlcv_tensor(data),
-                **{**policy, "features": features,
-                   "bin_edges": cube["bin_edges"] if cached_condition else None},
+                **{**policy, "features": features, "bin_edges": cube["bin_edges"]},
                 touch_mask=outcomes["touch_mask"],
                 baseline_probability=outcomes["baseline_probability"],
-                bin_assignments=(
-                    cube.get("bin_assignments") if cached_condition else None
-                ),
+                bin_assignments=cube["bin_assignments"],
             )
             observed_edges = observed.bin_edges[0]
             observed_edges = observed_edges[np.isfinite(observed_edges)]
@@ -121,7 +116,7 @@ def cmd_validation(ws: Workspace) -> None:
                 {"node": node["id"], "family": node["family"],
                  "feature": node["feature"], "params": node["params"],
                  "bin": b, "bin_number": b + 1,
-                 "bin_label": labels[b] if b < len(labels) else f"bin {b + 1}"}
+                 "bin_label": labels[b]}
                 for b in range(len(scores))
             ]
             skipped.extend({**identities[b], "reason": "no eligible cells"}

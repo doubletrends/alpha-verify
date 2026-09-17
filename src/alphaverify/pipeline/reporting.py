@@ -100,15 +100,12 @@ class MilestoneProgress:
 
     def __init__(self, report: StageReport, phase: str, total: int) -> None:
         self._report = report
-        self._phase = phase
         self._total = total
         self._completed = 0
         self._next = 0
         self._report.progress_group(phase)
 
     def advance(self) -> None:
-        if self._total <= 0:
-            return
         self._completed += 1
         while self._next < len(self._MILESTONES):
             milestone = self._MILESTONES[self._next]

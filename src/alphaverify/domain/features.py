@@ -63,16 +63,9 @@ class FeatureRegistry:
         return pd.Series(values.cpu().numpy(), index=data.index, dtype=float)
 
 
-def _forward_fill(values: torch.Tensor) -> torch.Tensor:
-    out = values.clone()
-    for index in range(1, len(out)):
-        out[index] = torch.where(torch.isfinite(out[index]), out[index], out[index - 1])
-    return out
-
-
 def _external(data: pd.DataFrame, feature: str, params: dict) -> torch.Tensor:
     column = 'dxy' if feature.startswith('dxy') else 'vix' if feature.startswith('vix') else 'tnx'
-    values = _forward_fill(tensor_runtime.tensor(data[column].to_numpy(float)))
+    values = tensor_runtime.tensor(data[column].to_numpy(float))
     if feature.endswith('_level'):
         return values
     if feature.endswith('_ma_ratio'):

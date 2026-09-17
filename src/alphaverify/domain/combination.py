@@ -23,7 +23,7 @@ def _log_odds(probability: np.ndarray) -> np.ndarray:
 
 
 def naive_bayes_probability(
-    baseline_hits, baseline_counts, condition_hits, condition_counts, min_n: int = MIN_BIN_N,
+    baseline_hits, baseline_counts, condition_hits, condition_counts,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Per-cell naive Bayes combination of conditions in log-odds form.
 
@@ -34,7 +34,7 @@ def naive_bayes_probability(
     therefore overstate the combined shift. Rates are smoothed before taking
     log-odds. A cell's support is its weakest contributor: the fewest observations
     at that horizon across the baseline and every condition. Returns the
-    ``(barrier, horizon)`` probability, NaN below ``min_n`` support, and the
+    ``(barrier, horizon)`` probability, NaN below ``MIN_BIN_N`` support, and the
     ``(horizon,)`` support counts. With no conditions the result is the smoothed baseline.
     """
     baseline_hits = np.asarray(baseline_hits, dtype=float)
@@ -51,19 +51,19 @@ def naive_bayes_probability(
             raise ValueError("condition surfaces must match the baseline axes")
         log_odds += _log_odds(smoothed_probability(hits, counts[None, :])) - baseline
         support = np.minimum(support, counts)
-    probability = np.where(support[None, :] >= min_n, 1.0 / (1.0 + np.exp(-log_odds)), np.nan)
+    probability = np.where(support[None, :] >= MIN_BIN_N, 1.0 / (1.0 + np.exp(-log_odds)), np.nan)
     return probability, support
 
 
 def joint_touch_rate(
-    condition_holds, touch_mask, price_eligible, min_n: int = MIN_BIN_N,
+    condition_holds, touch_mask, price_eligible,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Historical touch rate on the bars where every condition held at once.
 
     ``condition_holds`` is ``(time,)``; ``touch_mask`` is the shared
     ``(horizon, time, barrier)`` matrix and ``price_eligible`` its
     ``(horizon, time)`` forward-window support. Returns the ``(barrier, horizon)``
-    rate, NaN below ``min_n`` joint observations, and the ``(horizon,)`` counts.
+    rate, NaN below ``MIN_BIN_N`` joint observations, and the ``(horizon,)`` counts.
     This is the same unsmoothed estimate Stage 1 reports for a single condition.
     """
     holds = np.asarray(condition_holds, dtype=bool)
@@ -73,17 +73,18 @@ def joint_touch_rate(
         raise ValueError("touches, eligibility, and condition must share horizon and time axes")
     counts = eligible.sum(axis=1)
     hits = (touch_mask & eligible[:, :, None]).sum(axis=1).T
-    rate = np.where(counts[None, :] >= min_n, hits / np.maximum(counts[None, :], 1), np.nan)
+    rate = np.where(counts[None, :] >= MIN_BIN_N, hits / np.maximum(counts[None, :], 1), np.nan)
     return rate, counts
 
 
-def nesting_violations(probability, barriers, horizons, tolerance: float = 1e-12) -> int:
+def nesting_violations(probability, barriers, horizons) -> int:
     """Adjacent cells that break the ordering implied by nested touch events.
 
     Reaching a farther barrier implies reaching a nearer one on the same side, and a
     longer horizon contains a shorter one. Probability must not rise with barrier
     distance or fall with horizon. Unsupported (NaN) cells are ignored.
     """
+    tolerance = 1e-12
     probability = np.asarray(probability, dtype=float)
     barriers = np.asarray(barriers, dtype=float)
     probability = probability[np.argsort(barriers)][:, np.argsort(np.asarray(horizons))]
