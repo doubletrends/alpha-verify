@@ -23,6 +23,7 @@ class WorkspaceContractTests(unittest.TestCase):
         self.assertEqual(workspace.shift_cube_path("vix_level").parts[-3:], ("02_shift", "array", "vix_level.safetensors"))
         self.assertEqual(workspace.validation_summary_path.parts[-2:], ("03_validation", "validation.json"))
         self.assertEqual(workspace.selection_summary_path.parts[-2:], ("04_selection", "selection.json"))
+        self.assertEqual(workspace.forecast_path.parts[-2:], ("05_forecast", "forecast.json"))
 
     def test_artifact_history_helpers_preserve_rows_and_reject_missing_prices(self) -> None:
         artifact = {
