@@ -95,7 +95,7 @@ Current examples:
 | `01_surface` | `measure` | Per-node SafeTensors probability cube and embedded ordered history | Per-node XLSX workbook |
 | `02_shift` | `compare` | Per-node shift tensor plus Stage 1 references/fingerprints | Per-node XLSX workbook |
 | `03_validation` | `validate` | `validation.json` with fingerprint, observed scores, null scores, p95, and raw p-values | Per-tested-bin figure: shift heatmap beside the null distribution |
-| `04_selection` | `select` | `selection.json` containing every validation-cleared bin | The same standard figure for each selected bin |
+| `04_selection` | `select` | `selection.json` containing every validation-cleared bin, ranked by raw p with Benjamini–Hochberg q-values and the count expected by chance | The same standard figure for each selected bin |
 
 Stage 3 uses Stage 2 as its completion gate and reads histories and observed condition data from the referenced Stage 1 artifacts, with no provider calls. Observed excursions, touches, baselines, and bin assignments come from the versioned source cache. Synthetic batches generate one touch matrix per horizon and share it across every node. `validation.json` fingerprints both Stage 1 and Stage 2 source bytes, node declarations, bin count, measurement version, and simulation settings.
 

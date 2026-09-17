@@ -38,6 +38,7 @@ Key modules:
 - `shift.py` defines the Stage 2 probability-difference shift and the practical-effect inspection used by node status.
 - `scoring.py` owns baseline subtraction, cell eligibility, barrier weights, and the full-grid bin score; cell contributions are private to the bin scorer.
 - `validation.py` fits and samples the synthetic OHLC null. Its `score_histories()` measures and scores both the observed batch of one and simulated batches through the same path.
+- `multiple_testing.py` converts the raw Monte Carlo p-values of every tested bin into Benjamini–Hochberg q-values.
 - `tensor_runtime.py` owns the selected Torch device; the CLI calls `tensor_runtime.configure()` before a stage runs.
 
 ### `infrastructure/`
@@ -167,12 +168,12 @@ For each eligible condition bin, validation recomputes the complete linearly bar
 
 ### Stage 4: `select`
 
-Selection requires a complete, current Stage 3 result and retains every and only row whose `cleared` value is true. The manifest is ordered by raw p-value and observed bin score for readability; ordering is not an additional selection rule. `selection.json` fingerprints the exact validation bytes, and each selected bin receives the standard bin figure in `04_selection/plot/`, identical to its Stage 3 figure. It is drawn from the null scores in `validation.json`, so selection does not depend on Stage 3 image files.
+Selection requires a complete, current Stage 3 result and retains every and only row whose `cleared` value is true. The manifest answers "which bins are most likely real?": bins are ranked by ascending raw p-value alone, bins with equal p share a rank and are listed by node and bin, and observed score never breaks a tie. Each selected bin records its Benjamini–Hochberg `q_value`, computed across every tested bin rather than only the cleared ones, and the summary records `tested` and `expected_by_chance` (tests × raw threshold). Ranking and q-values are reported, not additional selection rules. `selection.json` fingerprints the exact validation bytes and records its ranking method; a manifest from another ranking method is stale. Each selected bin receives the standard bin figure in `04_selection/plot/`, identical to its Stage 3 figure. It is drawn from the null scores in `validation.json`, so selection does not depend on Stage 3 image files.
 
 
 ## Statistical boundary
 
-The current validator is a fitted synthetic null, not a market simulator or strategy backtest. Its per-bar draws preserve the fitted mean and covariance among the four log-OHLC components. They do not preserve empirical temporal order, autocorrelation, volatility clustering, regime transitions, liquidity, execution, or trading costs. External condition histories remain fixed, and the raw 5% decision rule has no multiple-testing correction.
+The current validator is a fitted synthetic null, not a market simulator or strategy backtest. Its per-bar draws preserve the fitted mean and covariance among the four log-OHLC components. They do not preserve empirical temporal order, autocorrelation, volatility clustering, regime transitions, liquidity, execution, or trading costs. External condition histories remain fixed, and the raw 5% decision rule has no multiple-testing correction; Stage 4 reports q-values and the count expected by chance but does not select by them.
 
 Changing any of these assumptions changes the experiment contract. Update the implementation, validation metadata, plots, tests, and documentation together.
 
@@ -192,6 +193,7 @@ Changing any of these assumptions changes the experiment contract. Update the im
 | History measurement and observed outcomes | `domain/barrier.py` (`measure_histories`, `observed_outcomes`) |
 | Observed/null calculation and null generation | `domain/validation.py`; measurement delegates to `domain/barrier.py` and scoring to `domain/scoring.py` |
 | Validation threshold and fingerprint | `pipeline/step_03_validation.py` and `03_validation/validation.json` |
+| Selection ranking and q-value method | `pipeline/step_04_selection.py` (`RANKING`) and `domain/multiple_testing.py` |
 | Terminal colors and rules | `pipeline/reporting.py` |
 | Node display names and shift color limit | `presentation/display.py` |
 
