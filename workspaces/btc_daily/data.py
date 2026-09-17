@@ -20,7 +20,7 @@ SOURCES = {"vix": ("^VIX", "vix"), "treasury": ("^TNX", "tnx"),
            "dxy": ("DX-Y.NYB", "dxy")}
 METRICS = {"CapMVRVCur": "mvrv", "HashRate": "hash_rate",
            "AdrActCnt": "adr_act_cnt", "TxCnt": "tx_cnt"}
-CLEANING_VERSION = "btc-daily-v1"
+CLEANING_VERSION = "btc-daily-v2"
 
 
 def _coinmetrics(start):
@@ -73,6 +73,11 @@ def create_loader(*, start, asset, cache_dir):
             frame = frame.loc[frame.index >= pd.Timestamp(start)]
             frame = frame.apply(pd.to_numeric, errors="coerce").replace([np.inf, -np.inf], np.nan)
             if name == "ohlcv":
+                # Yahoo labels BTC days in UTC; today's bar is still forming, so its
+                # high, low, and close are not final observations.
+                complete_before = pd.Timestamp.now(tz="UTC").tz_localize(None).normalize()
+                frame = frame.loc[frame.index < complete_before]
+                provenance[name]["complete_before"] = complete_before.date().isoformat()
                 frame = frame.dropna()  # No invented prices or OHLC-order repairs.
             elif name != "coinmetrics":
                 frame = frame.ffill()
