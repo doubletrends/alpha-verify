@@ -58,6 +58,7 @@ alphaverify measure
 alphaverify compare
 alphaverify validate
 alphaverify select
+alphaverify summarize
 ```
 
 Each pipeline command also accepts `--cuda` when a CUDA-capable PyTorch installation and device are available.
@@ -69,10 +70,11 @@ Each pipeline command also accepts `--cuda` when a CUDA-capable PyTorch installa
 | 1 | measure | Measure conditional probabilities | `π_condition(r, δ, k, t)` |
 | 2 | compare | Compare them with the baseline | `G = π_condition − π_baseline` |
 | 3 | validate | Validate every supported bin against the null | `p̂_k < 0.05 or p̂_k ≥ 0.05` |
-| 4 | select | Retain cleared bins and render their shift heatmaps | `K_selected = {k : p̂_k < 0.05}` |
+| 4 | select | Retain cleared bins, rank them by evidence, and render their figures | `K_selected = {k : p̂_k < 0.05}` |
+| 5 | summarize | List which nodes cleared and with which bins | `N_cleared = {node(k) : k ∈ K_selected}` |
 
 
-Validation writes `03_validation/`; selection consumes only a current validation result and writes `04_selection/`. Every cleared bin is retained—there is no top-k ranking or secondary economic gate.
+Validation writes `03_validation/`; selection consumes only a current validation result and writes `04_selection/`; the summary consumes only a current selection and writes `05_summary/`. Every cleared bin is retained—there is no top-k ranking or secondary economic gate.
 
 ## Repository map
 

@@ -40,6 +40,10 @@ class StageReport:
             "Selection of statistically cleared condition bins",
             "Retain every and only condition bin with raw p < 0.05",
         ),
+        5: (
+            "Summary of cleared nodes and bins",
+            "Group the selected condition bins by node",
+        ),
     }
 
     def __init__(self, number: int) -> None:
