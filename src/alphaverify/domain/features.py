@@ -3,11 +3,10 @@ from __future__ import annotations
 
 from typing import Callable
 
-import numpy as np
 import pandas as pd
 import torch
 
-from alphaverify.domain import tensor_runtime, torch_features
+from alphaverify.domain import barrier, tensor_runtime, torch_features
 
 _TORCH_OHLCV_FEATURES = {
     'constant', 'rsi', 'rsi_spread', 'stoch_k', 'stoch_d', 'williams_r',
@@ -60,12 +59,7 @@ class FeatureRegistry:
             if cache is not None and ("ohlcv",) in cache:
                 ohlcv = cache[("ohlcv",)]
             else:
-                close = data['close'].to_numpy(float)
-                open_ = data['open'].to_numpy(float) if 'open' in data else close
-                high = data['high'].to_numpy(float) if 'high' in data else np.maximum(open_, close)
-                low = data['low'].to_numpy(float) if 'low' in data else np.minimum(open_, close)
-                volume = data['volume'].to_numpy(float) if 'volume' in data else np.ones(len(data))
-                ohlcv = torch.stack(tuple(tensor_runtime.tensor(v) for v in (open_, high, low, close, volume)), dim=-1).unsqueeze(0)
+                ohlcv = barrier.ohlcv_tensor(data)
                 if cache is not None:
                     cache[("ohlcv",)] = ohlcv
             values = torch_features.compute(ohlcv, feature, params, cache).squeeze(0)

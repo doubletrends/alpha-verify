@@ -10,9 +10,11 @@ workspaces/<name>/
   data.py                    required source loading, cleaning, and alignment
   plugin.py                  optional feature registration
   00_data/                   local source-frame snapshots and provider caches
+  00_cache/                  generated per-history observed outcomes
   01_surface/                generated measurement artifacts
   02_shift/                  generated baseline-relative artifacts
   03_validation/             generated null results and plots
+  04_selection/              generated cleared-bin manifest and heatmaps
 ```
 
 `universe.json` is the source of truth for cross-file experiment facts. `alphaverify.infrastructure.workspace.Workspace` loads it into an immutable runtime configuration and node catalog. Do not duplicate asset symbols, grids, horizons, or feature parameters in package code.
@@ -35,7 +37,6 @@ The document contains `meta` and `families` objects.
 | `horizons` | Inclusive forward-bar range: `min` and `max` |
 | `n_bins` | Quantile-bin count for conditional features |
 | `evaluate` | `min_dev`, `min_bin_n`, and `min_run` used by detailed node status inspection |
-| `target` | Parsed target barrier/horizon available to Python callers; the current CLI validation stage scores the complete grid rather than this single target |
 
 The `evaluate` block does not gate Stage 3. It controls the practical-effect summary printed by `alphaverify status <node>`.
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import hashlib
 import math
 
 import numpy as np
@@ -11,7 +10,7 @@ import numpy as np
 from alphaverify.domain import barrier, scoring, validation
 from alphaverify.domain.features import is_ohlcv_feature
 from alphaverify.infrastructure import artifact_io
-from alphaverify.infrastructure.artifacts import (
+from alphaverify.infrastructure.artifact_history import (
     feature_from_artifact, market_data_from_artifact, market_history_key,
 )
 from alphaverify.infrastructure.workspace import BASELINE_NODE, Workspace
@@ -45,17 +44,12 @@ def input_fingerprint(ws: Workspace) -> dict:
     for node in sorted(ws.catalog.all_nodes(), key=lambda item: item["id"]):
         if node["id"] == BASELINE_NODE:
             continue
-        path = ws.shift_cube_path(node["id"])
-        digest = None
-        if path.exists():
-            with path.open("rb") as source:
-                digest = hashlib.file_digest(source, "sha256").hexdigest()
-        surface_digest = None
-        surface_path = ws.cube_path(node["id"])
-        if surface_path.exists():
-            with surface_path.open("rb") as source:
-                surface_digest = hashlib.file_digest(source, "sha256").hexdigest()
-        nodes.append({"node": node, "sha256": digest, "source_sha256": surface_digest})
+        shift_path, surface_path = ws.shift_cube_path(node["id"]), ws.cube_path(node["id"])
+        nodes.append({
+            "node": node,
+            "sha256": artifact_io.file_sha256(shift_path) if shift_path.exists() else None,
+            "source_sha256": artifact_io.file_sha256(surface_path) if surface_path.exists() else None,
+        })
     return {"n_bins": ws.n_bins, "nodes": nodes}
 
 
@@ -68,14 +62,9 @@ def validation_summary_is_current(ws: Workspace, summary: dict) -> bool:
     return summary.get("input_fingerprint") == input_fingerprint(ws)
 
 
-def _input_cube(ws: Workspace, node_id: str) -> dict:
-    """Read legacy rich shifts or hydrate a thin shift from its Stage 1 source."""
-    return materialized_shift(ws, node_id)
-
-
 def cmd_validation(ws: Workspace) -> None:
     """Validate all available non-baseline nodes without ranking or preselection."""
-    report = StageReport(3, "validate", ws.dir.name)
+    report = StageReport(3)
     context = RunContext(ws)
     fingerprint = input_fingerprint(ws)
     missing = [entry["node"]["id"] for entry in fingerprint["nodes"] if entry["sha256"] is None]
@@ -89,7 +78,7 @@ def cmd_validation(ws: Workspace) -> None:
     # ensemble at a time, and never apply one market's null to another history.
     groups = {}
     for node in available:
-        cube = _input_cube(ws, node["id"])
+        cube = materialized_shift(ws, node["id"])
         data = market_data_from_artifact(cube)
         groups.setdefault(market_history_key(data), []).append(node)
     records, skipped = [], []
@@ -97,27 +86,26 @@ def cmd_validation(ws: Workspace) -> None:
     for nodes in groups.values():
         pending = []
         for node in nodes:
-            cube = _input_cube(ws, node["id"])
+            cube = materialized_shift(ws, node["id"])
             data = market_data_from_artifact(cube)
             outcomes = context.observed_outcomes(data, cube["barriers"], cube["horizons"])
             fixed = not is_ohlcv_feature(node["feature"])
-            # Choose the policy once and pass it unchanged to both roles.
+            # Both roles may use the stored condition; the observed role also
+            # reuses Stage 1 bins for core features, which the null recomputes.
+            cached_condition = fixed or "bin_assignments" in cube
+            features = (feature_from_artifact(cube, data.index).to_numpy(float)[None]
+                        if cached_condition else None)
             policy = {
-                "features": feature_from_artifact(cube, data.index).to_numpy(float)[None] if fixed else None,
+                "features": features if fixed else None,
                 "bin_edges": cube["bin_edges"] if fixed else None,
                 "feature_name": node["feature"], "params": node["params"],
                 "barriers": cube["barriers"], "horizons": cube["horizons"],
                 "requested_bin_count": ws.n_bins,
             }
-            cached_condition = fixed or "bin_assignments" in cube
             observed = validation.score_histories(
                 barrier.ohlcv_tensor(data),
-                features=(feature_from_artifact(cube, data.index).to_numpy(float)[None]
-                          if cached_condition else None),
-                bin_edges=cube["bin_edges"] if cached_condition else None,
-                feature_name=node["feature"], params=node["params"],
-                barriers=cube["barriers"], horizons=cube["horizons"],
-                requested_bin_count=ws.n_bins,
+                **{**policy, "features": features,
+                   "bin_edges": cube["bin_edges"] if cached_condition else None},
                 touch_mask=outcomes["touch_mask"],
                 baseline_probability=outcomes["baseline_probability"],
                 bin_assignments=(
@@ -181,9 +169,10 @@ def cmd_validation(ws: Workspace) -> None:
                     "skipped": len(skipped), "cleared": len(cleared)},
         "tests": records, "skipped_bins": skipped, "cleared": cleared,
     }
-    ws.write_json(ws.validation_summary_path, summary)
-    from alphaverify.presentation.validation_plots import write_bin_score_null_histograms
-    plots = write_bin_score_null_histograms(
+    artifact_io.write_json(ws.validation_summary_path, summary)
+    # Deferred so commands that write no figures do not pay matplotlib's import.
+    from alphaverify.presentation import validation_plots
+    plots = validation_plots.write_bin_score_null_histograms(
         ws, summary, MilestoneProgress(report, "writing plots", len(records)),
     )
     report.summary(f"cleared {len(cleared)} of {len(records)} with raw p < {RAW_P_THRESHOLD}; skipped {len(skipped)} unsupported bins")

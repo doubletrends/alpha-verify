@@ -1,7 +1,7 @@
 {
   "meta": {
     "created": "2026-06-22",
-    "description": "BTC daily feature universe (+1d to +30d, 14d validation target)",
+    "description": "BTC daily feature universe (+1d to +30d)",
     "workspace": "btc_daily",
     "asset": {
       "provider": "yfinance",
@@ -25,10 +25,6 @@
     "horizons": {
       "min": 1,
       "max": 30
-    },
-    "target": {
-      "barrier": -0.1,
-      "horizon": 14
     }
   },
   "families": {

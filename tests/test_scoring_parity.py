@@ -133,33 +133,15 @@ def test_batch_uses_each_paths_own_baseline_and_edges():
     assert not np.allclose(actual.bin_score[0], actual.bin_score[1])
 
 
-def test_delta_matrix_matches_scalar_touch_rates():
-    frames = [history(n=100, seed=seed) for seed in (2, 9)]
-    paths = torch.as_tensor(np.stack([frame.to_numpy() for frame in frames]))
-    feature = torch.stack((torch.arange(100), torch.arange(100).flip(0))).to(torch.float64)
-    edges = barrier.batched_bin_edges(feature, 4)
-    indices = barrier.bin_indices(feature, edges)
-    deltas = np.array([-.07, -.02, 0., .02, .07])
-    lo, hi = next(barrier.iter_extremes(paths, [7]))
-
-    prob, hits, counts, observed = barrier.touch_rate_matrix(
-        lo, hi, feature, indices, 4, deltas,
-    )
-    scalar = [barrier.touch_rates(lo, hi, feature, indices, 4, delta) for delta in deltas]
-    torch.testing.assert_close(prob, torch.stack([row[0] for row in scalar], dim=1), equal_nan=True)
-    torch.testing.assert_close(hits, torch.stack([row[1] for row in scalar], dim=1))
-    torch.testing.assert_close(counts, scalar[0][2])
-    torch.testing.assert_close(observed, scalar[0][3])
-
-
 def test_persistable_observed_cache_matches_uncached_measurement():
     data = history(n=100)
     feature = pd.Series(np.sin(np.arange(100)))
     deltas, horizons = np.array([-.03, 0., .03]), np.array([1, 3, 7])
     edges = barrier.bin_edges(feature, 3)
     expected = barrier.touch_tensor(data, feature, horizons, deltas, edges)
-    low, high = barrier.forward_extremes_upto(data, int(horizons.max()))
-    lo, hi = low[horizons - 1], high[horizons - 1]
+    outcomes = barrier.observed_outcomes(data, deltas, horizons)
+    lo = outcomes["downside_excursion"][horizons - 1]
+    hi = outcomes["upside_excursion"][horizons - 1]
     delta_matrix = deltas.reshape(1, 1, -1)
     ok = np.isfinite(lo) & np.isfinite(hi)
     touches = np.where(
@@ -171,10 +153,13 @@ def test_persistable_observed_cache_matches_uncached_measurement():
         touches.sum(axis=1) / np.maximum(counts[:, None], 1),
         np.nan,
     ).T
+    np.testing.assert_array_equal(outcomes["touch_mask"], touches)
+    np.testing.assert_array_equal(outcomes["baseline_probability"], baseline)
     actual = barrier.touch_tensor(
         data, feature, horizons, deltas, edges,
-        excursions=(low, high), touch_mask=touches,
-        baseline_probability=baseline,
+        excursions=(outcomes["downside_excursion"], outcomes["upside_excursion"]),
+        touch_mask=outcomes["touch_mask"],
+        baseline_probability=outcomes["baseline_probability"],
     )
     for key in ("conditional_probability", "bin_hit_counts",
                 "bin_observation_counts", "eligible_observation_count",

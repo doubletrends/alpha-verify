@@ -4,23 +4,20 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import torch
 
-from alphaverify.domain import barrier, scoring
-from alphaverify.domain.notation import HistoryScoreResult
+from alphaverify.domain import barrier, scoring, tensor_runtime, torch_features
+from alphaverify.domain.notation import HistoryScoreResult, OhlcvComponent
+
+REPLICATE_BATCH_SIZE = 256
 
 
-def simulated_ohlc_tensor(
-    data: pd.DataFrame, n_replicates: int = 1_000, seed: int = 20260907
-):
+def simulated_ohlc_tensor(data: pd.DataFrame, n_replicates: int, seed: int):
     """Fit and draw the shared OHLC ensemble on the configured Torch device."""
-    import torch
-
-    from alphaverify.domain import tensor_runtime
-
-    close = data["close"].to_numpy(float)
-    open_ = data["open"].to_numpy(float) if "open" in data else close
-    high = data["high"].to_numpy(float) if "high" in data else np.maximum(open_, close)
-    low = data["low"].to_numpy(float) if "low" in data else np.minimum(open_, close)
+    ohlcv = barrier.ohlcv_array(data)
+    open_, high, low, close, observed_volume = (
+        ohlcv[:, component] for component in OhlcvComponent
+    )
     previous = np.r_[close[0], close[:-1]]
     log_ohlc_components = np.column_stack((
         np.log(open_ / previous), np.log(close / open_),
@@ -59,8 +56,7 @@ def simulated_ohlc_tensor(
         synthetic_components[:, :, 3]
     )
     volume = torch.as_tensor(
-        np.array(data["volume"] if "volume" in data else np.ones(len(data)), dtype=float, copy=True),
-        dtype=torch.float64, device=device,
+        observed_volume, dtype=torch.float64, device=device,
     ).expand(n_replicates, -1)
     return torch.stack((synthetic_open, synthetic_high, synthetic_low, synthetic_close, volume), dim=-1)
 
@@ -79,10 +75,6 @@ def score_histories(
     quantiles, counts, baselines, and horizon streaming. Return scores/validity
     plus the actual edges, so observed labels follow the recomputed bins.
     """
-    import torch
-
-    from alphaverify.domain import tensor_runtime, torch_features
-
     ohlcv = paths.to(dtype=torch.float64) if isinstance(paths, torch.Tensor) else tensor_runtime.tensor(paths)
     x = torch_features.compute(ohlcv, feature_name, params or {}) if features is None else features
     edges_t, measurements = barrier.measure_histories(
@@ -110,20 +102,14 @@ def score_histories(
     )
 
 
-REPLICATE_BATCH_SIZE = 256
-
-
 def _score_histories_many_batch(paths, policies: list[dict]) -> list[HistoryScoreResult]:
     """Score several conditions while traversing shared price outcomes once.
 
     Feature calculation, quantiles, and conditional counts remain specific to
     each condition. Forward extremes and unconditional barrier rates depend
     only on the market histories, so Stage 3 computes those once per group.
+    Callers validate that all policies share one barrier/horizon grid.
     """
-    import torch
-
-    from alphaverify.domain import tensor_runtime, torch_features
-
     if not policies:
         return []
     ohlcv = paths.to(dtype=torch.float64) if isinstance(paths, torch.Tensor) else tensor_runtime.tensor(paths)
@@ -151,10 +137,6 @@ def _score_histories_many_batch(paths, policies: list[dict]) -> list[HistoryScor
 
     barriers = np.asarray(policies[0]["barriers"], dtype=float)
     horizons = np.asarray(policies[0]["horizons"], dtype=int)
-    if any(not np.array_equal(barriers, np.asarray(policy["barriers"], dtype=float))
-           or not np.array_equal(horizons, np.asarray(policy["horizons"], dtype=int))
-           for policy in policies[1:]):
-        raise ValueError("shared scoring policies must use identical barrier and horizon grids")
 
     for downside_excursion, upside_excursion in barrier.iter_extremes(ohlcv, horizons):
         touch_mask, price_eligible = barrier.barrier_touch_matrix(

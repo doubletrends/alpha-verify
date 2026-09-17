@@ -5,6 +5,20 @@ from __future__ import annotations
 from time import perf_counter
 import sys
 
+RULE = "=" * 60
+
+
+def color_enabled() -> bool:
+    """Use color for interactive runs; captured logs remain plain text."""
+    return sys.stdout.isatty()
+
+
+def ansi_styles(enabled: bool) -> tuple[str, str, str, str]:
+    """Terminal ``(accent, bold, dim, reset)`` codes, or empty strings when disabled."""
+    if not enabled:
+        return "", "", "", ""
+    return "\033[38;2;194;65;12m", "\033[1m", "\033[2m", "\033[0m"
+
 
 class StageReport:
     """Report one stage without turning routine progress into log noise."""
@@ -16,7 +30,7 @@ class StageReport:
         ),
         2: (
             "Conditional effect relative to the market baseline",
-            "100 × (conditional_probability − baseline_probability)",
+            "conditional_probability − baseline_probability",
         ),
         3: (
             "Statistical validation against simulated price paths",
@@ -27,38 +41,32 @@ class StageReport:
             "Retain every and only condition bin with raw p < 0.05",
         ),
     }
-    _RULE = "=" * 60
 
-    def __init__(self, number: int, command: str, workspace: str) -> None:
+    def __init__(self, number: int) -> None:
         self._started = perf_counter()
         title, calculation = self._HEADINGS[number]
-        color = self._color_enabled()
-        accent = "\033[38;2;194;65;12m" if color else ""
-        bold = "\033[1m" if color else ""
-        dim = "\033[2m" if color else ""
-        reset = "\033[0m" if color else ""
+        accent, bold, dim, reset = ansi_styles(color_enabled())
         print(
-            f"\n{accent}{self._RULE}{reset}\n"
+            f"\n{accent}{RULE}{reset}\n"
             f"{accent}{bold}Stage {number}:{reset} {bold}{title}{reset}\n"
             f"{dim}{calculation}{reset}\n"
-            f"{accent}{self._RULE}{reset}\n"
+            f"{accent}{RULE}{reset}\n"
         )
 
     def line(self, message: str) -> None:
-        if message.startswith(("wrote ", "cleared ")) and self._color_enabled():
-            print(f"  \033[32m{message}\033[0m")
+        color = color_enabled()
+        _, _, dim, reset = ansi_styles(color)
+        if message.startswith(("wrote ", "cleared ")) and color:
+            print(f"  \033[32m{message}{reset}")
             return
-        if message.startswith("completed in") and self._color_enabled():
-            print(f"  \033[2m{message}\033[0m")
+        if message.startswith("completed in") and color:
+            print(f"  {dim}{message}{reset}")
             return
         print(f"  {message}")
 
     def progress_group(self, label: str) -> None:
         """Start one compact, visually separate group of milestone updates."""
-        color = self._color_enabled()
-        accent = "\033[38;2;194;65;12m" if color else ""
-        bold = "\033[1m" if color else ""
-        reset = "\033[0m" if color else ""
+        accent, bold, _, reset = ansi_styles(color_enabled())
         print(f"\n  {accent}{bold}{label[:1].upper()}{label[1:]}{reset}")
 
     def progress(self, completed: int, total: int, milestone: int) -> None:
@@ -77,11 +85,6 @@ class StageReport:
         """Keep exceptional per-item detail visible without polluting stdout."""
         for item in items:
             print(f"warning: {item}", file=sys.stderr)
-
-    @staticmethod
-    def _color_enabled() -> bool:
-        """Use color for interactive runs; captured logs remain plain text."""
-        return sys.stdout.isatty()
 
 
 class MilestoneProgress:

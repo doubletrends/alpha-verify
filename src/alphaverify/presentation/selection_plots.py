@@ -13,9 +13,7 @@ from alphaverify.presentation.plot_style import (
     CMAP_DIV, GRID, INK_2, SURFACE,
     note as _note, plt, save as _save, title as _title,
 )
-from alphaverify.presentation.workbooks import feature_label
-
-SHIFT_LIMIT = 0.30
+from alphaverify.presentation.display import SHIFT_DISPLAY_LIMIT, feature_label
 
 
 def _condition(row: dict) -> str:
@@ -47,7 +45,7 @@ def write_selected_shift_heatmaps(
             mesh = ax.pcolormesh(
                 horizons, shown_barriers * 100.0, surface,
                 cmap=CMAP_DIV,
-                norm=TwoSlopeNorm(vcenter=0.0, vmin=-SHIFT_LIMIT, vmax=SHIFT_LIMIT),
+                norm=TwoSlopeNorm(vcenter=0.0, vmin=-SHIFT_DISPLAY_LIMIT, vmax=SHIFT_DISPLAY_LIMIT),
                 shading="nearest",
             )
             ax.axhline(0, color=SURFACE, linewidth=1.4)

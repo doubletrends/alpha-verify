@@ -59,7 +59,7 @@ class WorkspaceData:
                     raise ValueError("workspace data.py must define create_loader(*, start, asset, cache_dir)")
                 self._loader = factory(start=self.workspace.start_date,
                                        asset=dict(self.workspace.asset),
-                                       cache_dir=self.workspace.dir / "00_data")
+                                       cache_dir=self.workspace.data_dir)
                 if not callable(self._loader):
                     raise ValueError("workspace create_loader must return a callable accepting sources")
             data = self._loader(list(sources))

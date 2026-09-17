@@ -67,7 +67,7 @@ Each pipeline command also accepts `--cuda` when a CUDA-capable PyTorch installa
 | Stage | CLI Command | What it does | Mathematical form |
 |---|---|---|---|
 | 1 | measure | Measure conditional probabilities | `π_condition(r, δ, k, t)` |
-| 2 | compare | Compare them with the baseline | `G = 100 × (π_condition − π_baseline)` |
+| 2 | compare | Compare them with the baseline | `G = π_condition − π_baseline` |
 | 3 | validate | Validate every supported bin against the null | `p̂_k < 0.05 or p̂_k ≥ 0.05` |
 | 4 | select | Retain cleared bins and render their shift heatmaps | `K_selected = {k : p̂_k < 0.05}` |
 

@@ -64,7 +64,7 @@ def selected_workspace(tmp_path):
         "missing_nodes": [], "summary": {"nodes": 2, "tested": 2, "skipped": 0, "cleared": 1},
         "tests": rows, "skipped_bins": [], "cleared": [rows[0]],
     }
-    ws.write_json(ws.validation_summary_path, summary)
+    artifact_io.write_json(ws.validation_summary_path, summary)
     return ws
 
 
@@ -72,7 +72,7 @@ def test_selection_contains_every_and_only_cleared_bin(selected_workspace, monke
     render = Mock(return_value=[])
     monkeypatch.setattr(selection_plots, "write_selected_shift_heatmaps", render)
     selection_stage.cmd_selection(selected_workspace)
-    result = selected_workspace.read_json(selected_workspace.selection_summary_path)
+    result = artifact_io.read_json(selected_workspace.selection_summary_path)
     assert result["complete"]
     assert [(row["node"], row["bin"]) for row in result["selected"]] == [("a", 0)]
     assert result["summary"] == {"bins": 1, "nodes": 1}
@@ -99,8 +99,8 @@ def test_selection_renders_full_shift_heatmap(selected_workspace):
 def test_selection_becomes_stale_when_validation_changes(selected_workspace, monkeypatch):
     monkeypatch.setattr(selection_plots, "write_selected_shift_heatmaps", Mock(return_value=[]))
     selection_stage.cmd_selection(selected_workspace)
-    result = selected_workspace.read_json(selected_workspace.selection_summary_path)
-    validation = selected_workspace.read_json(selected_workspace.validation_summary_path)
+    result = artifact_io.read_json(selected_workspace.selection_summary_path)
+    validation = artifact_io.read_json(selected_workspace.validation_summary_path)
     validation["generated"] = "changed"
-    selected_workspace.write_json(selected_workspace.validation_summary_path, validation)
+    artifact_io.write_json(selected_workspace.validation_summary_path, validation)
     assert not selection_stage.selection_summary_is_current(selected_workspace, result)

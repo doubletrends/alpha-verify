@@ -34,11 +34,6 @@ MIN_BIN_N = 30
 MEASUREMENT_VERSION = "shared-outcome-cache-float64-v2"
 
 
-def configure_cuda(enabled: bool) -> None:
-    """Select the unified Torch numerical device for one CLI invocation."""
-    tensor_runtime.configure(enabled)
-
-
 def bin_edges(feature: pd.Series, n_bins: int = 10) -> np.ndarray:
     """
     Interior quantile edges of the feature, so each bin holds ~1/n_bins of the sample.
@@ -78,59 +73,6 @@ def batched_bin_edges(values: torch.Tensor, n_bins: int) -> torch.Tensor:
 def bin_indices(values: torch.Tensor, edges: torch.Tensor) -> torch.Tensor:
     """The common left-boundary convention, including exact ties."""
     return torch.searchsorted(edges.contiguous(), values.contiguous(), right=False)
-
-
-def touch_rates(downside_excursion, upside_excursion, feature_values,
-                bin_assignments, effective_bin_count, barrier,
-                min_n=MIN_BIN_N):
-    """Batched conditional rates and counts for one signed barrier/horizon.
-
-    Inputs have (history, time) axes. The baseline is measured independently
-    using a constant feature, so it includes all eligible market dates.
-    """
-    condition_eligible = (
-        torch.isfinite(downside_excursion)
-        & torch.isfinite(upside_excursion)
-        & torch.isfinite(feature_values)
-    )
-    bin_observation_counts = downside_excursion.new_zeros(
-        (downside_excursion.shape[0], effective_bin_count)
-    )
-    bin_observation_counts.scatter_add_(
-        1, bin_assignments, condition_eligible.to(downside_excursion.dtype)
-    )
-    touch_mask = (
-        downside_excursion <= barrier
-        if barrier < 0 else upside_excursion >= barrier
-    )
-    bin_hit_counts = torch.zeros_like(bin_observation_counts)
-    bin_hit_counts.scatter_add_(
-        1, bin_assignments, (touch_mask & condition_eligible).to(downside_excursion.dtype)
-    )
-    conditional_probability = torch.where(
-        bin_observation_counts >= min_n,
-        bin_hit_counts / bin_observation_counts.clamp_min(1),
-        float("nan"),
-    )
-    return (conditional_probability, bin_hit_counts, bin_observation_counts,
-            condition_eligible.sum(dim=1))
-
-
-def touch_rate_matrix(downside_excursion, upside_excursion, feature_values,
-                      bin_assignments, effective_bin_count, barriers,
-                      min_n=MIN_BIN_N):
-    """Conditional rates for every signed barrier in one tensor operation.
-
-    Inputs have ``(history, time)`` axes. Results have
-    ``(history, signed barrier, bin)`` axes; counts do not have a barrier axis.
-    """
-    touch_mask, price_eligible = barrier_touch_matrix(
-        downside_excursion, upside_excursion, barriers
-    )
-    return reduce_touch_matrix(
-        touch_mask, price_eligible, feature_values, bin_assignments,
-        effective_bin_count, min_n,
-    )
 
 
 def barrier_touch_matrix(downside_excursion, upside_excursion, barriers):
@@ -186,17 +128,6 @@ def reduce_touch_matrix(touch_mask, price_eligible, feature_values,
             bin_observation_counts, condition_eligible.sum(dim=1))
 
 
-def baseline_rate_matrix(downside_excursion, upside_excursion, barriers,
-                         min_n=MIN_BIN_N):
-    """Unconditional rates for every signed barrier, without bin scattering."""
-    touch_mask, price_eligible = barrier_touch_matrix(
-        downside_excursion, upside_excursion, barriers
-    )
-    return reduce_baseline_touch_matrix(
-        touch_mask, price_eligible, downside_excursion.dtype, min_n
-    )
-
-
 def reduce_baseline_touch_matrix(touch_mask, price_eligible,
                                  dtype=torch.float64, min_n=MIN_BIN_N):
     """Reduce a previously generated shared touch matrix to baseline rates."""
@@ -233,14 +164,23 @@ def bin_labels(edges: np.ndarray, feature: pd.Series | None = None) -> list[str]
     return out
 
 
-def ohlcv_tensor(data: pd.DataFrame) -> torch.Tensor:
-    """Convert a stored history to one float64 path in canonical OHLCV order."""
+def ohlcv_array(data: pd.DataFrame) -> np.ndarray:
+    """A history's ``(time, OHLCV)`` float64 array in canonical component order.
+
+    Legacy histories may omit open and volume: open falls back to close, the
+    missing extremes to the bar's open/close envelope, and volume to ones.
+    """
     close = data["close"].to_numpy(float)
     open_ = data["open"].to_numpy(float) if "open" in data else close
     high = data["high"].to_numpy(float) if "high" in data else np.maximum(open_, close)
     low = data["low"].to_numpy(float) if "low" in data else np.minimum(open_, close)
     volume = data["volume"].to_numpy(float) if "volume" in data else np.ones(len(data))
-    return tensor_runtime.tensor(np.stack((open_, high, low, close, volume), axis=-1)[None])
+    return np.stack((open_, high, low, close, volume), axis=-1)
+
+
+def ohlcv_tensor(data: pd.DataFrame) -> torch.Tensor:
+    """Convert a stored history to one float64 path in canonical OHLCV order."""
+    return tensor_runtime.tensor(ohlcv_array(data)[None])
 
 
 def iter_extremes(paths: torch.Tensor, horizons):
@@ -275,6 +215,32 @@ def forward_extremes_upto(data: pd.DataFrame, t_max: int) -> tuple[np.ndarray, n
         raise ValueError("t_max must be positive")
     rows = list(iter_extremes(ohlcv_tensor(data), range(1, t_max + 1)))
     return tuple(torch.cat([row[i] for row in rows], dim=0).cpu().numpy() for i in (0, 1))
+
+
+def observed_outcomes(data: pd.DataFrame, barriers, horizons) -> dict:
+    """One history's excursion ladder, shared touch matrix, and baseline.
+
+    Every condition measured on the same history reuses these arrays; only its
+    bin reduction differs. Excursions have ``(horizon, time)`` axes up to the
+    largest horizon, touches ``(horizon, time, barrier)`` for the requested
+    horizons, and the baseline ``(barrier, horizon)``.
+    """
+    barriers = np.asarray(barriers, dtype=float)
+    horizons = np.asarray(horizons, dtype=int)
+    downside_excursion, upside_excursion = forward_extremes_upto(data, int(horizons.max()))
+    selected = horizons - 1
+    touch_mask, price_eligible = barrier_touch_matrix(
+        tensor_runtime.tensor(downside_excursion[selected]),
+        tensor_runtime.tensor(upside_excursion[selected]),
+        barriers,
+    )
+    baseline_probability, _ = reduce_baseline_touch_matrix(touch_mask, price_eligible)
+    return {
+        "downside_excursion": downside_excursion,
+        "upside_excursion": upside_excursion,
+        "touch_mask": touch_mask.cpu().numpy(),
+        "baseline_probability": baseline_probability.T.cpu().numpy(),
+    }
 
 
 def measure_histories(paths, features, barriers, horizons, requested_bin_count, *,

@@ -8,10 +8,14 @@ from pathlib import Path
 
 import numpy as np
 
-from alphaverify.infrastructure.artifact_io import read_json, write_json
-from alphaverify.infrastructure.artifacts import ArtifactPaths
-
 BASELINE_NODE = "baseline"
+
+STAGE_DIRECTORIES = {
+    "surface": "01_surface",
+    "shift": "02_shift",
+    "validation": "03_validation",
+    "selection": "04_selection",
+}
 
 
 @dataclass(frozen=True)
@@ -27,8 +31,6 @@ class WorkspaceConfig:
     barrier_max: float
     barrier_step: float
     n_bins: int
-    target_barrier: float | None
-    target_horizon: int | None
     min_dev: float
     min_bin_n: int
     min_run: int
@@ -38,7 +40,6 @@ class WorkspaceConfig:
         asset = meta["asset"]
         horizons = meta.get("horizons", {})
         barriers = meta.get("barriers", meta.get("Delta", meta.get("\u0394", {})))
-        target = meta.get("target", {})
         evaluate = meta.get("evaluate", {})
         # Unmarked declarations predate fractional shifts and express min_dev in pp.
         shift_unit = evaluate.get("shift_unit", "percentage_points")
@@ -51,7 +52,6 @@ class WorkspaceConfig:
             min_dev /= 100.0
         if not np.isfinite(min_dev) or not 0 <= min_dev <= 1:
             raise ValueError("evaluate.min_dev must represent a probability difference in [0, 1]")
-        target_barrier = target.get("barrier", target.get("Delta", target.get("\u0394")))
         return cls(
             asset=dict(asset),
             start_date=meta["start_date"],
@@ -62,14 +62,6 @@ class WorkspaceConfig:
             barrier_max=float(barriers.get("max", 0.20)),
             barrier_step=float(barriers.get("step", 0.01)),
             n_bins=int(meta.get("n_bins", 10)),
-            target_barrier=(
-                None if target_barrier is None else float(target_barrier)
-            ),
-            target_horizon=(
-                None
-                if target.get("horizon") is None
-                else int(target["horizon"])
-            ),
             min_dev=min_dev,
             min_bin_n=int(evaluate.get("min_bin_n", 50)),
             min_run=int(evaluate.get("min_run", 2)),
@@ -119,13 +111,15 @@ class NodeCatalog:
 
 
 class Workspace:
-    """One workspace's immutable declaration and artifact namespace."""
+    """One workspace's immutable declaration and artifact namespace.
+
+    Every generated path below the workspace directory is defined here.
+    """
 
     def __init__(self, name: str, workspaces_dir: Path | None = None):
         root = workspaces_dir or Path.cwd() / "workspaces"
         self.dir = root / name
-        self.artifacts = ArtifactPaths(self.dir)
-        self.catalog = NodeCatalog.load(self.artifacts.universe_path)
+        self.catalog = NodeCatalog.load(self.dir / "universe.json")
         self.config = WorkspaceConfig.from_meta(self.catalog.meta)
 
     @property
@@ -157,35 +151,12 @@ class Workspace:
         return self.config.barriers
 
     @property
-    def deltas(self) -> np.ndarray:
-        """Compatibility alias for the pre-v2 Python API."""
-        return self.barriers
-
-    @property
     def barrier_step(self) -> float:
         return self.config.barrier_step
 
     @property
-    def delta_step(self) -> float:
-        """Compatibility alias for the pre-v2 Python API."""
-        return self.barrier_step
-
-    @property
     def n_bins(self) -> int:
         return self.config.n_bins
-
-    @property
-    def target_barrier(self) -> float | None:
-        return self.config.target_barrier
-
-    @property
-    def target_delta(self) -> float | None:
-        """Compatibility alias for the pre-v2 Python API."""
-        return self.target_barrier
-
-    @property
-    def target_horizon(self) -> int | None:
-        return self.config.target_horizon
 
     @property
     def min_dev(self) -> float:
@@ -200,61 +171,48 @@ class Workspace:
         return self.config.min_run
 
     @property
+    def data_dir(self) -> Path:
+        """Workspace-owned source snapshots and provider caches."""
+        return self.dir / "00_data"
+
+    def stage_dir(self, stage: str) -> Path:
+        return self.dir / STAGE_DIRECTORIES[stage]
+
+    def observed_cache_path(self, history_key: str) -> Path:
+        return self.dir / "00_cache" / f"observed_{history_key}.safetensors"
+
+    def cube_path(self, node_id: str) -> Path:
+        return self.stage_dir("surface") / "array" / f"{node_id}.safetensors"
+
+    @property
     def baseline_cube(self) -> Path:
         return self.cube_path(BASELINE_NODE)
 
+    def surface_path(self, node_id: str) -> Path:
+        return self.stage_dir("surface") / "spreadsheet" / f"{node_id}.xlsx"
+
+    def shift_cube_path(self, node_id: str) -> Path:
+        return self.stage_dir("shift") / "array" / f"{node_id}.safetensors"
+
+    def shift_surface_path(self, node_id: str) -> Path:
+        return self.stage_dir("shift") / "spreadsheet" / f"{node_id}.xlsx"
+
     @property
     def validation_summary_path(self) -> Path:
-        return self.artifacts.validation_summary_path
+        return self.stage_dir("validation") / "validation.json"
 
     @property
     def selection_summary_path(self) -> Path:
-        return self.artifacts.selection_summary_path
-
-    def cube_path(self, node_id: str) -> Path:
-        return self.artifacts.cube_path(node_id)
-
-    def observed_cache_path(self, history_key: str) -> Path:
-        return self.artifacts.observed_cache_path(history_key)
+        return self.stage_dir("selection") / "selection.json"
 
     def has_cube(self, node_id: str) -> bool:
         return self.cube_path(node_id).exists()
 
-    def surface_path(self, node_id: str) -> Path:
-        return self.artifacts.surface_path(node_id)
-
     def has_surface(self, node_id: str) -> bool:
         return self.surface_path(node_id).exists()
-
-    def shift_cube_path(self, node_id: str) -> Path:
-        return self.artifacts.shift_cube_path(node_id)
 
     def has_shift_cube(self, node_id: str) -> bool:
         return self.shift_cube_path(node_id).exists()
 
-    def shift_surface_path(self, node_id: str) -> Path:
-        return self.artifacts.shift_surface_path(node_id)
-
     def has_shift_surface(self, node_id: str) -> bool:
         return self.shift_surface_path(node_id).exists()
-
-    def target(self, baseline: np.ndarray) -> tuple[float, int]:
-        """Return an optional inspection target; validation scores the full grid."""
-        horizons = self.horizons
-        horizon = self.target_horizon or int(horizons[len(horizons) // 2])
-        if self.target_barrier is not None:
-            return self.target_barrier, horizon
-        horizon_index = int(np.flatnonzero(horizons == horizon)[0])
-        barriers = self.barriers
-        downside = np.flatnonzero(barriers < 0)
-        rates = baseline[downside, horizon_index]
-        delta_index = int(downside[int(np.nanargmin(np.abs(rates - 0.30)))])
-        return float(barriers[delta_index]), horizon
-
-    @staticmethod
-    def read_json(path: Path) -> dict:
-        return read_json(path)
-
-    @staticmethod
-    def write_json(path: Path, payload: dict) -> None:
-        write_json(path, payload)

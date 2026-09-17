@@ -210,5 +210,5 @@ def test_workspace_data_runs_through_all_four_stages_offline(tmp_path, monkeypat
     step_02_shift.cmd_shift(ws)
     step_03_validation.cmd_validation(ws)
     step_04_selection.cmd_selection(ws)
-    assert step_03_validation.validation_summary_is_current(ws, ws.read_json(ws.validation_summary_path))
-    assert step_04_selection.selection_summary_is_current(ws, ws.read_json(ws.selection_summary_path))
+    assert step_03_validation.validation_summary_is_current(ws, artifact_io.read_json(ws.validation_summary_path))
+    assert step_04_selection.selection_summary_is_current(ws, artifact_io.read_json(ws.selection_summary_path))

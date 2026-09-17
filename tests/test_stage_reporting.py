@@ -11,7 +11,7 @@ def test_stage_report_has_a_compact_consistent_shape() -> None:
     output = StringIO()
     with patch("alphaverify.pipeline.reporting.perf_counter", side_effect=(10.0, 12.34)):
         with redirect_stdout(output):
-            report = StageReport(2, "shift", "nasdaq_daily")
+            report = StageReport(2)
             report.line("shifting 58 nodes against baseline")
             report.completed()
 
@@ -19,7 +19,7 @@ def test_stage_report_has_a_compact_consistent_shape() -> None:
         "",
         "============================================================",
         "Stage 2: Conditional effect relative to the market baseline",
-        "100 × (conditional_probability − baseline_probability)",
+        "conditional_probability − baseline_probability",
         "============================================================",
         "",
         "  shifting 58 nodes against baseline",
@@ -30,7 +30,7 @@ def test_stage_report_has_a_compact_consistent_shape() -> None:
 def test_milestone_progress_emits_only_five_fixed_checkpoints() -> None:
     output = StringIO()
     with redirect_stdout(output):
-        report = StageReport(1, "surface", "nasdaq_daily")
+        report = StageReport(1)
         progress = MilestoneProgress(report, "calculating arrays", 58)
         for _ in range(58):
             progress.advance()

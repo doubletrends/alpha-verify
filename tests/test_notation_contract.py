@@ -24,7 +24,7 @@ def test_canonical_axes_and_ohlcv_order_are_explicit() -> None:
 
 def test_version_one_surface_names_are_normalized_on_read(tmp_path: Path) -> None:
     path = tmp_path / "legacy.safetensors"
-    artifact_io._write_npz(path, {
+    artifact_io._write_arrays(path, {
         "prob": np.ones((2, 1, 1)),
         "hits": np.ones((2, 1, 1), dtype=np.int32),
         "bin_n": np.ones((1, 1), dtype=np.int32),

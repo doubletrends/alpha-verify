@@ -46,19 +46,22 @@ def _build_cube(context: RunContext, node: dict) -> None:
     })
 
 
-def _write_surface_arrays(workspace: Workspace, progress: MilestoneProgress) -> list[str]:
-    nodes = workspace.catalog.all_nodes()
+def _write_surface_arrays(
+    workspace: Workspace, progress: MilestoneProgress
+) -> tuple[int, list[str]]:
     context = RunContext(workspace)
-    horizons = workspace.horizons
-    skipped = {}
-    for node in nodes:
+    written = 0
+    warnings = []
+    for node in workspace.catalog.all_nodes():
         try:
             _build_cube(context, node)
         except Exception as error:
-            skipped[node["id"]] = str(error)
+            warnings.append(f"surface skipped {node['id']}: {error}")
+        else:
+            written += 1
         finally:
             progress.advance()
-    return [f"surface skipped {node}: {error}" for node, error in skipped.items()]
+    return written, warnings
 
 
 def _render_surface(
@@ -75,12 +78,10 @@ def _render_surface(
     for node in nodes:
         cube = artifact_io.load_surface(workspace.cube_path(node["id"]))
         try:
-            workbooks.write_barrier_xlsx(
+            workbooks.write_surface_xlsx(
                 cube,
                 workspace.surface_path(node["id"]),
                 node["id"],
-                node["feature"],
-                node["params"],
                 workspace.horizon_unit,
             )
         except PermissionError:
@@ -94,23 +95,23 @@ def _render_surface(
 
 def cmd_surface(workspace: Workspace) -> None:
     """Write full surface arrays and their workbook views."""
-    report = StageReport(1, "measure", workspace.dir.name)
+    report = StageReport(1)
     nodes = workspace.catalog.all_nodes()
     report.line(
         f"measuring {len(nodes)} nodes · {len(workspace.barriers)} barriers × "
         f"{workspace.n_bins} bins × {len(workspace.horizons)} horizons"
     )
-    warnings = _write_surface_arrays(
+    arrays, warnings = _write_surface_arrays(
         workspace, MilestoneProgress(report, "calculating arrays", len(nodes))
     )
     render_nodes = [node for node in nodes if workspace.has_cube(node["id"])]
-    written, render_warnings = _render_surface(
+    workbooks_written, render_warnings = _render_surface(
         workspace, MilestoneProgress(report, "writing spreadsheets", len(render_nodes))
     )
     warnings.extend(render_warnings)
     report.summary(
-        f"wrote {len(nodes) - sum('surface skipped' in warning for warning in warnings)} arrays "
-        f"+ {written} workbooks → {workspace.dir.relative_to(workspace.root_dir)}/01_surface"
+        f"wrote {arrays} arrays + {workbooks_written} workbooks → "
+        f"{workspace.stage_dir('surface').relative_to(workspace.root_dir)}"
     )
     report.completed()
     StageReport.warnings(warnings)

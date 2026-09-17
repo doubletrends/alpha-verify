@@ -1,12 +1,10 @@
-"""Artifact paths and history reconstruction for one workspace."""
+"""Market and feature histories restored from stage artifacts, and their identity."""
 
 from __future__ import annotations
 
-from pathlib import Path
 import hashlib
 
 import numpy as np
-
 import pandas as pd
 
 from alphaverify.infrastructure.market_data import validate_market_data
@@ -15,47 +13,6 @@ from alphaverify.infrastructure.market_data import validate_market_data
 _MARKET_COLUMNS = ("open", "high", "low", "close", "volume")
 _REQUIRED_HISTORY_COLUMNS = ("index", "high", "low", "close")
 
-STAGE_DIRECTORIES = {
-    "surface": "01_surface",
-    "shift": "02_shift",
-    "validation": "03_validation",
-    "selection": "04_selection",
-}
-
-
-class ArtifactPaths:
-    def __init__(self, workspace_dir: Path):
-        self.workspace_dir = workspace_dir
-
-    @property
-    def universe_path(self) -> Path:
-        return self.workspace_dir / "universe.json"
-
-    def stage_dir(self, stage: str) -> Path:
-        return self.workspace_dir / STAGE_DIRECTORIES[stage]
-
-    def observed_cache_path(self, history_key: str) -> Path:
-        return self.workspace_dir / "00_cache" / f"observed_{history_key}.safetensors"
-
-    def cube_path(self, node_id: str) -> Path:
-        return self.stage_dir("surface") / "array" / f"{node_id}.safetensors"
-
-    def surface_path(self, node_id: str) -> Path:
-        return self.stage_dir("surface") / "spreadsheet" / f"{node_id}.xlsx"
-
-    def shift_cube_path(self, node_id: str) -> Path:
-        return self.stage_dir("shift") / "array" / f"{node_id}.safetensors"
-
-    def shift_surface_path(self, node_id: str) -> Path:
-        return self.stage_dir("shift") / "spreadsheet" / f"{node_id}.xlsx"
-
-    @property
-    def validation_summary_path(self) -> Path:
-        return self.stage_dir("validation") / "validation.json"
-
-    @property
-    def selection_summary_path(self) -> Path:
-        return self.stage_dir("selection") / "selection.json"
 
 def market_data_from_artifact(artifact: dict) -> pd.DataFrame:
     """Restore the ordered OHLCV history retained in a pipeline artifact."""

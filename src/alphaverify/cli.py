@@ -5,11 +5,10 @@ from __future__ import annotations
 import argparse
 from collections.abc import Callable
 from dataclasses import dataclass
-import sys
-from textwrap import dedent
 
-from alphaverify.domain import barrier
-from alphaverify.infrastructure.workspace import Workspace
+from alphaverify.domain import tensor_runtime
+from alphaverify.infrastructure.workspace import STAGE_DIRECTORIES, Workspace
+from alphaverify.pipeline.reporting import RULE, ansi_styles, color_enabled
 from alphaverify.pipeline.step_01_surface import cmd_surface
 from alphaverify.pipeline.step_02_shift import cmd_shift
 from alphaverify.pipeline.step_03_validation import cmd_validation
@@ -21,7 +20,9 @@ from alphaverify.pipeline.status import cmd_status
 class Command:
     name: str
     help: str
+    summary: str
     handler: Callable[..., None]
+    stage: str | None = None
     accepts_node: bool = False
 
 
@@ -29,79 +30,86 @@ COMMANDS = (
     Command(
         "measure",
         "1. measure raw conditional probabilities",
+        "Measure raw conditional probabilities",
         cmd_surface,
+        stage="surface",
     ),
     Command(
         "compare",
         "2. compare raw probabilities to the baseline",
+        "Compare raw probabilities to baseline",
         cmd_shift,
+        stage="shift",
     ),
     Command(
         "validate",
         "3. validate all eligible condition bins against the null",
+        "Validate all eligible bins vs null",
         cmd_validation,
+        stage="validation",
     ),
     Command(
         "select",
         "4. retain validation-cleared bins and render heatmaps",
+        "Select cleared bins and heatmaps",
         cmd_selection,
+        stage="selection",
     ),
     Command(
         "status",
         "show workspace or node artifact and validation status",
+        "Show workspace or node results",
         cmd_status,
         accepts_node=True,
     ),
 )
 COMMAND_BY_NAME = {command.name: command for command in COMMANDS}
 
-OVERVIEW = dedent("""\
-    ============================================================
-    AlphaVerify
-    Conditional barrier-touch probability pipeline
-    ============================================================
 
-      Pipeline
+def overview(color: bool) -> str:
+    """Root help: the pipeline commands in order, each with its artifact directory."""
+    accent, bold, dim, reset = ansi_styles(color)
 
-        measure     Measure raw conditional probabilities → 01_surface/
-        compare     Compare raw probabilities to baseline → 02_shift/
-        validate    Validate all eligible bins vs null     → 03_validation/
-        select      Select cleared bins and heatmaps       → 04_selection/
+    def heading(text: str) -> list[str]:
+        return [f"  {accent}{bold}{text}{reset}", ""]
 
-      Inspect
-
-        status [NODE]    Show workspace or node results
-
-      Options
-
-        --workspace NAME    Select a workspace
-        --cuda              Use CUDA numerical kernels
-        -h, --help          Show this help
-    """)
+    lines = [
+        f"{accent}{RULE}{reset}",
+        "AlphaVerify",
+        "Conditional barrier-touch probability pipeline",
+        f"{accent}{RULE}{reset}",
+        "",
+        *heading("Pipeline"),
+    ]
+    for command in COMMANDS:
+        if command.stage:
+            lines.append(
+                f"    {bold}{command.name}{reset}{' ' * (12 - len(command.name))}"
+                f"{command.summary:<38}→ {dim}{STAGE_DIRECTORIES[command.stage]}/{reset}"
+            )
+    lines += ["", *heading("Inspect")]
+    for command in COMMANDS:
+        if not command.stage:
+            usage = " [NODE]" if command.accepts_node else ""
+            lines.append(
+                f"    {bold}{command.name}{reset}{usage}"
+                f"{' ' * (17 - len(command.name + usage))}{command.summary}"
+            )
+    lines += [
+        "",
+        *heading("Options"),
+        "    --workspace NAME    Select a workspace",
+        "    --cuda              Use CUDA numerical kernels",
+        "    -h, --help          Show this help",
+    ]
+    return "\n".join(lines) + "\n"
 
 
 class RootParser(argparse.ArgumentParser):
     """Keep the root command overview distinct from subcommand option help."""
 
     def format_help(self) -> str:
-        if not sys.stdout.isatty():
-            return OVERVIEW
-
-        accent, bold, dim, reset = "\033[38;2;194;65;12m", "\033[1m", "\033[2m", "\033[0m"
-        help_text = OVERVIEW.replace("=" * 60, f"{accent}{'=' * 60}{reset}")
-        for heading in ("Pipeline", "Inspect", "Options"):
-            help_text = help_text.replace(f"  {heading}", f"  {accent}{bold}{heading}{reset}")
-        for command, artifact in (
-            ("measure", "01_surface/"),
-            ("compare", "02_shift/"),
-            ("validate", "03_validation/"),
-            ("select", "04_selection/"),
-        ):
-            help_text = help_text.replace(
-                f"    {command}", f"    {bold}{command}{reset}"
-            ).replace(f"→ {artifact}", f"→ {dim}{artifact}{reset}")
-        help_text = help_text.replace("    status", f"    {bold}status{reset}")
-        return help_text
+        return overview(color_enabled())
 
 
 def _add_workspace(parser: argparse.ArgumentParser) -> None:
@@ -111,6 +119,8 @@ def _add_workspace(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="run numerical barrier kernels on CUDA (requires an available CUDA PyTorch device)",
     )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = RootParser(
         prog="alphaverify",
@@ -143,7 +153,7 @@ def main(argv: list[str] | None = None) -> None:
         parser.print_help()
         return
     ws = Workspace(args.workspace)
-    barrier.configure_cuda(args.cuda)
+    tensor_runtime.configure(args.cuda)
 
     command = COMMAND_BY_NAME[args.command]
     if command.accepts_node:

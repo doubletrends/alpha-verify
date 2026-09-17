@@ -81,7 +81,7 @@ def test_compare_validate_select_in_probability_units(workspace, monkeypatch):
                         _REAL_HISTOGRAM_WRITER)
     stage.cmd_validation(workspace)
     step_04_selection.cmd_selection(workspace)
-    selected = workspace.read_json(workspace.selection_summary_path)
+    selected = artifact_io.read_json(workspace.selection_summary_path)
     assert step_04_selection.selection_summary_is_current(workspace, selected)
 
 
@@ -89,7 +89,7 @@ def test_all_bins_are_validated_without_selection(workspace, monkeypatch, capsys
     simulate = Mock(wraps=validation.simulated_ohlc_tensor)
     monkeypatch.setattr(validation, "simulated_ohlc_tensor", simulate)
     stage.cmd_validation(workspace)
-    summary = workspace.read_json(workspace.validation_summary_path)
+    summary = artifact_io.read_json(workspace.validation_summary_path)
     assert summary["complete"]
     assert {(row["node"], row["bin"]) for row in summary["tests"]} == {
         ("a", 0), ("a", 1), ("b", 0), ("b", 1),
@@ -121,7 +121,7 @@ def test_different_market_histories_get_separate_nulls(workspace, monkeypatch):
 
 def test_freshness_tracks_artifact_bytes_catalog_and_settings(workspace, monkeypatch):
     stage.cmd_validation(workspace)
-    summary = workspace.read_json(workspace.validation_summary_path)
+    summary = artifact_io.read_json(workspace.validation_summary_path)
     for key in (
         "seed", "n_null_replicates", "scoring_version",
         "measurement_version", "null_version",
@@ -148,11 +148,11 @@ def test_freshness_tracks_artifact_bytes_catalog_and_settings(workspace, monkeyp
 
 def test_missing_artifact_is_incomplete_and_invalidates_prior_result(workspace):
     stage.cmd_validation(workspace)
-    previous = workspace.read_json(workspace.validation_summary_path)
+    previous = artifact_io.read_json(workspace.validation_summary_path)
     workspace.shift_cube_path("b").unlink()
     assert not stage.validation_summary_is_current(workspace, previous)
     stage.cmd_validation(workspace)
-    summary = workspace.read_json(workspace.validation_summary_path)
+    summary = artifact_io.read_json(workspace.validation_summary_path)
     assert not summary["complete"]
     assert summary["missing_nodes"] == ["b"]
     assert len(summary["tests"]) == 2
@@ -166,7 +166,7 @@ def test_valid_zero_bins_are_tested(workspace):
             cube[key][:] = 100.0
         artifact_io.save_shift(cube, path, cube["meta"])
     stage.cmd_validation(workspace)
-    summary = workspace.read_json(workspace.validation_summary_path)
+    summary = artifact_io.read_json(workspace.validation_summary_path)
     assert len(summary["tests"]) == 4
     assert all(
         row["bin_score"] == 0 and row["monte_carlo_p_value"] == 1
@@ -242,7 +242,7 @@ def test_identical_history_has_same_score_and_validity_as_observed_or_null(
     assert observed.score_supported.any()
     if feature_name == "day_of_week":
         assert observed.score_supported.tolist() == [[True, True, False]]
-    summary = workspace.read_json(workspace.validation_summary_path)
+    summary = artifact_io.read_json(workspace.validation_summary_path)
     assert summary["tests"]
     assert all(row["bin_label"] != "STALE LABEL" for row in summary["tests"])
     for row in summary["tests"]:

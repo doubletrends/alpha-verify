@@ -94,11 +94,11 @@ def cmd_status(ws: Workspace, node_id: str | None = None) -> None:
         _print_node_status(ws, node_id)
         return
 
-    validation = ws.read_json(ws.validation_summary_path)
+    validation = artifact_io.read_json(ws.validation_summary_path)
     validation_current = validation_summary_is_current(ws, validation)
     cleared_rows = validation.get("cleared", []) if validation_current else []
     tests = validation.get("tests", []) if validation_current else []
-    selection = ws.read_json(ws.selection_summary_path)
+    selection = artifact_io.read_json(ws.selection_summary_path)
     selection_current = selection_summary_is_current(ws, selection)
     selected_rows = selection.get("selected", []) if selection_current else []
 
