@@ -18,6 +18,7 @@ from alphaverify.pipeline.reporting import StageReport
 from alphaverify.pipeline.status import no_strong_cell_line, strongest_cell_line
 from alphaverify.pipeline.step_05_summary import node_summary_is_current
 from alphaverify.presentation import workbooks
+from alphaverify.presentation.display import format_barrier
 
 METHOD = {
     "active": "the last stored bar's feature value falls in a cleared bin under stored Stage 1 edges",
@@ -188,7 +189,7 @@ def cmd_forecast(ws: Workspace) -> None:
         i, j = np.unravel_index(np.nanargmax(np.abs(shift_from_baseline)), shift_from_baseline.shape)
         report.line(
             f"naive Bayes: largest shift {shift_from_baseline[i, j]:+.1%} at barrier "
-            f"{barriers[i]:+.0%}, +{horizons[j]}{ws.horizon_unit} "
+            f"{format_barrier(barriers[i], barriers)}, +{horizons[j]}{ws.horizon_unit} "
             f"({combined[i, j]:.1%} vs {baseline[i, j]:.1%} baseline)"
         )
     gap = combined - joint

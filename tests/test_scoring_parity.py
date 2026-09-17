@@ -185,6 +185,30 @@ def test_many_scorer_matches_independent_scoring_across_path_batches():
             )
 
 
+def test_replicate_batches_shrink_with_history_length_and_never_exceed_the_cap():
+    from alphaverify.domain import tensor_runtime
+
+    budget = tensor_runtime.memory_budget_bytes()
+    assert budget == 4 * 2 ** 30  # the CPU allowance in this offline suite
+    daily = validation.replicate_batch_size(2_900, 57, 41, budget)
+    hourly = validation.replicate_batch_size(76_340, 23, 21, budget)
+    assert daily == validation.REPLICATE_BATCH_SIZE
+    assert 1 <= hourly < daily
+    # 76,340 bars x (80 + 25 * 23 + 10 * 21) bytes per replicate
+    assert hourly == budget // (76_340 * 865)
+    assert validation.replicate_batch_size(10 ** 9, 500, 500, budget) == 1
+
+
+def test_simulated_ensemble_is_returned_in_host_memory_in_ohlcv_order():
+    data = history(n=200)
+    ensemble = validation.simulated_ohlc_tensor(data, 6, 20260907)
+    assert ensemble.device.type == "cpu" and ensemble.shape == (6, 200, 5)
+    open_, high, low, close, volume = (ensemble[:, :, i] for i in range(5))
+    assert torch.all(high >= torch.maximum(open_, close)) and torch.all(low <= torch.minimum(open_, close))
+    np.testing.assert_array_equal(volume.numpy(), np.broadcast_to(data["volume"].to_numpy(), (6, 200)))
+    np.testing.assert_array_equal(ensemble.numpy(), validation.simulated_ohlc_tensor(data, 6, 20260907).numpy())
+
+
 def test_many_scorer_builds_one_touch_matrix_per_batch_and_horizon(monkeypatch):
     paths = np.stack([history(n=100, seed=seed).to_numpy() for seed in range(5)])
     policies = [

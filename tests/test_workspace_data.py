@@ -152,6 +152,27 @@ def test_hourly_policy_converts_utc_and_keeps_last_duplicate(tmp_path, monkeypat
     assert panel.attrs["provenance"]["sources"]["ohlcv"]["raw_rows"] == 3
 
 
+def test_hourly_policy_drops_invalid_ohlc_bars_and_the_forming_hour(tmp_path, monkeypatch):
+    ws = Workspace("btc_hourly")
+    module = load_workspace_module(ws.dir, "data", required=True)
+    current_hour = pd.Timestamp.now(tz="UTC").tz_localize(None).floor("h")
+    hours = [current_hour - pd.Timedelta(hours=offset) for offset in (3, 2, 1, 0)]
+    raw = pd.DataFrame({
+        "DATETIME": [f"{hour.isoformat()}Z" for hour in hours],
+        "OPEN": [10., 11., 12., 13.], "HIGH": [12., 13., 14., 15.],
+        "LOW": [9., 11.5, 11., 12.], "CLOSE": [11., 12., 13., 14.], "VOLUME_BTC": [1., 2., 3., 4.],
+    })  # The second bar's low sits above its open; the last bar's hour has not ended.
+    monkeypatch.setattr(pd, "read_csv", Mock(return_value=raw))
+    loader = module.create_loader(start="2024-01-01", asset=ws.asset, cache_dir=tmp_path)
+    panel = loader(["ohlcv"])
+    validate_market_data(panel)
+    assert panel.index.tolist() == [hours[0], hours[2]]
+    source = panel.attrs["provenance"]["sources"]["ohlcv"]
+    assert source["invalid_ohlc_bars_dropped"] == [str(hours[1])]
+    assert source["complete_before"] == str(current_hour)
+    assert panel.attrs["provenance"]["cleaning_version"] == "btc-hourly-v2"
+
+
 def test_measurement_retains_workspace_provenance(tmp_path, monkeypatch):
     node = {"id": "baseline", "family": "_base", "feature": "constant", "params": {}, "data": ["ohlcv"]}
     artifact_io.write_json(tmp_path / "example" / "universe.json", {

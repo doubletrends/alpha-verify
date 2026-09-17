@@ -53,9 +53,15 @@ def feature_bins_from_artifact(artifact: dict) -> np.ndarray:
 
 
 def market_history_key(data: pd.DataFrame) -> str:
-    """Content identity for ordered market data shared by multiple nodes."""
+    """Content identity of a market history: its timestamps and OHLCV values in canonical order.
+
+    Price outcomes depend only on OHLCV, so a loader's column order and any auxiliary
+    columns do not change the identity; Stage 1 panels and Stage 3 restored histories
+    of the same prices share one key.
+    """
+    columns = [column for column in _MARKET_COLUMNS if column in data]
     digest = hashlib.sha256()
-    digest.update(str(tuple(data.columns)).encode())
+    digest.update(str(tuple(columns)).encode())
     digest.update(data.index.asi8.tobytes())
-    digest.update(np.ascontiguousarray(data.to_numpy(dtype=float)).tobytes())
+    digest.update(np.ascontiguousarray(data[columns].to_numpy(dtype=float)).tobytes())
     return digest.hexdigest()

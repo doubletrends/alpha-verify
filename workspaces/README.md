@@ -76,7 +76,7 @@ The workspace decides how to handle sessions, time zones, duplicate dates, missi
 
 All three loaders snapshot the selected source frames before cleaning as content-addressed CSVs under `00_data/`. These are decoded source-frame snapshots, not exact HTTP payload archives. Stage 1 stores `data_provenance` containing cleaning version, time basis, alignment, source identifiers, snapshot hashes, and raw/prepared row counts. Source snapshots are audit inputs; loaders currently fetch again on a new run rather than offering automatic snapshot replay.
 
-The daily loaders drop incomplete OHLCV rows, keep the last duplicate, and reject invalid OHLC ordering through core validation. BTC daily also excludes the current UTC day's still-forming bar and records that cutoff as `complete_before` in source provenance. BTC hourly converts timestamps to UTC, keeps the last duplicate, drops incomplete bars, and never resamples or fills missing bars. These explicit policies can change a remeasurement of previously malformed data. Earlier stored artifacts with missing prices are now rejected instead of silently losing rows. Rebuild measurement and downstream stages to apply new cleaning; changing `data.py` alone does not rewrite or invalidate existing stored results.
+The daily loaders drop incomplete OHLCV rows, keep the last duplicate, and reject invalid OHLC ordering through core validation. BTC daily also excludes the current UTC day's still-forming bar and records that cutoff as `complete_before` in source provenance. BTC hourly converts timestamps to UTC, keeps the last duplicate, drops incomplete bars, drops the few published bars whose open or close lies outside their own high-low range (recorded as `invalid_ohlc_bars_dropped`), excludes the still-forming hour (recorded as `complete_before`), and never resamples, fills, or repairs bars. These explicit policies can change a remeasurement of previously malformed data. Earlier stored artifacts with missing prices are now rejected instead of silently losing rows. Rebuild measurement and downstream stages to apply new cleaning; changing `data.py` alone does not rewrite or invalidate existing stored results.
 
 ## Optional `plugin.py`
 
@@ -125,7 +125,7 @@ A daily BTC (`BTC-USD`) comparison workspace from 2015 with a −20% to +20% gri
 
 ### `btc_hourly`
 
-An exploratory hourly BTC workspace from 2018 with a −10% to +10% grid and 1- to 48-hour horizons. It uses the publisher's raw OHLCV columns and recomputes indicators locally; it does not trust precomputed indicator columns from the source dataset.
+An exploratory hourly BTC workspace from 2018 with a −3% to +3% grid in 0.25% steps and 1- to 12-hour horizons. The grid is matched to hourly volatility (about 0.7% per hour and 2.35% over 12 hours since 2018), where baseline touch rates span roughly 1% to 88%, and was fixed before any hourly validation result. It uses the publisher's raw OHLCV columns and recomputes indicators locally; it does not trust precomputed indicator columns from the source dataset.
 
 The GitHub media URL in its `data.py` deliberately dereferences a Git LFS object. The workspace explicitly chooses this historical dataset rather than Yahoo hourly history.
 
