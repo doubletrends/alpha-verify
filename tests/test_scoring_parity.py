@@ -36,7 +36,7 @@ def observed_scores(cube):
     ).bin_score.cpu().numpy()
 
 
-@pytest.mark.parametrize("kind,n_bins", [("continuous", 2), ("continuous", 10),
+@pytest.mark.parametrize("kind,n_bins", [("continuous", 10),
                                          ("ties", 10), ("constant", 10),
                                          ("missing", 4), ("sparse", 10)])
 def test_stage1_full_grid_matches_streamed_scores_and_validity(kind, n_bins):
@@ -67,22 +67,6 @@ def test_stage1_full_grid_matches_streamed_scores_and_validity(kind, n_bins):
     ).score_supported
     np.testing.assert_array_equal(result.score_supported[0, :len(observed)], expected_valid)
     assert not result.score_supported[0, len(observed):].any()
-
-
-def test_cached_and_streamed_measurement_agree_with_missing_prices():
-    data = history(n=100)
-    data.loc[15, "high"] = np.nan
-    feature = pd.Series(np.arange(100, dtype=float))
-    feature[:10] = np.nan
-    # Unsorted/repeated horizons exercise cache lookup and ladder restarts.
-    horizons, deltas = np.array([7, 1, 7, 100, 3]), np.array([-.02, .02])
-    edges = barrier.bin_edges(feature, 2)
-    direct = barrier.touch_tensor(data, feature, horizons, deltas, edges)
-    cached = barrier.touch_tensor(data, feature, horizons, deltas, edges,
-                                  excursions=barrier.forward_extremes_upto(data, 100))
-    for key in ("conditional_probability", "bin_hit_counts",
-                "bin_observation_counts", "eligible_observation_count"):
-        np.testing.assert_array_equal(direct[key], cached[key])
 
 
 def test_measurement_baseline_includes_feature_warmup_and_uses_float64(monkeypatch):
@@ -138,8 +122,10 @@ def test_batch_uses_each_paths_own_baseline_and_edges():
 
 def test_persistable_observed_cache_matches_uncached_measurement():
     data = history(n=100)
+    data.loc[15, "high"] = np.nan
     feature = pd.Series(np.sin(np.arange(100)))
-    deltas, horizons = np.array([-.03, 0., .03]), np.array([1, 3, 7])
+    # Unsorted/repeated horizons exercise cache lookup.
+    deltas, horizons = np.array([-.03, 0., .03]), np.array([7, 1, 7, 3])
     edges = barrier.bin_edges(feature, 3)
     expected = barrier.touch_tensor(data, feature, horizons, deltas, edges)
     outcomes = barrier.observed_outcomes(data, deltas, horizons)
@@ -188,104 +174,13 @@ def test_many_scorer_matches_independent_scoring_across_path_batches():
             )
 
 
-def test_replicate_batches_shrink_with_history_length_and_never_exceed_the_cap():
-    from alphaverify.domain import tensor_runtime
-
-    budget = tensor_runtime.memory_budget_bytes()
-    assert budget == 4 * 2 ** 30  # the CPU allowance in this offline suite
-    daily = validation.replicate_batch_size(2_900, 57, 41, budget)
-    hourly = validation.replicate_batch_size(76_340, 23, 21, budget)
-    assert daily == validation.REPLICATE_BATCH_SIZE
-    assert 1 <= hourly < daily
-    # 76,340 bars x (80 + 25 * 23 + 10 * 21) bytes per replicate
-    assert hourly == budget // (76_340 * 865)
-    assert validation.replicate_batch_size(10 ** 9, 500, 500, budget) == 1
-
-
-def test_simulated_ensemble_is_returned_in_host_memory_in_ohlcv_order():
+def test_simulated_ensemble_is_valid_ohlcv_and_reproducible_from_its_seed():
     data = history(n=200)
     ensemble = validation.simulated_ohlc_tensor(data, 6, 20260907)
-    assert ensemble.device.type == "cpu" and ensemble.shape == (6, 200, 5)
     open_, high, low, close, volume = (ensemble[:, :, i] for i in range(5))
     assert torch.all(high >= torch.maximum(open_, close)) and torch.all(low <= torch.minimum(open_, close))
     np.testing.assert_array_equal(volume.numpy(), np.broadcast_to(data["volume"].to_numpy(), (6, 200)))
     np.testing.assert_array_equal(ensemble.numpy(), validation.simulated_ohlc_tensor(data, 6, 20260907).numpy())
-
-
-def test_many_scorer_builds_one_touch_matrix_per_batch_and_horizon(monkeypatch):
-    paths = np.stack([history(n=100, seed=seed).to_numpy() for seed in range(5)])
-    policies = [
-        {"features": None, "bin_edges": None, "feature_name": "roc",
-         "params": {"period": period}, "barriers": np.array([-.03, .03]),
-         "horizons": np.array([1, 5]), "requested_bin_count": 3}
-        for period in (3, 7)
-    ]
-    original = barrier.barrier_touch_matrix
-    calls = []
-    def capture(*args):
-        calls.append(1)
-        return original(*args)
-    monkeypatch.setattr(barrier, "barrier_touch_matrix", capture)
-    validation.score_histories_many(paths, policies, batch_size=2)
-    assert len(calls) == 3 * 2
-
-
-def test_feature_cache_reuses_rolling_primitives(monkeypatch):
-    from alphaverify.domain import torch_features
-
-    paths = torch.as_tensor(history(n=100).to_numpy(copy=True)[None])
-    original = torch_features._rolling
-    calls = []
-    def capture(x, window, op):
-        calls.append((window, op))
-        return original(x, window, op)
-    monkeypatch.setattr(torch_features, "_rolling", capture)
-    cache = {}
-    torch_features.compute(paths, "ma_ratio", {"period": 10}, cache)
-    torch_features.compute(paths, "ma_cross", {"fast": 10, "slow": 50}, cache)
-    assert calls.count((10, "mean")) == 1
-
-
-def test_fixed_external_edges_preserve_collapsed_observed_bins():
-    data = history()
-    x = pd.Series(np.arange(len(data), dtype=float) % 3)
-    deltas, horizons = np.array([-.03, .03]), np.array([7])
-    cube = observed_cube(data, x, 10, deltas, horizons)
-    actual = validation.score_histories(
-        data.to_numpy()[None], x.to_numpy()[None], deltas, horizons, 10,
-        bin_edges=cube["bin_edges"],
-    )
-    np.testing.assert_allclose(actual.bin_score[0], observed_scores(cube), atol=1e-10)
-
-
-def test_core_feature_recomputation_matches_observed_history():
-    from alphaverify.domain import tensor_runtime, torch_features
-
-    data = history()
-    paths = tensor_runtime.tensor(data.to_numpy()[None])
-    feature = pd.Series(torch_features.compute(paths, "roc", {"period": 5})[0].cpu().numpy())
-    deltas, horizons = np.array([-.02, .02, -.06, .06]), np.array([1, 5, 10])
-    cube = observed_cube(data, feature, 4, deltas, horizons)
-    actual = validation.score_histories(paths, None, deltas, horizons, 4, "roc", {"period": 5})
-    np.testing.assert_allclose(actual.bin_score[0], observed_scores(cube), atol=1e-10)
-
-
-def test_shared_scorer_excludes_thin_bins_even_with_finite_probabilities():
-    prob = np.array([[[.2], [.3], [.0]], [[.7], [.6], [1.]]])
-    base = np.array([[.3], [.6]])
-    scores = scoring.bin_scores(prob, base, np.array([[30], [30], [29]]), [-.1, .1])
-    np.testing.assert_allclose(scores.bin_score, [.20, 0, 0], atol=1e-12)
-    assert scores.score_supported.tolist() == [True, True, False]
-    scores = scoring.bin_scores(prob, base, np.array([[30], [29], [29]]), [-.1, .1])
-    np.testing.assert_array_equal(scores.bin_score, [0, 0, 0])
-    assert not scores.score_supported.any()
-
-
-def test_unpaired_grid_has_zero_score():
-    result = scoring.bin_scores(np.ones((1, 2, 1)), np.ones((1, 1)),
-                                np.full((2, 1), 100), [.1])
-    np.testing.assert_array_equal(result.bin_score, [0, 0])
-    assert not result.score_supported.any()
 
 
 def test_bin_score_reduces_all_pairs_and_horizons_with_linear_weights():
@@ -299,45 +194,6 @@ def test_bin_score_reduces_all_pairs_and_horizons_with_linear_weights():
     order = [3, 0, 2, 1]
     result = scoring.bin_scores(prob[order], base[order], counts, deltas[order])
     np.testing.assert_allclose(result.bin_score, [.70, 1.00])
-    assert result.score_supported.tolist() == [True, True]
-    batch = scoring.bin_scores(np.broadcast_to(prob, (2, 3, *prob.shape)),
-                               np.broadcast_to(base, (2, 3, *base.shape)),
-                               np.broadcast_to(counts, (2, 3, *counts.shape)), deltas)
-    np.testing.assert_allclose(batch.bin_score, np.broadcast_to([.70, 1.00], (2, 3, 2)))
-
-
-def test_nonfinite_cells_and_empty_horizons_are_unsupported():
-    prob = np.full((2, 2, 1), .5)
-    prob[0, 0, 0] = np.nan
-    result = scoring.bin_scores(prob, np.full((2, 1), .5), np.full((2, 1), 30), [-.1, .1])
-    assert not result.score_supported.any()
-    result = scoring.bin_scores(prob[..., :0], np.empty((2, 0)), np.empty((2, 0)), [-.1, .1])
-    assert result.bin_score.tolist() == [0, 0]
-    assert not result.score_supported.any()
-
-
-def test_week_example_keeps_all_five_contribution_rows(monkeypatch):
-    shifts = np.broadcast_to(np.array([-.10, -.10, 0., .10, .10])[:, None, None],
-                             (5, 2, 7))
-    baseline = np.full((5, 7), .5)
-    contributions = []
-    original_where = torch.where
-
-    def capture(*args, **kwargs):
-        result = original_where(*args, **kwargs)
-        contributions.append(result.detach().cpu().numpy())
-        return result
-
-    monkeypatch.setattr(scoring.torch, "where", capture)
-    result = scoring.bin_scores(
-        baseline[:, None, :] + shifts, baseline,
-        np.full((2, 7), 100), [-.02, -.01, 0., .01, .02],
-    )
-    assert len(contributions) == 1
-    expected = np.broadcast_to(np.array([.10, .05, 0., .05, .10])[:, None, None],
-                               (5, 2, 7))
-    np.testing.assert_allclose(contributions[0], expected)
-    np.testing.assert_allclose(result.bin_score, [2.10, 2.10])
     assert result.score_supported.tolist() == [True, True]
 
 

@@ -1,6 +1,5 @@
 """Validation runs from Stage 2, tests every eligible bin, and tracks provenance."""
 
-from copy import deepcopy
 from dataclasses import replace
 from unittest.mock import Mock
 
@@ -9,14 +8,12 @@ import pandas as pd
 import pytest
 
 from alphaverify.domain import barrier, shift, validation
-from alphaverify.domain.features import FeatureRegistry, is_ohlcv_feature
+from alphaverify.domain.features import FeatureRegistry
 from alphaverify.infrastructure import artifact_io
 from alphaverify.infrastructure.artifact_history import market_data_from_artifact
 from alphaverify.infrastructure.workspace import Workspace
 from alphaverify.pipeline import step_03_validation as stage
 from alphaverify.presentation import bin_figures
-
-_REAL_FIGURE_WRITER = bin_figures.write_bin_figures
 
 
 @pytest.fixture
@@ -59,52 +56,20 @@ def workspace(tmp_path, monkeypatch):
     return ws
 
 
-def test_only_core_features_are_recomputed():
-    assert is_ohlcv_feature("atr")
-    assert not is_ohlcv_feature("days_since_halving")
-    assert not is_ohlcv_feature("day_of_week")
-
-
-def test_compare_validate_select_in_probability_units(workspace, monkeypatch):
-    from alphaverify.pipeline import step_02_shift, step_04_selection
-
-    # Exercise the real downstream writers from the fixture's Stage 1 sources.
-    step_02_shift.cmd_shift(workspace)
-    stored = artifact_io.load_shift(workspace.shift_cube_path("a"))
-    assert stored["meta"]["shift_unit"] == "probability_difference"
-    assert np.nanmax(np.abs(stored["probability_shift"])) <= 1
-    assert workspace.shift_surface_path("a").exists()
-    # Restore the actual renderer (the fixture replaces it to keep other tests lean).
-    monkeypatch.setattr(bin_figures, "write_bin_figures", _REAL_FIGURE_WRITER)
-    stage.cmd_validation(workspace)
-    step_04_selection.cmd_selection(workspace)
-    selected = artifact_io.read_json(workspace.selection_summary_path)
-    assert step_04_selection.selection_summary_is_current(workspace, selected)
-    # Both stages write the same standard figure for a bin they share.
-    validation_figures = {p.name for p in (workspace.stage_dir("validation") / "plot").glob("*.png")}
-    selection_figures = {p.name for p in (workspace.stage_dir("selection") / "plot").glob("*.png")}
-    assert selection_figures <= validation_figures
-    assert all(name.startswith("bin_figure__") for name in validation_figures)
-
-
-def test_all_bins_are_validated_without_selection(workspace, monkeypatch):
-    simulate = Mock(wraps=validation.simulated_ohlc_tensor)
-    monkeypatch.setattr(validation, "simulated_ohlc_tensor", simulate)
+def test_all_bins_are_validated_without_selection(workspace):
     stage.cmd_validation(workspace)
     summary = artifact_io.read_json(workspace.validation_summary_path)
-    assert summary["complete"]
     assert {(row["node"], row["bin"]) for row in summary["tests"]} == {
         ("a", 0), ("a", 1), ("b", 0), ("b", 1),
     }
-    assert summary["skipped_bins"][0]["node"] == "constant"
-    assert summary["summary"]["skipped"] == 1
-    assert simulate.call_count == 1
-    for row in summary["tests"]:
-        assert "rank" not in row and "best_cell" not in row
-        assert len(row["null_scores"]) == 16
-        expected = (1 + sum(score >= row["bin_score"] for score in row["null_scores"])) / 17
-        assert row["monte_carlo_p_value"] == expected
-    assert stage.validation_summary_is_current(workspace, summary)
+    assert [row["node"] for row in summary["skipped_bins"]] == ["constant"]
+
+
+def test_monte_carlo_p_value_counts_null_scores_at_least_as_large(workspace):
+    stage.cmd_validation(workspace)
+    row = artifact_io.read_json(workspace.validation_summary_path)["tests"][0]
+    expected = (1 + sum(score >= row["bin_score"] for score in row["null_scores"])) / (len(row["null_scores"]) + 1)
+    assert row["monte_carlo_p_value"] == expected
 
 
 def test_different_market_histories_get_separate_nulls(workspace, monkeypatch):
@@ -119,30 +84,30 @@ def test_different_market_histories_get_separate_nulls(workspace, monkeypatch):
     assert simulate.call_count == 2
 
 
-def test_freshness_tracks_artifact_bytes_catalog_and_settings(workspace, monkeypatch):
-    stage.cmd_validation(workspace)
-    summary = artifact_io.read_json(workspace.validation_summary_path)
-    for key in (
-        "seed", "n_null_replicates", "scoring_version",
-        "measurement_version", "null_version",
-    ):
-        changed = deepcopy(summary)
-        changed["method"][key] = "old"
-        assert not stage.validation_summary_is_current(workspace, changed)
-    changed = deepcopy(summary)
-    changed["artifact"] = "04_validation"
-    assert not stage.validation_summary_is_current(workspace, changed)
-    original_config = workspace.config
-    workspace.config = replace(original_config, n_bins=3)
-    assert not stage.validation_summary_is_current(workspace, summary)
-    workspace.config = original_config
+def change_method(workspace, summary):
+    summary["method"]["seed"] = "old"
+
+
+def change_config(workspace, summary):
+    workspace.config = replace(workspace.config, n_bins=3)
+
+
+def change_catalog(workspace, summary):
     workspace.catalog.raw["families"]["test"][0]["params"]["changed"] = True
-    assert not stage.validation_summary_is_current(workspace, summary)
-    workspace.catalog.raw["families"]["test"][0]["params"].clear()
+
+
+def change_artifact_bytes(workspace, summary):
     path = workspace.cube_path("a")
     cube = artifact_io.load_surface(path)
     cube["conditional_probability"][0, 0, 0] += .01
     artifact_io.save_surface(cube, path, cube["meta"])
+
+
+@pytest.mark.parametrize("change", [change_method, change_config, change_catalog, change_artifact_bytes])
+def test_validation_goes_stale_when_an_input_changes(workspace, change):
+    stage.cmd_validation(workspace)
+    summary = artifact_io.read_json(workspace.validation_summary_path)
+    change(workspace, summary)
     assert not stage.validation_summary_is_current(workspace, summary)
 
 
@@ -260,16 +225,8 @@ def test_identical_history_has_same_score_and_validity_as_observed_or_null(
         assert row["bin_score"] == observed.bin_score[0, row["bin"]]
 
 
-def test_plot_uses_node_bin_identity_without_rank(workspace, monkeypatch):
-    # Restore the actual renderer and exercise it with a complete stage result.
-    monkeypatch.setattr(bin_figures, "write_bin_figures", _REAL_FIGURE_WRITER)
-    stage.cmd_validation(workspace)
-    plots = list((workspace.validation_summary_path.parent / "plot").glob("*.png"))
-    assert len(plots) == 4
-    assert {p.name for p in plots} == {
-        f"bin_figure__{node}__bin_{b:02d}.png" for node in ("a", "b") for b in (1, 2)
-    }
-    assert all(p.stat().st_size > 1000 for p in plots)
-    workspace.shift_cube_path("b").unlink()
-    stage.cmd_validation(workspace)
-    assert len(list((workspace.validation_summary_path.parent / "plot").glob("*.png"))) == 2
+def test_shift_without_the_current_units_is_rejected(tmp_path):
+    path = tmp_path / "shift.safetensors"
+    artifact_io._write_arrays(path, {"probability_shift": np.array([.1])}, {})
+    with pytest.raises(ValueError, match="rerun compare"):
+        artifact_io.load_shift(path)

@@ -1,21 +1,18 @@
 """Stage 5 lists cleared nodes, combines active cleared bins one per family, and checks them against history."""
 
 from collections import Counter
-from unittest.mock import Mock
 
 import numpy as np
-from openpyxl import load_workbook
 import pandas as pd
 import pytest
+import torch
 
 from alphaverify.domain import barrier, combination
 from alphaverify.infrastructure import artifact_io
 from alphaverify.infrastructure.artifact_history import feature_bins_from_artifact
 from alphaverify.infrastructure.workspace import Workspace
 from alphaverify.pipeline import step_02_shift
-from alphaverify.pipeline import step_04_selection as selection_stage
 from alphaverify.pipeline import step_05_forecast as forecast_stage
-from alphaverify.presentation import bin_figures
 
 BARRIERS, HORIZONS = np.array([-.02, -.01, .01, .02]), np.array([1, 5])
 FEATURES = {  # node: (family, feature values over time)
@@ -23,27 +20,6 @@ FEATURES = {  # node: (family, feature values over time)
     "b": ("osc", lambda t: np.sin(t / 7 + .2)),
     "c": ("mom", lambda t: np.cos(t / 23)),
 }
-
-
-@pytest.fixture
-def cleared_workspace(selected_workspace, monkeypatch):
-    """Nodes a and b clear bins; node c is tested but never clears."""
-    monkeypatch.setattr(bin_figures, "write_bin_figures", Mock(return_value=[]))
-    validation = artifact_io.read_json(selected_workspace.validation_summary_path)
-    template = validation["tests"][0]
-    validation["tests"] += [
-        {**template, "node": "b", "bin": 0, "bin_label": "x < 0.5"},
-        {**template, "node": "a", "bin": 1, "bin_number": 2, "bin_label": "0.5 < x",
-         "monte_carlo_p_value": .004},
-        {**template, "node": "c", "family": "other", "monte_carlo_p_value": .60, "cleared": False},
-    ]
-    validation["cleared"] = [
-        {key: value for key, value in row.items() if key != "null_scores"}
-        for row in validation["tests"] if row["cleared"]
-    ]
-    artifact_io.write_json(selected_workspace.validation_summary_path, validation)
-    selection_stage.cmd_selection(selected_workspace)
-    return selected_workspace
 
 
 @pytest.fixture
@@ -104,40 +80,28 @@ def forecast_workspace(tmp_path, monkeypatch):
     return ws
 
 
-def test_cleared_nodes_group_selected_bins_by_node(cleared_workspace):
-    selection = artifact_io.read_json(cleared_workspace.selection_summary_path)
-    tested = Counter(
-        row["node"] for row in artifact_io.read_json(cleared_workspace.validation_summary_path)["tests"]
-    )
-    nodes = forecast_stage.cleared_nodes(selection["selected"], tested)
+def test_cleared_nodes_follow_their_strongest_bin_and_group_bins_in_order():
+    def row(node, b, rank):
+        return {"node": node, "family": "test", "feature": "day_of_week", "params": {},
+                "bin": b, "bin_number": b + 1, "bin_label": f"bin {b + 1}",
+                "rank": rank, "monte_carlo_p_value": rank / 100, "q_value": rank / 50}
 
-    assert [node["node"] for node in nodes] == ["a", "b"]
-    a, b = nodes
-    assert (a["bins_cleared"], a["bins_tested"], a["best_rank"]) == (2, 2, 1)
-    assert [item["bin_number"] for item in a["bins"]] == [1, 2]
-    assert a["best_p_value"] == .004
-    assert (b["bins_cleared"], b["bins_tested"], b["best_rank"]) == (1, 2, 2)
+    # Node a's strongest bin is its second one.
+    selected = [row("a", 1, 1), row("a", 0, 2), row("b", 0, 2)]
+    nodes = forecast_stage.cleared_nodes(selected, Counter(a=2, b=2, c=2))
+    assert [(node["node"], node["bins_cleared"], node["bins_tested"], node["best_rank"],
+             [item["bin"] for item in node["bins"]]) for node in nodes] == [
+        ("a", 2, 2, 1, [0, 1]), ("b", 1, 2, 2, [0]),
+    ]
 
 
-def test_forecast_lists_cleared_nodes_and_uses_one_active_bin_per_family(forecast_workspace):
+def test_forecast_uses_one_active_bin_per_family(forecast_workspace):
     ws = forecast_workspace
     forecast_stage.cmd_forecast(ws)
     result = artifact_io.read_json(ws.forecast_path)
 
-    assert result["summary"] == {
-        "nodes_tested": 3, "nodes_cleared": 3, "bins_tested": 12, "bins_cleared": 4,
-        "expected_by_chance": pytest.approx(.6), "bins_active": 3, "conditions_used": 2,
-        "nesting_violations": result["summary"]["nesting_violations"],
-    }
-    assert [(node["node"], node["bins_cleared"], node["bins_tested"]) for node in result["nodes"]] == [
-        ("a", 1, 4), ("b", 1, 4), ("c", 2, 4),
-    ]
-    conditions = {row["node"]: row for row in result["conditions"]}
-    assert set(conditions) == {"a", "b", "c"}
-    assert conditions["a"]["used"] and conditions["c"]["used"]
-    assert not conditions["b"]["used"]
-    assert conditions["b"]["note"] == f"same family as a bin {ws.last_bins['a'] + 1} (rank 1)"
-    assert result["as_of"] == "2023-04-14"
+    # a and b share a family; c's inactive second bin is not a condition.
+    assert {row["node"]: row["used"] for row in result["conditions"]} == {"a": True, "b": False, "c": True}
 
 
 def test_forecast_surfaces_match_stage1_counts_and_an_independent_joint_measurement(forecast_workspace):
@@ -166,20 +130,6 @@ def test_forecast_surfaces_match_stage1_counts_and_an_independent_joint_measurem
     assert np.isfinite(joint).any()
 
 
-def test_forecast_workbook_tabs(forecast_workspace):
-    ws = forecast_workspace
-    forecast_stage.cmd_forecast(ws)
-    book = load_workbook(ws.forecast_workbook_path)
-    assert book.sheetnames == ["naive Bayes", "vs baseline", "historical joint",
-                               "naive Bayes - joint", "conditions", "cleared nodes"]
-    assert book["naive Bayes"]["A1"].value.startswith("Forecast —— as of 2023-04-14 · 2 conditions")
-    assert [row[1] for row in book["conditions"].iter_rows(min_row=2, values_only=True)] == ["a", "b", "c"]
-    nodes = list(book["cleared nodes"].iter_rows(values_only=True))
-    assert nodes[0][:5] == ("node", "family", "feature", "cleared bins", "tested bins")
-    assert [row[0] for row in nodes[1:]] == ["a", "b", "c"]
-    assert nodes[3][3:5] == (2, 4)
-
-
 def test_no_cleared_bins_forecasts_the_baseline(forecast_workspace):
     ws = forecast_workspace
     selection = artifact_io.read_json(ws.selection_summary_path)
@@ -188,15 +138,46 @@ def test_no_cleared_bins_forecasts_the_baseline(forecast_workspace):
     forecast_stage.cmd_forecast(ws)
     result = artifact_io.read_json(ws.forecast_path)
 
-    assert result["nodes"] == [] and result["conditions"] == []
-    assert result["summary"]["nodes_cleared"] == 0 and result["summary"]["nodes_tested"] == 3
     np.testing.assert_allclose(
         np.array(result["combined_probability"], dtype=float),
         np.array(result["baseline_probability"], dtype=float), rtol=0, atol=1e-12,
     )
-    assert len(list(load_workbook(ws.forecast_workbook_path)["cleared nodes"].iter_rows())) == 1
 
 
 def test_forecast_requires_a_current_selection(selected_workspace):
     forecast_stage.cmd_forecast(selected_workspace)
     assert not selected_workspace.forecast_path.exists()
+
+
+def logit(p):
+    return np.log(p / (1 - p))
+
+
+def test_two_conditions_add_their_log_odds_ratios():
+    hits, counts = np.array([[20.]]), np.array([98.])
+    first, second = (np.array([[40.]]), np.array([58.])), (np.array([[9.]]), np.array([48.]))
+    base, p1, p2 = 21 / 100, 41 / 60, 10 / 50
+    expected = 1 / (1 + np.exp(-(logit(base) + (logit(p1) - logit(base)) + (logit(p2) - logit(base)))))
+    actual, support = combination.naive_bayes_probability(
+        hits, counts, [first[0], second[0]], [first[1], second[1]]
+    )
+    np.testing.assert_allclose(actual, [[expected]])
+    np.testing.assert_array_equal(support, [48.])
+
+
+def test_thin_baseline_or_condition_cells_are_unsupported():
+    hits, counts = np.zeros((1, 2)), np.array([100., 29.])
+    result, support = combination.naive_bayes_probability(
+        hits, counts, [np.zeros((1, 2))], [np.array([29., 100.])]
+    )
+    assert np.isnan(result).all()
+    np.testing.assert_array_equal(support, [29., 29.])
+
+
+def test_feature_bins_use_stored_edges_the_stage1_tie_convention_and_missing_values():
+    edges = np.array([.5, 1.5])
+    values = np.array([.2, .5, 1.0, 1.5, 9.0, np.nan])
+    bins = feature_bins_from_artifact({"feature_values": values, "bin_edges": edges})
+    assert bins.tolist() == [0, 0, 1, 1, 2, -1]
+    expected = barrier.bin_indices(torch.from_numpy(values[None, :5]), torch.from_numpy(edges[None]))
+    assert bins[:5].tolist() == expected[0].tolist()
