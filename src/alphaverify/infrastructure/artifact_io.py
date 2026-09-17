@@ -80,7 +80,7 @@ def _write_arrays(path: Path, payload: dict, meta: dict) -> None:
     )
 
 
-def _read_arrays(path: Path, float64_keys: tuple[str, ...] = ()) -> dict:
+def _read_arrays(path: Path, float64_keys: tuple[str, ...]) -> dict:
     artifact = dict(load_safetensors(str(path)))
     with safe_open(str(path), framework="np") as stored:
         header = stored.metadata() or {}
@@ -135,8 +135,7 @@ def save_shift(probability_shift: np.ndarray, path: Path, meta: dict) -> None:
     """
     _write_arrays(
         path, {"probability_shift": np.asarray(probability_shift, dtype=np.float32)},
-        {**meta, "value": "probability_shift",
-         "shift_version": SHIFT_VERSION, "shift_unit": SHIFT_UNIT},
+        {**meta, "shift_version": SHIFT_VERSION, "shift_unit": SHIFT_UNIT},
     )
 
 

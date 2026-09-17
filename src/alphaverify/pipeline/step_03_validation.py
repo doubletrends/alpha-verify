@@ -116,7 +116,7 @@ def cmd_validation(ws: Workspace) -> None:
                 {"node": node["id"], "family": node["family"],
                  "feature": node["feature"], "params": node["params"],
                  "bin": b, "bin_number": b + 1,
-                 "bin_label": labels[b] if b < len(labels) else f"bin {b + 1}"}
+                 "bin_label": labels[b]}
                 for b in range(len(scores))
             ]
             skipped.extend({**identities[b], "reason": "no eligible cells"}

@@ -86,7 +86,7 @@ class ArtifactIoTests(unittest.TestCase):
         self.assertEqual(set(loaded), {"probability_shift", "meta"})
         self.assertEqual(loaded["probability_shift"].dtype, np.dtype(np.float64))
         self.assertEqual(loaded["meta"], {"stage": 2, "artifact_schema_version": 2,
-            "value": "probability_shift", "shift_unit": artifact_io.SHIFT_UNIT,
+            "shift_unit": artifact_io.SHIFT_UNIT,
             "shift_version": artifact_io.SHIFT_VERSION})
 
     def test_shift_without_the_current_units_is_rejected(self) -> None:

@@ -32,7 +32,7 @@ python -m pytest -q tests/test_validation_pipeline.py
 | `test_forecast_pipeline.py` | Stage 5 lists only nodes that cleared, groups their bins, counts tested bins per node, and orders nodes by evidence; uses one active bin per family with recorded skips; matches naive Bayes to stored Stage 1 counts and the joint rate to an independent Stage 1 measurement; writes the workbook tabs; falls back to the baseline with no cleared bins; goes stale when the selection changes; and requires a current selection |
 | `test_scoring_parity.py` | Full-grid versus streamed score/validity parity; cached versus streamed excursions; observed outcomes against an independent reference; per-path baselines; drift regression; quantiles, ties, missing values, thin bins, and fixed external edges |
 | `test_multiple_testing.py` | Benjamini–Hochberg q-values against a hand-worked example and the step-up definition, including ties and the Monte Carlo p floor |
-| `test_shift_units.py` | Probability-difference shifts, thresholds in probability units, workbook percentage formatting, and score comparison invariance |
+| `test_shift_units.py` | Probability-difference shifts, thresholds in probability units, required workspace settings, per-bin strongest cells, workbook percentage formatting, and score comparison invariance |
 | `test_notation_contract.py` | OHLCV component order |
 | `test_stage_reporting.py` | Stable stage headings, summaries, timing shape, and bounded progress milestones |
 | `test_workspace_contracts.py` | Nasdaq catalog and stage paths; exact artifact-history restoration; per-run workspace feed caching; BTC hourly loader |

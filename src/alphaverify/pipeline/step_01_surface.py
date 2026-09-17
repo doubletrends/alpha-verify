@@ -40,7 +40,6 @@ def _build_cube(context: RunContext, node: dict) -> None:
         "workspace": workspace.dir.name,
         "data_provenance": data.attrs.get("provenance", {}),
         "bin_labels": barrier.bin_labels(edges),
-        "grid": "full",
         "generated": datetime.now(timezone.utc).isoformat(),
     })
 

@@ -96,7 +96,7 @@ def _compute(ohlcv: torch.Tensor, feature: str, params: dict, cache: dict) -> to
             ("macd_line", params["fast"], params["slow"]),
             lambda: (fast_ema - slow_ema) / close,
         )
-        return line if feature == "macd" else line - _ema(line, params.get("signal", 9))
+        return line if feature == "macd" else line - _ema(line, params["signal"])
     if feature in {"realized_vol", "vol_ratio"}:
         returns = remembered(("returns",), lambda: _returns(close))
         if feature == "realized_vol": return std(returns, params["period"]) * (252.0 ** 0.5) * 100.0
@@ -108,8 +108,9 @@ def _compute(ohlcv: torch.Tensor, feature: str, params: dict, cache: dict) -> to
         ).amax(-1))
         return mean(tr, params["period"]) / close
     if feature in {"bb_pct", "bb_width"}:
-        average, deviation = mean(close, params["period"]), std(close, params["period"]); multiple = params.get("std_dev", 2.0)
-        return (close - (average - multiple * deviation)) / (2 * multiple * deviation) if feature == "bb_pct" else 2 * multiple * deviation / average
+        # Bands sit two standard deviations from the moving average.
+        average, deviation = mean(close, params["period"]), std(close, params["period"])
+        return (close - (average - 2 * deviation)) / (4 * deviation) if feature == "bb_pct" else 4 * deviation / average
     if feature == "volume_ratio":
         return volume / mean(volume, params["period"])
     if feature in {"stoch_k", "stoch_d", "williams_r", "wr_spread"}:
@@ -126,7 +127,7 @@ def _compute(ohlcv: torch.Tensor, feature: str, params: dict, cache: dict) -> to
                 ("stoch", period), lambda: 100.0 * (close - lowest) / (highest - lowest),
             )
         if feature == "stoch_k": return stoch(params["k_period"])
-        if feature == "stoch_d": return mean(stoch(params["k_period"]), params.get("d_period", 3))
+        if feature == "stoch_d": return mean(stoch(params["k_period"]), params["d_period"])
         if feature == "williams_r": return williams(params["period"])
         return williams(params["fast"]) - williams(params["slow"])
     raise ValueError(f"Torch feature not implemented: {feature}")

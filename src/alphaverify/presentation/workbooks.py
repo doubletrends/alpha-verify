@@ -77,13 +77,10 @@ def _write_headers(ws, row1: str, row2: str, merge_end: str) -> None:
         ws.row_dimensions[r].height = 18
 
 
-def _condition_title(node_id: str, labels: list[str], edges: np.ndarray,
-                     bin_index: int, unconditional: bool) -> str:
+def _condition_title(node_id: str, edges: np.ndarray, bin_index: int) -> str:
     display_feature = feature_label(node_id)
-    if unconditional:
+    if len(edges) == 0:
         condition = 'all'
-    elif len(edges) == 0:
-        condition = labels[bin_index]
     elif bin_index == 0:
         condition = f'{display_feature} < {float(edges[0]):.3f}'
     elif bin_index == len(edges):
@@ -187,7 +184,6 @@ def _write_bin_faces(
     labels = cube['meta']['bin_labels']
     bin_edges = cube['bin_edges']
     effective_bin_count = values.shape[1]
-    unconditional = effective_bin_count == 1 and labels[0] == 'all'
     names = _sheet_names(list(labels))
 
     wb = Workbook()
@@ -196,13 +192,13 @@ def _write_bin_faces(
         _write_face(
             wb.create_sheet(names[b]), values[:, b, :], cube['bin_observation_counts'][b],
             cube['barriers'], cube['horizons'], unit,
-            title=_condition_title(node_id, labels, bin_edges, b, unconditional), **face,
+            title=_condition_title(node_id, bin_edges, b), **face,
         )
     path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(path)
 
 
-def write_surface_xlsx(cube: dict, path: Path, node_id: str, unit: str = 'd') -> None:
+def write_surface_xlsx(cube: dict, path: Path, node_id: str, unit: str) -> None:
     """Stage 1 view: conditional probabilities on a fixed 0..100% scale."""
     _write_bin_faces(
         cube, cube['conditional_probability'], path, node_id, unit,
@@ -214,7 +210,7 @@ def write_surface_xlsx(cube: dict, path: Path, node_id: str, unit: str = 'd') ->
     )
 
 
-def write_shift_xlsx(cube: dict, path: Path, node_id: str, unit: str = 'd') -> None:
+def write_shift_xlsx(cube: dict, path: Path, node_id: str, unit: str) -> None:
     """
     Stage 2 view: probability differences from the baseline, displayed as percentages.
 

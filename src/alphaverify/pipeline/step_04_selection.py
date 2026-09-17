@@ -48,7 +48,7 @@ def cmd_selection(ws: Workspace) -> None:
     )))
     raw_p = validation["method"]["threshold"]["raw_p"]
 
-    selected = [dict(row) for row in validation.get("cleared", []) if row.get("cleared")]
+    selected = [dict(row) for row in validation.get("cleared", [])]
     selected.sort(key=lambda row: (float(row["monte_carlo_p_value"]), row["node"], int(row["bin"])))
     previous_p = None
     for position, row in enumerate(selected, 1):

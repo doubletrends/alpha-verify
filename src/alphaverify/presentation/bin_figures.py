@@ -30,9 +30,7 @@ def figure_name(row: dict) -> str:
 
 
 def _condition(row: dict) -> str:
-    return str(row.get("bin_label", f'bin {int(row["bin_number"])}')).replace(
-        "x", feature_label(row["node"])
-    )
+    return row["bin_label"].replace("x", feature_label(row["node"]))
 
 
 def _panel_title(ax, text: str) -> None:
@@ -85,7 +83,7 @@ def draw_null_histogram(ax, row: dict, null: np.ndarray) -> None:
 
 def write_bin_figures(
     out: Path, rows: list[dict], cubes: dict[str, dict], *,
-    workspace: str, horizon_unit: str, progress=None,
+    workspace: str, horizon_unit: str, progress,
 ) -> list[Path]:
     """Write one standard figure per validation row into ``out``.
 
@@ -128,8 +126,7 @@ def write_bin_figures(
             fig.subplots_adjust(top=0.80, bottom=0.11, left=0.05, right=0.98)
             paths.append(_save(fig, out / figure_name(row)))
         finally:
-            if progress is not None:
-                progress.advance()
+            progress.advance()
 
     current = set(paths)
     for path in out.glob("*.png"):
