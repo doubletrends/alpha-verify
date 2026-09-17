@@ -12,6 +12,7 @@
 | `alphaverify.pipeline.step_02_shift.cmd_shift` | Stage 2 `compare` implementation |
 | `alphaverify.pipeline.step_03_validation.cmd_validation` | Stage 3 `validate` implementation |
 | `alphaverify.pipeline.step_04_selection.cmd_selection` | Stage 4 `select` implementation |
+| `alphaverify.pipeline.step_05_summary.cmd_summary` | Stage 5 `summarize` implementation |
 | `alphaverify.pipeline.status.cmd_status` | Read-only workspace and node inspection |
 
 The CLI constructs `Workspace(args.workspace)` relative to `Path.cwd() / "workspaces"`; run it from the repository root unless calling the Python API with an explicit workspace directory.
@@ -82,6 +83,8 @@ flowchart LR
     V --> A3[03_validation<br/>validation.json + bin figures]
     A3 --> S[select]
     S --> A4[04_selection<br/>selection.json + bin figures]
+    A4 --> Y[summarize]
+    Y --> A5[05_summary<br/>summary.json + XLSX]
 ```
 
 Stages are restartable but ordered. A missing prerequisite produces a compact report rather than synthesizing upstream data.
@@ -170,6 +173,10 @@ For each eligible condition bin, validation recomputes the complete linearly bar
 
 Selection requires a complete, current Stage 3 result and retains every and only row whose `cleared` value is true. The manifest answers "which bins are most likely real?": bins are ranked by ascending raw p-value alone, bins with equal p share a rank and are listed by node and bin, and observed score never breaks a tie. Each selected bin records its Benjamini–Hochberg `q_value`, computed across every tested bin rather than only the cleared ones, and the summary records `tested` and `expected_by_chance` (tests × raw threshold). Ranking and q-values are reported, not additional selection rules. `selection.json` fingerprints the exact validation bytes and records its ranking method; a manifest from another ranking method is stale. Each selected bin receives the standard bin figure in `04_selection/plot/`, identical to its Stage 3 figure. It is drawn from the null scores in `validation.json`, so selection does not depend on Stage 3 image files.
 
+### Stage 5: `summarize`
+
+The summary requires a complete, current Stage 4 result and answers which nodes cleared, and with which bins. It lists only nodes with at least one selected bin, each with its cleared and tested bin counts, its cleared bins (number, label, rank, p, and q), and its best rank, p, and q. Nodes follow their strongest bin's rank. The summary records nodes and bins tested and cleared plus the count expected by chance. `summary.json` fingerprints the exact selection bytes, and `summary.xlsx` shows one row per cleared node. It adds no statistical rule; it regroups Stage 4.
+
 
 ## Statistical boundary
 
@@ -194,6 +201,7 @@ Changing any of these assumptions changes the experiment contract. Update the im
 | Observed/null calculation and null generation | `domain/validation.py`; measurement delegates to `domain/barrier.py` and scoring to `domain/scoring.py` |
 | Validation threshold and fingerprint | `pipeline/step_03_validation.py` and `03_validation/validation.json` |
 | Selection ranking and q-value method | `pipeline/step_04_selection.py` (`RANKING`) and `domain/multiple_testing.py` |
+| Cleared-node grouping | `pipeline/step_05_summary.py` (`cleared_nodes`) |
 | Terminal colors and rules | `pipeline/reporting.py` |
 | Node display names and shift color limit | `presentation/display.py` |
 

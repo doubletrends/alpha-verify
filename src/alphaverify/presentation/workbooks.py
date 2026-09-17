@@ -1,12 +1,13 @@
 """
 The pipeline's deliverable.
 
-Each workbook renders a cube as one tab per condition bin. Each tab is that bin's
+Each cube workbook renders a cube as one tab per condition bin. Each tab is that bin's
 whole barrier-by-horizon face, so the workbook holds every value the cube holds -- it is
 a faithful view of the measurement, not a summary of it.
 
 Stage 1 workbooks show raw conditional probabilities. Stage 2 shift workbooks show the
-same full grid after subtracting the unconditional baseline.
+same full grid after subtracting the unconditional baseline. The Stage 5 workbook is the
+one summary view: a row per node that cleared, listing its cleared bins.
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ from alphaverify.presentation.display import SHIFT_DISPLAY_LIMIT, feature_label
 
 _PCT_FMT = '0.0%'
 _SHIFT_PCT_FMT = '+0.0%;-0.0%;0.0%'
+_P_FMT = '0.0000'
 
 _WHITE, _AMBER, _RED = 'FFFFFF', 'FFD166', 'C00000'
 _BLUE = '2A78D6'
@@ -216,3 +218,44 @@ def write_shift_xlsx(cube: dict, path: Path, node_id: str, unit: str = 'd') -> N
         ),
         column_width=8.5,
     )
+
+
+_SUMMARY_COLUMNS = (
+    # header, width, number format
+    ('node', 24, None),
+    ('family', 16, None),
+    ('feature', 18, None),
+    ('cleared bins', 12, '0'),
+    ('tested bins', 11, '0'),
+    ('bin numbers', 14, None),
+    ('conditions (x = feature)', 44, None),
+    ('best rank', 10, '0'),
+    ('best p', 10, _P_FMT),
+    ('best q', 10, _P_FMT),
+)
+
+
+def write_node_summary_xlsx(nodes: list[dict], path: Path) -> None:
+    """Stage 5 view: one row per node that cleared, ordered by its strongest bin."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'cleared nodes'
+    for column, (header, width, _) in enumerate(_SUMMARY_COLUMNS, 1):
+        c = ws.cell(row=1, column=column, value=header)
+        c.font, c.fill, c.alignment = Font(bold=True, color='FFFFFF'), _FILL_ROW1, _CENTER
+        ws.column_dimensions[get_column_letter(column)].width = width
+    for row, node in enumerate(nodes, 2):
+        values = (
+            node['node'], node['family'], node['feature'],
+            node['bins_cleared'], node['bins_tested'],
+            ', '.join(str(item['bin_number']) for item in node['bins']),
+            '; '.join(item['bin_label'] for item in node['bins']),
+            node['best_rank'], node['best_p_value'], node['best_q_value'],
+        )
+        for column, (value, (_, _, number_format)) in enumerate(zip(values, _SUMMARY_COLUMNS), 1):
+            c = ws.cell(row=row, column=column, value=value)
+            if number_format:
+                c.number_format = number_format
+    ws.freeze_panes = 'B2'
+    path.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(path)

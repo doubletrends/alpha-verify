@@ -168,10 +168,12 @@ def test_measurement_retains_workspace_provenance(tmp_path, monkeypatch):
     assert artifact_io.load_surface(ws.cube_path("baseline"))["meta"]["data_provenance"] == data.attrs["provenance"]
 
 
-def test_workspace_data_runs_through_all_four_stages_offline(tmp_path, monkeypatch):
+def test_workspace_data_runs_through_all_five_stages_offline(tmp_path, monkeypatch):
     """Exercise real module loading, preparation, snapshots, artifacts, and downstream stages."""
     import yfinance
-    from alphaverify.pipeline import step_01_surface, step_02_shift, step_03_validation, step_04_selection
+    from alphaverify.pipeline import (
+        step_01_surface, step_02_shift, step_03_validation, step_04_selection, step_05_summary,
+    )
 
     originals = Path(__file__).parents[1] / "workspaces"
     local = tmp_path / "workspaces"
@@ -210,5 +212,7 @@ def test_workspace_data_runs_through_all_four_stages_offline(tmp_path, monkeypat
     step_02_shift.cmd_shift(ws)
     step_03_validation.cmd_validation(ws)
     step_04_selection.cmd_selection(ws)
+    step_05_summary.cmd_summary(ws)
     assert step_03_validation.validation_summary_is_current(ws, artifact_io.read_json(ws.validation_summary_path))
     assert step_04_selection.selection_summary_is_current(ws, artifact_io.read_json(ws.selection_summary_path))
+    assert step_05_summary.node_summary_is_current(ws, artifact_io.read_json(ws.node_summary_path))

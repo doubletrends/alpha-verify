@@ -28,6 +28,7 @@ python -m pytest -q tests/test_validation_pipeline.py
 | `test_cli_contract.py` | Supported command set and order; workspace/CUDA option parsing; optional node status; rejection of removed or unsupported flags |
 | `test_validation_pipeline.py` | Observed/null role parity through actual pipeline calls despite corrupted presentation arrays; all-bin validation without selection; shared/distinct history ensembles; input fingerprints; missing artifacts; zero-score bins; rank-free bin figures shared with Stage 4 |
 | `test_selection_pipeline.py` | Cleared-only Stage 4 selection, evidence-only ranking with shared ranks for equal p, q-values across all tested bins, stale manifests from other ranking methods, validation fingerprint freshness, and standard bin-figure rendering with equal-width panels |
+| `test_summary_pipeline.py` | Stage 5 lists only nodes that cleared, groups their bins, counts tested bins per node, orders nodes by evidence, writes the workbook, requires a current selection, handles no cleared bins, and goes stale when the selection changes |
 | `test_scoring_parity.py` | Full-grid versus streamed score/validity parity; cached versus streamed excursions; observed outcomes against an independent reference; per-path baselines; drift regression; quantiles, ties, missing values, thin bins, and fixed external edges |
 | `test_multiple_testing.py` | Benjamini–Hochberg q-values against a hand-worked example and the step-up definition, including ties and the Monte Carlo p floor |
 | `test_shift_units.py` | Probability-difference storage, legacy unit conversion, threshold equivalence, workbook percentage formatting, and score comparison invariance |
@@ -60,7 +61,7 @@ Use `TemporaryDirectory` and public persistence helpers. Verify both the stored 
 
 ### CLI or pipeline
 
-Test parsing and routing without downloading data. Preserve the public order `measure`, `compare`, `validate`, `select`, `status`. Output assertions should protect useful structure and contracts, not incidental whitespace unless the formatting itself is the interface under test.
+Test parsing and routing without downloading data. Preserve the public order `measure`, `compare`, `validate`, `select`, `summarize`, `status`. Output assertions should protect useful structure and contracts, not incidental whitespace unless the formatting itself is the interface under test.
 
 ### Workspace
 
@@ -75,11 +76,12 @@ Prefer assertions about filenames, labels, dimensions, and data handed to the re
 Changes to the scientific path require a staged workspace run:
 
 ```powershell
-alphaverify measure  --workspace <name>
-alphaverify compare  --workspace <name>
-alphaverify validate --workspace <name>
-alphaverify select   --workspace <name>
-alphaverify status   --workspace <name>
+alphaverify measure   --workspace <name>
+alphaverify compare   --workspace <name>
+alphaverify validate  --workspace <name>
+alphaverify select    --workspace <name>
+alphaverify summarize --workspace <name>
+alphaverify status    --workspace <name>
 ```
 
 Then inspect `validation.json`, `selection.json`, representative spreadsheets, and bin figures. Generated artifacts are local and ignored by Git; see the [workspace contract](../workspaces/README.md).

@@ -11,6 +11,7 @@ from alphaverify.infrastructure import artifact_io
 from alphaverify.infrastructure.workspace import Workspace
 from alphaverify.pipeline.step_03_validation import validation_summary_is_current
 from alphaverify.pipeline.step_04_selection import selection_summary_is_current
+from alphaverify.pipeline.step_05_summary import node_summary_is_current
 from alphaverify.pipeline.context import materialized_shift
 
 
@@ -144,6 +145,15 @@ def cmd_status(ws: Workspace, node_id: str | None = None) -> None:
         print(f"  selection: {len(selected_rows)} cleared bins rendered in Stage 4")
     elif selection:
         print("  selection: stale - run select")
+    node_summary = artifact_io.read_json(ws.node_summary_path)
+    if node_summary and node_summary_is_current(ws, node_summary):
+        counts = node_summary["summary"]
+        print(
+            f"  summary: {counts['nodes_cleared']} of {counts['nodes_tested']} tested nodes "
+            f"cleared {counts['bins_cleared']} bins in Stage 5"
+        )
+    elif node_summary:
+        print("  summary: stale - run summarize")
 
     print()
     header = f"  {'family':<15}" + "".join(
