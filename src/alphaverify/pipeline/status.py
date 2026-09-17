@@ -15,6 +15,21 @@ from alphaverify.pipeline.step_05_summary import node_summary_is_current
 from alphaverify.pipeline.context import materialized_shift
 
 
+def no_strong_cell_line(ws: Workspace) -> str:
+    return f"no cell reaches {ws.min_dev:.1%} across {ws.min_run} adjacent barrier rows"
+
+
+def strongest_cell_line(ws: Workspace, best: dict) -> str:
+    """One strongest-cell result from ``shift.evaluate``, in inspection wording."""
+    return (
+        f"strongest cell: shift={best['dev']:+.1%}; "
+        f"P={best['conditional_probability']:.1%} "
+        f"vs {best['baseline_probability']:.1%} baseline "
+        f"at barrier={best['barrier']:+.0%}, +{best['horizon']}{ws.horizon_unit} "
+        f"(run={best['run']}, n={best['bin_observation_count']})"
+    )
+
+
 def _print_node_status(ws: Workspace, node_id: str) -> None:
     """Print one node's strongest shift and its available null result."""
     node = ws.catalog.find(node_id)
@@ -35,21 +50,12 @@ def _print_node_status(ws: Workspace, node_id: str) -> None:
     evaluation = shift.evaluate(cube, ws.min_dev, ws.min_bin_n, ws.min_run)
     best = evaluation["best"]
     if not best:
-        print(
-            f"  no cell reaches {ws.min_dev:.1%} across "
-            f"{ws.min_run} adjacent barrier rows"
-        )
+        print(f"  {no_strong_cell_line(ws)}")
         return
 
     bin_index = best["bin"]
     print(f"  strongest bin : {bin_index + 1} of {len(labels)}   ({labels[bin_index]})")
-    print(
-        f"  strongest cell: shift={best['dev']:+.1%}; "
-        f"P={best['conditional_probability']:.1%} "
-        f"vs {best['baseline_probability']:.1%} baseline "
-        f"at barrier={best['barrier']:+.0%}, +{best['horizon']}{ws.horizon_unit} "
-        f"(run={best['run']}, n={best['bin_observation_count']})"
-    )
+    print(f"  {strongest_cell_line(ws, best)}")
 
     available = {int(value) for value in horizons}
     shown_horizons = [
@@ -154,6 +160,16 @@ def cmd_status(ws: Workspace, node_id: str | None = None) -> None:
         )
     elif node_summary:
         print("  summary: stale - run summarize")
+    # Imported here: the forecast stage imports this module's wording helpers.
+    from alphaverify.pipeline.step_06_forecast import forecast_is_current
+    forecast = artifact_io.read_json(ws.forecast_path)
+    if forecast and forecast_is_current(ws, forecast):
+        print(
+            f"  forecast: as of {forecast['as_of']}, {forecast['summary']['conditions_used']} "
+            f"conditions used of {forecast['summary']['bins_active']} active"
+        )
+    elif forecast:
+        print("  forecast: stale - run forecast")
 
     print()
     header = f"  {'family':<15}" + "".join(

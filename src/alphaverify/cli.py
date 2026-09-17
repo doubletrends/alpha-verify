@@ -14,6 +14,7 @@ from alphaverify.pipeline.step_02_shift import cmd_shift
 from alphaverify.pipeline.step_03_validation import cmd_validation
 from alphaverify.pipeline.step_04_selection import cmd_selection
 from alphaverify.pipeline.step_05_summary import cmd_summary
+from alphaverify.pipeline.step_06_forecast import cmd_forecast
 from alphaverify.pipeline.status import cmd_status
 
 
@@ -62,6 +63,13 @@ COMMANDS = (
         "Summarize cleared nodes and bins",
         cmd_summary,
         stage="summary",
+    ),
+    Command(
+        "forecast",
+        "6. combine cleared bins active on the last stored bar",
+        "Forecast from active cleared bins",
+        cmd_forecast,
+        stage="forecast",
     ),
     Command(
         "status",
