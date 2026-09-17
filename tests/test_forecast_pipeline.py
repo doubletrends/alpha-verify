@@ -15,7 +15,6 @@ from alphaverify.infrastructure.workspace import Workspace
 from alphaverify.pipeline import step_02_shift
 from alphaverify.pipeline import step_04_selection as selection_stage
 from alphaverify.pipeline import step_05_forecast as forecast_stage
-from alphaverify.pipeline.status import cmd_status
 from alphaverify.presentation import bin_figures
 
 BARRIERS, HORIZONS = np.array([-.02, -.01, .01, .02]), np.array([1, 5])
@@ -167,7 +166,7 @@ def test_forecast_surfaces_match_stage1_counts_and_an_independent_joint_measurem
     assert np.isfinite(joint).any()
 
 
-def test_forecast_workbook_tabs_and_currency(forecast_workspace, capsys):
+def test_forecast_workbook_tabs(forecast_workspace):
     ws = forecast_workspace
     forecast_stage.cmd_forecast(ws)
     book = load_workbook(ws.forecast_workbook_path)
@@ -179,16 +178,6 @@ def test_forecast_workbook_tabs_and_currency(forecast_workspace, capsys):
     assert nodes[0][:5] == ("node", "family", "feature", "cleared bins", "tested bins")
     assert [row[0] for row in nodes[1:]] == ["a", "b", "c"]
     assert nodes[3][3:5] == (2, 4)
-
-    result = artifact_io.read_json(ws.forecast_path)
-    assert forecast_stage.forecast_is_current(ws, result)
-    selection = artifact_io.read_json(ws.selection_summary_path)
-    selection["generated"] = "changed"
-    artifact_io.write_json(ws.selection_summary_path, selection)
-    assert not forecast_stage.forecast_is_current(ws, result)
-    capsys.readouterr()
-    cmd_status(ws)
-    assert "forecast: stale - run forecast" in capsys.readouterr().out
 
 
 def test_no_cleared_bins_forecasts_the_baseline(forecast_workspace):

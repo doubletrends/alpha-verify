@@ -14,16 +14,14 @@ from alphaverify.pipeline.step_02_shift import cmd_shift
 from alphaverify.pipeline.step_03_validation import cmd_validation
 from alphaverify.pipeline.step_04_selection import cmd_selection
 from alphaverify.pipeline.step_05_forecast import cmd_forecast
-from alphaverify.pipeline.status import cmd_status
 
 
 @dataclass(frozen=True)
 class Command:
     name: str
     summary: str
-    handler: Callable[..., None]
-    stage: str | None = None
-    accepts_node: bool = False
+    handler: Callable[[Workspace], None]
+    stage: str
 
 
 COMMANDS = (
@@ -57,12 +55,6 @@ COMMANDS = (
         cmd_forecast,
         stage="forecast",
     ),
-    Command(
-        "status",
-        "Show workspace or node results",
-        cmd_status,
-        accepts_node=True,
-    ),
 )
 COMMAND_BY_NAME = {command.name: command for command in COMMANDS}
 
@@ -83,19 +75,10 @@ def overview(color: bool) -> str:
         *heading("Pipeline"),
     ]
     for command in COMMANDS:
-        if command.stage:
-            lines.append(
-                f"    {bold}{command.name}{reset}{' ' * (12 - len(command.name))}"
-                f"{command.summary:<38}→ {dim}{STAGE_DIRECTORIES[command.stage]}/{reset}"
-            )
-    lines += ["", *heading("Inspect")]
-    for command in COMMANDS:
-        if not command.stage:
-            usage = " [NODE]" if command.accepts_node else ""
-            lines.append(
-                f"    {bold}{command.name}{reset}{usage}"
-                f"{' ' * (17 - len(command.name + usage))}{command.summary}"
-            )
+        lines.append(
+            f"    {bold}{command.name}{reset}{' ' * (12 - len(command.name))}"
+            f"{command.summary:<38}→ {dim}{STAGE_DIRECTORIES[command.stage]}/{reset}"
+        )
     lines += [
         "",
         *heading("Options"),
@@ -129,15 +112,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     for command in COMMANDS:
-        subparser = commands.add_parser(command.name)
-        if command.accepts_node:
-            subparser.add_argument(
-                "node",
-                nargs="?",
-                metavar="NODE",
-                help="show detailed status for this node ID",
-            )
-        _add_run_options(subparser)
+        _add_run_options(commands.add_parser(command.name))
     return parser
 
 
@@ -150,11 +125,7 @@ def main(argv: list[str] | None = None) -> None:
     ws = Workspace(args.workspace)
     tensor_runtime.configure(args.cuda)
 
-    command = COMMAND_BY_NAME[args.command]
-    if command.accepts_node:
-        command.handler(ws, args.node)
-    else:
-        command.handler(ws)
+    COMMAND_BY_NAME[args.command].handler(ws)
 
 
 if __name__ == "__main__":
