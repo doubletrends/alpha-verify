@@ -44,6 +44,10 @@ class StageReport:
             "Summary of cleared nodes and bins",
             "Group the selected condition bins by node",
         ),
+        6: (
+            "Forecast from cleared conditions active on the last bar",
+            "Naive Bayes over one active bin per family, checked against the historical joint rate",
+        ),
     }
 
     def __init__(self, number: int) -> None:

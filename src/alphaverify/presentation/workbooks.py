@@ -91,13 +91,27 @@ def _condition_title(node_id: str, labels: list[str], edges: np.ndarray,
     return f'Condition —— {condition}'
 
 
-def _write_bin_faces(
-    cube: dict,
+_PROBABILITY_SCALE = dict(
+    start_type='num', start_value=0,   start_color=_WHITE,
+    mid_type='num',   mid_value=0.5,   mid_color=_AMBER,
+    end_type='num',   end_value=1.0,   end_color=_RED,
+)
+_SHIFT_SCALE = dict(
+    start_type='num', start_value=-SHIFT_DISPLAY_LIMIT, start_color=_BLUE,
+    mid_type='num', mid_value=0, mid_color=_WHITE,
+    end_type='num', end_value=SHIFT_DISPLAY_LIMIT, end_color=_RED,
+)
+
+
+def _write_face(
+    ws,
     values: np.ndarray,
-    path: Path,
-    node_id: str,
+    observation_counts: np.ndarray,
+    barriers: np.ndarray,
+    horizons: np.ndarray,
     unit: str,
     *,
+    title: str,
     subtitle: str,
     cell_value,
     number_format: str,
@@ -105,79 +119,82 @@ def _write_bin_faces(
     column_width: float,
 ) -> None:
     """
-    One tab per condition bin; each tab is that bin's full barrier × horizon face.
+    Write one full barrier × horizon face, shaped ``(barrier, horizon)``, onto a sheet.
 
     Rows run from the highest barrier at the top to the lowest at the bottom, the way a
     price ladder reads: up the sheet is up in price. The zero barrier sits in the middle and is
     shaded, marking the boundary between two different questions -- above it a cell asks
     whether the *high* reached that level, below it whether the *low* did.
 
-    The colour scale is fixed on every tab, so flipping between them shows the band
-    moving with the condition instead of each tab being rescaled to look alike.
+    The colour scale is fixed, so flipping between tabs shows the band moving with the
+    condition instead of each tab being rescaled to look alike.
 
-    The n band under the header is the observation count behind that bin at each
+    The n band under the header is the observation count behind the face at each
     horizon; it falls as t grows, because the last t bars have no realized forward
     window.
     """
-    barriers = cube['barriers']
-    horizons = cube['horizons']
-    bin_observation_counts = cube['bin_observation_counts']
-    labels   = cube['meta']['bin_labels']
-    bin_edges = cube['bin_edges']
-    barrier_count, effective_bin_count, horizon_count = values.shape
-
+    barrier_count, horizon_count = values.shape
     order = np.argsort(barriers)[::-1]        # highest barrier on the top row
     end   = get_column_letter(1 + horizon_count)
+    _write_headers(ws, title, subtitle, merge_end=end)
 
-    wb = Workbook()
-    wb.remove(wb.active)
+    c = ws.cell(row=_COL_ROW, column=1, value='barrier')
+    c.font, c.alignment = Font(bold=True), _CENTER
+    for j, t in enumerate(horizons):
+        c = ws.cell(row=_COL_ROW, column=2 + j, value=f'+{int(t)}{unit}')
+        c.font, c.alignment = Font(bold=True), _CENTER
 
+    c = ws.cell(row=_N_ROW, column=1, value='n =')
+    c.font, c.fill = Font(bold=True, italic=True, size=9), _FILL_NBAND
+    for j in range(horizon_count):
+        c = ws.cell(row=_N_ROW, column=2 + j, value=int(observation_counts[j]))
+        c.font, c.fill, c.alignment = Font(italic=True, size=9), _FILL_NBAND, _CENTER
+
+    for r_off, i in enumerate(order):
+        r = _DATA_ROW + r_off
+        th = float(barriers[i])
+        is_zero = abs(th) < 1e-12
+        tc = ws.cell(row=r, column=1, value=th)
+        tc.number_format = '+0%;-0%;0%'
+        tc.font, tc.alignment = Font(bold=True), _CENTER
+        if is_zero:
+            tc.fill = _FILL_MID
+        for j in range(horizon_count):
+            v = values[i, j]
+            cell = ws.cell(row=r, column=2 + j,
+                           value=None if not np.isfinite(v) else cell_value(v))
+            cell.number_format = number_format
+            if not np.isfinite(v):
+                cell.fill = _FILL_NA
+
+    ws.conditional_formatting.add(
+        f'B{_DATA_ROW}:{end}{_DATA_ROW + barrier_count - 1}', ColorScaleRule(**color_scale)
+    )
+
+    ws.column_dimensions['A'].width = 8
+    for j in range(horizon_count):
+        ws.column_dimensions[get_column_letter(2 + j)].width = column_width
+    ws.freeze_panes = f'B{_DATA_ROW}'
+
+
+def _write_bin_faces(
+    cube: dict, values: np.ndarray, path: Path, node_id: str, unit: str, **face,
+) -> None:
+    """One tab per condition bin; each tab is that bin's full barrier × horizon face."""
+    labels = cube['meta']['bin_labels']
+    bin_edges = cube['bin_edges']
+    effective_bin_count = values.shape[1]
     unconditional = effective_bin_count == 1 and labels[0] == 'all'
     names = _sheet_names(list(labels))
 
+    wb = Workbook()
+    wb.remove(wb.active)
     for b in range(effective_bin_count):
-        ws = wb.create_sheet(names[b])
-        title = _condition_title(node_id, labels, bin_edges, b, unconditional)
-        _write_headers(ws, title, subtitle, merge_end=end)
-
-        c = ws.cell(row=_COL_ROW, column=1, value='barrier')
-        c.font, c.alignment = Font(bold=True), _CENTER
-        for j, t in enumerate(horizons):
-            c = ws.cell(row=_COL_ROW, column=2 + j, value=f'+{int(t)}{unit}')
-            c.font, c.alignment = Font(bold=True), _CENTER
-
-        c = ws.cell(row=_N_ROW, column=1, value='n =')
-        c.font, c.fill = Font(bold=True, italic=True, size=9), _FILL_NBAND
-        for j in range(horizon_count):
-            c = ws.cell(row=_N_ROW, column=2 + j, value=int(bin_observation_counts[b, j]))
-            c.font, c.fill, c.alignment = Font(italic=True, size=9), _FILL_NBAND, _CENTER
-
-        for r_off, i in enumerate(order):
-            r = _DATA_ROW + r_off
-            th = float(barriers[i])
-            is_zero = abs(th) < 1e-12
-            tc = ws.cell(row=r, column=1, value=th)
-            tc.number_format = '+0%;-0%;0%'
-            tc.font, tc.alignment = Font(bold=True), _CENTER
-            if is_zero:
-                tc.fill = _FILL_MID
-            for j in range(horizon_count):
-                v = values[i, b, j]
-                cell = ws.cell(row=r, column=2 + j,
-                               value=None if not np.isfinite(v) else cell_value(v))
-                cell.number_format = number_format
-                if not np.isfinite(v):
-                    cell.fill = _FILL_NA
-
-        ws.conditional_formatting.add(
-            f'B{_DATA_ROW}:{end}{_DATA_ROW + barrier_count - 1}', ColorScaleRule(**color_scale)
+        _write_face(
+            wb.create_sheet(names[b]), values[:, b, :], cube['bin_observation_counts'][b],
+            cube['barriers'], cube['horizons'], unit,
+            title=_condition_title(node_id, labels, bin_edges, b, unconditional), **face,
         )
-
-        ws.column_dimensions['A'].width = 8
-        for j in range(horizon_count):
-            ws.column_dimensions[get_column_letter(2 + j)].width = column_width
-        ws.freeze_panes = f'B{_DATA_ROW}'
-
     path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(path)
 
@@ -189,11 +206,7 @@ def write_surface_xlsx(cube: dict, path: Path, node_id: str, unit: str = 'd') ->
         subtitle='Conditional barrier-touch probability',
         cell_value=lambda v: round(float(v), 4),
         number_format=_PCT_FMT,
-        color_scale=dict(
-            start_type='num', start_value=0,   start_color=_WHITE,
-            mid_type='num',   mid_value=0.5,   mid_color=_AMBER,
-            end_type='num',   end_value=1.0,   end_color=_RED,
-        ),
+        color_scale=_PROBABILITY_SCALE,
         column_width=6.5,
     )
 
@@ -205,19 +218,28 @@ def write_shift_xlsx(cube: dict, path: Path, node_id: str, unit: str = 'd') -> N
     The color scale is centered at zero: blue means the barrier is touched less often
     than unconditional, red means more often.
     """
-    lim = SHIFT_DISPLAY_LIMIT
     _write_bin_faces(
         cube, cube['probability_shift'], path, node_id, unit,
         subtitle='Conditional probability minus baseline probability',
         cell_value=float,
         number_format=_SHIFT_PCT_FMT,
-        color_scale=dict(
-            start_type='num', start_value=-lim, start_color=_BLUE,
-            mid_type='num', mid_value=0, mid_color=_WHITE,
-            end_type='num', end_value=lim, end_color=_RED,
-        ),
+        color_scale=_SHIFT_SCALE,
         column_width=8.5,
     )
+
+
+def _write_table(ws, columns: tuple, rows: list[tuple]) -> None:
+    """Header row plus one row per record; ``columns`` holds (header, width, number format)."""
+    for column, (header, width, _) in enumerate(columns, 1):
+        c = ws.cell(row=1, column=column, value=header)
+        c.font, c.fill, c.alignment = Font(bold=True, color='FFFFFF'), _FILL_ROW1, _CENTER
+        ws.column_dimensions[get_column_letter(column)].width = width
+    for row, values in enumerate(rows, 2):
+        for column, (value, (_, _, number_format)) in enumerate(zip(values, columns), 1):
+            c = ws.cell(row=row, column=column, value=value)
+            if number_format:
+                c.number_format = number_format
+    ws.freeze_panes = 'B2'
 
 
 _SUMMARY_COLUMNS = (
@@ -240,22 +262,77 @@ def write_node_summary_xlsx(nodes: list[dict], path: Path) -> None:
     wb = Workbook()
     ws = wb.active
     ws.title = 'cleared nodes'
-    for column, (header, width, _) in enumerate(_SUMMARY_COLUMNS, 1):
-        c = ws.cell(row=1, column=column, value=header)
-        c.font, c.fill, c.alignment = Font(bold=True, color='FFFFFF'), _FILL_ROW1, _CENTER
-        ws.column_dimensions[get_column_letter(column)].width = width
-    for row, node in enumerate(nodes, 2):
-        values = (
+    _write_table(ws, _SUMMARY_COLUMNS, [
+        (
             node['node'], node['family'], node['feature'],
             node['bins_cleared'], node['bins_tested'],
             ', '.join(str(item['bin_number']) for item in node['bins']),
             '; '.join(item['bin_label'] for item in node['bins']),
             node['best_rank'], node['best_p_value'], node['best_q_value'],
         )
-        for column, (value, (_, _, number_format)) in enumerate(zip(values, _SUMMARY_COLUMNS), 1):
-            c = ws.cell(row=row, column=column, value=value)
-            if number_format:
-                c.number_format = number_format
-    ws.freeze_panes = 'B2'
+        for node in nodes
+    ])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(path)
+
+
+_CONDITION_COLUMNS = (
+    ('family', 16, None),
+    ('node', 24, None),
+    ('bin', 6, '0'),
+    ('condition (x = feature)', 30, None),
+    ('latest value', 13, '0.0000'),
+    ('rank', 8, '0'),
+    ('p', 10, _P_FMT),
+    ('q', 10, _P_FMT),
+    ('used', 8, None),
+    ('note', 36, None),
+)
+
+
+def write_forecast_xlsx(
+    path: Path, *, as_of: str, barriers: np.ndarray, horizons: np.ndarray, unit: str,
+    combined: np.ndarray, combined_counts: np.ndarray, baseline: np.ndarray,
+    joint: np.ndarray, joint_counts: np.ndarray, conditions: list[dict],
+) -> None:
+    """
+    Stage 6 view: the naive Bayes surface beside the historical joint rate it assumes away.
+
+    Tabs show the combined probability, its shift from the baseline, the historical
+    touch rate on bars where every contributing condition held, and their gap. Surfaces
+    are ``(barrier, horizon)``; the combined n band is the weakest contributor's count.
+    """
+    used = sum(1 for row in conditions if row['used'])
+    title = f'Forecast —— as of {as_of} · {used} condition{"" if used == 1 else "s"}'
+    wb = Workbook()
+    wb.remove(wb.active)
+    faces = (
+        ('naive Bayes', combined, combined_counts,
+         'Naive Bayes barrier-touch probability (conditions treated as independent)',
+         lambda v: round(float(v), 4), _PCT_FMT, _PROBABILITY_SCALE, 6.5),
+        ('vs baseline', combined - baseline, combined_counts,
+         'Naive Bayes probability minus baseline probability',
+         float, _SHIFT_PCT_FMT, _SHIFT_SCALE, 8.5),
+        ('historical joint', joint, joint_counts,
+         'Historical touch rate on bars where every contributing condition held',
+         lambda v: round(float(v), 4), _PCT_FMT, _PROBABILITY_SCALE, 6.5),
+        ('naive Bayes - joint', combined - joint, joint_counts,
+         'Naive Bayes minus historical joint rate: positive means the combination overstates',
+         float, _SHIFT_PCT_FMT, _SHIFT_SCALE, 8.5),
+    )
+    for name, values, counts, subtitle, cell_value, number_format, scale, width in faces:
+        _write_face(
+            wb.create_sheet(name), values, counts, barriers, horizons, unit,
+            title=title, subtitle=subtitle, cell_value=cell_value,
+            number_format=number_format, color_scale=scale, column_width=width,
+        )
+    _write_table(wb.create_sheet('conditions'), _CONDITION_COLUMNS, [
+        (
+            row['family'], row['node'], row['bin_number'], row['bin_label'],
+            row['latest_value'], row['rank'], row['monte_carlo_p_value'], row['q_value'],
+            'yes' if row['used'] else 'no', row['note'],
+        )
+        for row in conditions
+    ])
     path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(path)

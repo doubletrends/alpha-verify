@@ -14,6 +14,7 @@
 | `alphaverify.pipeline.step_04_selection.cmd_selection` | Stage 4 `select` implementation |
 | `alphaverify.pipeline.step_05_summary.cmd_summary` | Stage 5 `summarize` implementation |
 | `alphaverify.pipeline.status.cmd_status` | Read-only workspace and node inspection |
+| `alphaverify.pipeline.step_06_forecast.cmd_forecast` | Stage 6 `forecast` implementation |
 
 The CLI constructs `Workspace(args.workspace)` relative to `Path.cwd() / "workspaces"`; run it from the repository root unless calling the Python API with an explicit workspace directory.
 
@@ -36,6 +37,7 @@ Key modules:
 
 - `barrier.py` owns `measure_histories()`: quantile edges, the shared incremental excursion ladder, conditional probabilities, counts, and each history's baseline. Stage 1 collects its horizon slices into cubes. It also owns `ohlcv_array()`, the canonical OHLCV order with the legacy fallback for histories lacking open or volume, and `observed_outcomes()`, the per-history excursions, touch matrix, and baseline that Stage 1 and Stage 3 reuse.
 - `features.py` registers built-in features and routes core transforms to `torch_features.py`.
+- `combination.py` owns Stage 6 arithmetic: smoothed rates, the per-cell naive Bayes log-odds combination, the historical joint touch rate, and barrier/horizon nesting checks.
 - `shift.py` defines the Stage 2 probability-difference shift and the practical-effect inspection used by node status.
 - `scoring.py` owns baseline subtraction, cell eligibility, barrier weights, and the full-grid bin score; cell contributions are private to the bin scorer.
 - `validation.py` fits and samples the synthetic OHLC null. Its `score_histories()` measures and scores both the observed batch of one and simulated batches through the same path.
@@ -85,6 +87,8 @@ flowchart LR
     S --> A4[04_selection<br/>selection.json + bin figures]
     A4 --> Y[summarize]
     Y --> A5[05_summary<br/>summary.json + XLSX]
+    A5 --> F[forecast]
+    F --> A6[06_forecast<br/>forecast.json + XLSX]
 ```
 
 Stages are restartable but ordered. A missing prerequisite produces a compact report rather than synthesizing upstream data.
@@ -177,6 +181,20 @@ Selection requires a complete, current Stage 3 result and retains every and only
 
 The summary requires a complete, current Stage 4 result and answers which nodes cleared, and with which bins. It lists only nodes with at least one selected bin, each with its cleared and tested bin counts, its cleared bins (number, label, rank, p, and q), and its best rank, p, and q. Nodes follow their strongest bin's rank. The summary records nodes and bins tested and cleared plus the count expected by chance. `summary.json` fingerprints the exact selection bytes, and `summary.xlsx` shows one row per cleared node. It adds no statistical rule; it regroups Stage 4.
 
+### Stage 6: `forecast`
+
+The forecast requires a complete, current Stage 5 summary and reads only stored artifacts; it makes no provider call. For each cleared node it takes the last bar of the stored Stage 1 history. A cleared bin is active when that bar's stored feature value is finite and falls in the bin under the stored Stage 1 edges and their left-edge convention. At most one active bin per family is used: the best-ranked, then by node and bin; skipped bins are recorded with the reason. Bins whose stored history differs from the baseline are recorded but not used.
+
+```text
+smoothed rate      = (hits + 1) / (n + 2)
+logit P(touch)     = logit P_baseline + sum_k (logit P_k - logit P_baseline)
+historical joint   = hits / n over bars where every used condition held
+```
+
+The combination is naive Bayes per barrier/horizon cell: each used condition adds its log odds ratio against the baseline, as if conditions were independent given the outcome. Conditions are not independent, so the historical joint rate is reported beside it; their gap shows how far the independence assumption moves the combined estimate, subject to the joint sample size. A cell is unsupported when the baseline, any used condition, or the joint history has fewer than 30 observations. Adjacent cells that break the ordering implied by nested touch events are counted but not corrected.
+
+`forecast.json` fingerprints the exact summary bytes and records the method, the as-of bar, every active bin with its use and note, and the combined, baseline, and joint surfaces with their counts. `forecast.xlsx` shows the naive Bayes probability, its shift from the baseline, the historical joint rate, their gap, and the conditions table. The stored history is only as current as the last `measure`, and its last bar only as complete as the workspace loader makes it. Shifts are in-sample estimates for bins selected as extreme.
+
 
 ## Statistical boundary
 
@@ -202,6 +220,7 @@ Changing any of these assumptions changes the experiment contract. Update the im
 | Validation threshold and fingerprint | `pipeline/step_03_validation.py` and `03_validation/validation.json` |
 | Selection ranking and q-value method | `pipeline/step_04_selection.py` (`RANKING`) and `domain/multiple_testing.py` |
 | Cleared-node grouping | `pipeline/step_05_summary.py` (`cleared_nodes`) |
+| Active bins, family rule, and forecast method | `pipeline/step_06_forecast.py` (`METHOD`) and `domain/combination.py` |
 | Terminal colors and rules | `pipeline/reporting.py` |
 | Node display names and shift color limit | `presentation/display.py` |
 

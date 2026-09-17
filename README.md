@@ -59,6 +59,7 @@ alphaverify compare
 alphaverify validate
 alphaverify select
 alphaverify summarize
+alphaverify forecast
 ```
 
 Each pipeline command also accepts `--cuda` when a CUDA-capable PyTorch installation and device are available.
@@ -72,6 +73,7 @@ Each pipeline command also accepts `--cuda` when a CUDA-capable PyTorch installa
 | 3 | validate | Validate every supported bin against the null | `p̂_k < 0.05 or p̂_k ≥ 0.05` |
 | 4 | select | Retain cleared bins, rank them by evidence, and render their figures | `K_selected = {k : p̂_k < 0.05}` |
 | 5 | summarize | List which nodes cleared and with which bins | `N_cleared = {node(k) : k ∈ K_selected}` |
+| 6 | forecast | Combine cleared bins active on the last stored bar, one per family, and compare with their historical joint rate | `logit P = logit π_baseline + Σ_k (logit π_k − logit π_baseline)` |
 
 
 Validation writes `03_validation/`; selection consumes only a current validation result and writes `04_selection/`; the summary consumes only a current selection and writes `05_summary/`. Every cleared bin is retained—there is no top-k ranking or secondary economic gate.
