@@ -5,6 +5,8 @@ from __future__ import annotations
 from time import perf_counter
 import sys
 
+from alphaverify.infrastructure.workspace import stage_number
+
 RULE = "=" * 60
 
 
@@ -24,35 +26,35 @@ class StageReport:
     """Report one stage without turning routine progress into log noise."""
 
     _HEADINGS = {
-        1: (
+        "surface": (
             "Conditional barrier-touch probabilities",
             "conditional_probability[barrier, bin, horizon]",
         ),
-        2: (
+        "shift": (
             "Conditional effect relative to the market baseline",
             "conditional_probability − baseline_probability",
         ),
-        3: (
+        "validation": (
             "Statistical validation against simulated price paths",
             "Is each condition-bin score larger than expected by chance?",
         ),
-        4: (
+        "selection": (
             "Selection of statistically cleared condition bins",
             "Retain every and only condition bin with raw p < 0.05",
         ),
-        5: (
+        "forecast": (
             "Cleared nodes and the forecast from those active on the last bar",
             "Naive Bayes over one active bin per family, checked against the historical joint rate",
         ),
     }
 
-    def __init__(self, number: int) -> None:
+    def __init__(self, stage: str) -> None:
         self._started = perf_counter()
-        title, calculation = self._HEADINGS[number]
+        title, calculation = self._HEADINGS[stage]
         accent, bold, dim, reset = ansi_styles(color_enabled())
         print(
             f"\n{accent}{RULE}{reset}\n"
-            f"{accent}{bold}Stage {number}:{reset} {bold}{title}{reset}\n"
+            f"{accent}{bold}Stage {stage_number(stage)}:{reset} {bold}{title}{reset}\n"
             f"{dim}{calculation}{reset}\n"
             f"{accent}{RULE}{reset}\n"
         )

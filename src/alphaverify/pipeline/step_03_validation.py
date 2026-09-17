@@ -13,7 +13,7 @@ from alphaverify.infrastructure import artifact_io
 from alphaverify.infrastructure.artifact_history import (
     feature_from_artifact, market_data_from_artifact, market_history_key,
 )
-from alphaverify.infrastructure.workspace import BASELINE_NODE, Workspace
+from alphaverify.infrastructure.workspace import BASELINE_NODE, STAGE_DIRECTORIES, Workspace
 from alphaverify.pipeline.context import RunContext, materialized_shift
 from alphaverify.pipeline.reporting import MilestoneProgress, StageReport
 
@@ -23,19 +23,18 @@ RAW_P_THRESHOLD = 0.05
 NULL_VERSION = "gaussian-log-ohlc-v1"
 
 
-def _method() -> dict:
-    return {
-        "scoring_version": scoring.SCORING_VERSION,
-        "measurement_version": barrier.MEASUREMENT_VERSION,
-        "observed_source": "stored OHLCV history remeasured in float64",
-        "feature_policy": "observed feature bins cached by Stage 1; core null features recomputed; external null bins fixed",
-        "null_version": NULL_VERSION,
-        "n_null_replicates": N_NULL_REPLICATES, "seed": SEED,
-        "threshold": {"raw_p": RAW_P_THRESHOLD},
-        "unit": "linearly barrier-weighted probability difference",
-        "null": "shared synthetic OHLC histories per identical stored market history; external conditions fixed",
-        "invalid_null_bins": "zero score; retained in the full null ensemble",
-    }
+METHOD = {
+    "scoring_version": scoring.SCORING_VERSION,
+    "measurement_version": barrier.MEASUREMENT_VERSION,
+    "observed_source": "stored OHLCV history remeasured in float64",
+    "feature_policy": "observed feature bins cached by Stage 1; core null features recomputed; external null bins fixed",
+    "null_version": NULL_VERSION,
+    "n_null_replicates": N_NULL_REPLICATES, "seed": SEED,
+    "threshold": {"raw_p": RAW_P_THRESHOLD},
+    "unit": "linearly barrier-weighted probability difference",
+    "null": "shared synthetic OHLC histories per identical stored market history; external conditions fixed",
+    "invalid_null_bins": "zero score; retained in the full null ensemble",
+}
 
 
 def input_fingerprint(ws: Workspace) -> dict:
@@ -56,15 +55,15 @@ def input_fingerprint(ws: Workspace) -> dict:
 def validation_summary_is_current(ws: Workspace, summary: dict) -> bool:
     """A complete summary must match current inputs and simulation settings."""
     if (not summary or not summary.get("complete")
-            or summary.get("artifact") != "03_validation"
-            or summary.get("method") != _method()):
+            or summary.get("artifact") != STAGE_DIRECTORIES["validation"]
+            or summary.get("method") != METHOD):
         return False
     return summary.get("input_fingerprint") == input_fingerprint(ws)
 
 
 def cmd_validation(ws: Workspace) -> None:
     """Validate all available non-baseline nodes without ranking or preselection."""
-    report = StageReport(3)
+    report = StageReport("validation")
     context = RunContext(ws)
     fingerprint = input_fingerprint(ws)
     missing = [entry["node"]["id"] for entry in fingerprint["nodes"] if entry["sha256"] is None]
@@ -166,8 +165,8 @@ def cmd_validation(ws: Workspace) -> None:
                for row in records if row["cleared"]]
     summary = {
         "workspace": ws.dir.name, "generated": datetime.now(timezone.utc).isoformat(),
-        "artifact": "03_validation", "complete": bool(available) and not missing,
-        "input_fingerprint": fingerprint, "method": _method(), "missing_nodes": missing,
+        "artifact": STAGE_DIRECTORIES["validation"], "complete": bool(available) and not missing,
+        "input_fingerprint": fingerprint, "method": METHOD, "missing_nodes": missing,
         "summary": {"nodes": len(available), "tested": len(records),
                     "skipped": len(skipped), "cleared": len(cleared)},
         "tests": records, "skipped_bins": skipped, "cleared": cleared,

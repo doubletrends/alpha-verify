@@ -33,26 +33,16 @@ def is_ohlcv_feature(name: str) -> bool:
 
 
 class FeatureRegistry:
-    """Explicit feature registry scoped to one pipeline run."""
+    """Built-in features plus the workspace extensions registered for one pipeline run."""
 
     def __init__(self) -> None:
-        self._features: dict[str, Callable | None] = {}
         self._torch_features: dict[str, Callable] = {}
-
-    def register(self, name: str, feature: Callable | None) -> None:
-        self._features[name] = feature
 
     def register_torch(self, name: str, feature: Callable) -> None:
         """Register an extension returning a one-dimensional device tensor."""
-        # A Torch extension is also a valid public feature.  Registering that
-        # name here avoids maintaining an unreachable pandas fallback solely to
-        # satisfy ``compute``'s name validation.
-        self._features[name] = None
         self._torch_features[name] = feature
 
     def compute(self, data: pd.DataFrame, feature: str, params: dict, cache=None) -> pd.Series:
-        if feature not in self._features:
-            raise ValueError(f"Unknown feature: '{feature}'. Available: {sorted(self._features)}")
         if feature in self._torch_features:
             values = self._torch_features[feature](data, params)
         elif feature in _TORCH_OHLCV_FEATURES:
@@ -68,10 +58,8 @@ class FeatureRegistry:
         elif feature == 'day_of_week':
             values = tensor_runtime.tensor(pd.to_datetime(data.index).dayofweek.to_numpy(float))
         else:
-            handler = self._features[feature]
-            if handler is None:
-                raise ValueError(f"Feature '{feature}' has no implementation")
-            return handler(data, params).reindex(data.index)
+            available = sorted(_BUILTINS | self._torch_features.keys())
+            raise ValueError(f"Unknown feature: '{feature}'. Available: {available}")
         return pd.Series(values.cpu().numpy(), index=data.index, dtype=float)
 
 
@@ -93,9 +81,3 @@ def _external(data: pd.DataFrame, feature: str, params: dict) -> torch.Tensor:
     out = torch.full_like(values, float('nan'))
     out[period:] = values[period:] / values[:-period] - 1.0
     return out
-
-
-def register_builtin_features(registry: FeatureRegistry) -> None:
-    """Register names only: all built-in numerical work dispatches to Torch above."""
-    for name in _BUILTINS:
-        registry.register(name, None)

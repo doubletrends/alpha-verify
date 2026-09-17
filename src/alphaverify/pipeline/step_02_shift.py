@@ -10,11 +10,9 @@ from alphaverify.pipeline.reporting import MilestoneProgress, StageReport
 from alphaverify.presentation import workbooks
 
 
-def _write_shift_array(ws: Workspace, progress: MilestoneProgress) -> tuple[int, list[str]]:
-    nodes = [
-        node for node in ws.catalog.all_nodes()
-        if ws.has_cube(node["id"])
-    ]
+def _write_shift_array(
+    ws: Workspace, nodes: list[dict], progress: MilestoneProgress
+) -> tuple[int, list[str]]:
     if not nodes:
         return 0, ["no full surface arrays available; run measure first"]
 
@@ -51,11 +49,9 @@ def _write_shift_array(ws: Workspace, progress: MilestoneProgress) -> tuple[int,
     return written, warnings
 
 
-def _render_shift(ws: Workspace, progress: MilestoneProgress) -> tuple[int, list[str]]:
-    nodes = [
-        node for node in ws.catalog.all_nodes()
-        if ws.has_shift_cube(node["id"])
-    ]
+def _render_shift(
+    ws: Workspace, nodes: list[dict], progress: MilestoneProgress
+) -> tuple[int, list[str]]:
     if not nodes:
         return 0, ["no shift arrays available; run compare first"]
     written = 0
@@ -80,18 +76,18 @@ def _render_shift(ws: Workspace, progress: MilestoneProgress) -> tuple[int, list
 
 def cmd_shift(ws: Workspace) -> None:
     """Write full baseline-subtracted shift arrays and workbooks."""
-    report = StageReport(2)
+    report = StageReport("shift")
     nodes = [node for node in ws.catalog.all_nodes() if ws.has_cube(node["id"])]
     report.line(
         f"shifting {len(nodes)} nodes against baseline · "
         f"{len(ws.barriers) * ws.n_bins * len(ws.horizons):,} cells per full-bin node"
     )
     arrays, warnings = _write_shift_array(
-        ws, MilestoneProgress(report, "calculating arrays", len(nodes))
+        ws, nodes, MilestoneProgress(report, "calculating arrays", len(nodes))
     )
     render_nodes = [node for node in nodes if ws.has_shift_cube(node["id"])]
     workbooks_written, render_warnings = _render_shift(
-        ws, MilestoneProgress(report, "writing spreadsheets", len(render_nodes))
+        ws, render_nodes, MilestoneProgress(report, "writing spreadsheets", len(render_nodes)),
     )
     warnings.extend(render_warnings)
     report.summary(

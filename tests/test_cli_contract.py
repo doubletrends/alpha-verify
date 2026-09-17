@@ -3,14 +3,13 @@ from __future__ import annotations
 from contextlib import redirect_stderr
 from io import StringIO
 import unittest
-from unittest.mock import patch
 
 from alphaverify.cli import COMMANDS, build_parser
-from alphaverify.pipeline.status import cmd_status
+from alphaverify.infrastructure.workspace import STAGES
 
 
 class CliContractTests(unittest.TestCase):
-    def test_pipeline_cli_exposes_stage_and_status_subcommands(self) -> None:
+    def test_pipeline_cli_exposes_stage_subcommands(self) -> None:
         parser = build_parser()
         help_text = parser.format_help()
 
@@ -20,10 +19,10 @@ class CliContractTests(unittest.TestCase):
             "validate",
             "select",
             "forecast",
-            "status",
         ):
             self.assertIn(command, help_text)
-        self.assertNotIn("summarize", help_text)
+        for removed in ("summarize", "status", "NODE"):
+            self.assertNotIn(removed, help_text)
         for removed in ("--gate", "--family", "--rerun", "--read", "--fdr"):
             self.assertNotIn(removed, help_text)
         self.assertNotIn("--verbose", help_text)
@@ -36,7 +35,12 @@ class CliContractTests(unittest.TestCase):
     def test_commands_preserve_pipeline_order(self) -> None:
         self.assertEqual(
             [command.name for command in COMMANDS],
-            ["measure", "compare", "validate", "select", "forecast", "status"],
+            ["measure", "compare", "validate", "select", "forecast"],
+        )
+
+    def test_stage_commands_mirror_the_stage_order(self) -> None:
+        self.assertEqual(
+            tuple(command.stage for command in COMMANDS), STAGES
         )
 
     def test_validation_has_no_stage_specific_options(self) -> None:
@@ -47,28 +51,6 @@ class CliContractTests(unittest.TestCase):
         self.assertEqual(args.workspace, "btc_daily")
         with redirect_stderr(StringIO()), self.assertRaises(SystemExit):
             parser.parse_args(["validate", "--fdr", "0.1"])
-
-    def test_status_accepts_an_optional_node(self) -> None:
-        parser = build_parser()
-        workspace_args = parser.parse_args(["status", "--workspace", "btc_daily"])
-        node_args = parser.parse_args(
-            ["status", "vix_level", "--workspace", "nasdaq_daily"]
-        )
-
-        self.assertIsNone(workspace_args.node)
-        self.assertEqual(workspace_args.workspace, "btc_daily")
-        self.assertEqual(node_args.node, "vix_level")
-        self.assertEqual(node_args.workspace, "nasdaq_daily")
-
-    def test_status_routes_a_node_to_the_detailed_view(self) -> None:
-        workspace = object()
-
-        with patch(
-            "alphaverify.pipeline.status._print_node_status"
-        ) as print_node_status:
-            cmd_status(workspace, "vix_level")
-
-        print_node_status.assert_called_once_with(workspace, "vix_level")
 
 
 if __name__ == "__main__":

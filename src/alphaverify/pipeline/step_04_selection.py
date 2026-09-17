@@ -6,21 +6,26 @@ from datetime import datetime, timezone
 
 from alphaverify.domain.multiple_testing import benjamini_hochberg
 from alphaverify.infrastructure import artifact_io
-from alphaverify.infrastructure.workspace import Workspace
+from alphaverify.infrastructure.workspace import STAGE_DIRECTORIES, Workspace
 from alphaverify.pipeline.context import materialized_shift
 from alphaverify.pipeline.reporting import MilestoneProgress, StageReport
 from alphaverify.pipeline.step_03_validation import validation_summary_is_current
 
-# Evidence alone orders the manifest; observed effect size never breaks a tie.
-RANKING = "ascending raw Monte Carlo p; equal p share a rank and are listed by node and bin"
+# The fixed part of the stored method; its threshold and q-value scope follow the validation run.
+METHOD = {
+    "rule": "retain every Stage 3 condition bin with cleared == true",
+    # Evidence alone orders the manifest; observed effect size never breaks a tie.
+    "ranking": "ascending raw Monte Carlo p; equal p share a rank and are listed by node and bin",
+}
 
 
 def selection_summary_is_current(ws: Workspace, selection: dict) -> bool:
     """Require a complete selection sourced from the current validation bytes."""
     validation = artifact_io.read_json(ws.validation_summary_path)
+    method = selection.get("method", {}) if selection else {}
     if (not selection or not selection.get("complete")
-            or selection.get("artifact") != "04_selection"
-            or selection.get("method", {}).get("ranking") != RANKING
+            or selection.get("artifact") != STAGE_DIRECTORIES["selection"]
+            or any(method.get(key) != value for key, value in METHOD.items())
             or not validation_summary_is_current(ws, validation)):
         return False
     return selection.get("validation_sha256") == artifact_io.file_sha256(ws.validation_summary_path)
@@ -28,7 +33,7 @@ def selection_summary_is_current(ws: Workspace, selection: dict) -> bool:
 
 def cmd_selection(ws: Workspace) -> None:
     """Write the cleared-bin manifest and one heatmap-plus-null figure per bin."""
-    report = StageReport(4)
+    report = StageReport("selection")
     validation = artifact_io.read_json(ws.validation_summary_path)
     if not validation_summary_is_current(ws, validation):
         report.line("validation is missing, incomplete, or stale; run validate first")
@@ -55,14 +60,14 @@ def cmd_selection(ws: Workspace) -> None:
     summary = {
         "workspace": ws.dir.name,
         "generated": datetime.now(timezone.utc).isoformat(),
-        "artifact": "04_selection",
+        "artifact": STAGE_DIRECTORIES["selection"],
         "complete": True,
         "source": ws.validation_summary_path.relative_to(ws.dir).as_posix(),
         "validation_sha256": validation_sha256,
         "method": {
-            "rule": "retain every Stage 3 condition bin with cleared == true",
+            "rule": METHOD["rule"],
             "threshold": validation["method"]["threshold"],
-            "ranking": RANKING,
+            "ranking": METHOD["ranking"],
             "q_value": f"Benjamini-Hochberg across all {len(tests)} tested bins",
         },
         "summary": {
