@@ -101,7 +101,7 @@ For every declared node, load its requested data sources, compute the feature, c
 conditional_probability[barrier, bin, horizon]
 ```
 
-The SafeTensors cube includes probabilities, hit counts, bin counts, barrier and horizon axes, bin edges, bin assignments, metadata, and the ordered market/feature history needed downstream. A versioned `00_cache` artifact stores each unique market history's float64 forward excursions, shared boolean touch matrix, and unconditional baseline.
+The SafeTensors cube includes probabilities, hit counts, bin counts, barrier and horizon axes, bin edges, bin assignments, metadata, and the ordered market/feature history needed downstream. A versioned `00_cache` artifact stores each unique market history's float64 forward excursions, shared boolean touch matrix, and unconditional baseline. A history is identified by its timestamps and OHLCV values in canonical order, so loader column order and auxiliary columns do not split the cache between panels or between Stage 1 and Stage 3.
 
 ### Stage 2: `compare`
 
@@ -153,7 +153,7 @@ log(high / max(open, close))
 log(low / min(open, close))
 ```
 
-With deterministic seed `20260907`, it currently draws 1,000 histories of the observed length and rebuilds valid OHLC bars. Nodes with identical stored market histories share one synthetic ensemble; different histories are simulated separately, retaining one ensemble at a time.
+With deterministic seed `20260907`, it currently draws 1,000 histories of the observed length and rebuilds valid OHLC bars. Nodes with identical stored market histories share one synthetic ensemble; different histories are simulated separately, retaining one ensemble at a time. The ensemble is drawn in one call on the selected device, because chunked draws do not reproduce the same stream, and is then held in host memory. Scoring moves one replicate batch at a time back to the device. Batches hold at most 256 replicates and shrink for long histories to fit half of the free CUDA memory, or 4 GiB on CPU, using measured peak costs of 80 bytes per bar plus 25 per condition and 10 per barrier. Scores do not depend on batch size.
 
 Core OHLCV features are computed and cached during Stage 1, then reused for the observed role. They are recomputed for each synthetic path, with shared rolling primitives cached within each path batch. External, calendar, and workspace-plugin conditions use the stored observed values and edges for both roles. Volume is carried from the observed history.
 

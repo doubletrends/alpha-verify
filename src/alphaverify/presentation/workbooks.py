@@ -21,7 +21,9 @@ from openpyxl.formatting.rule import ColorScaleRule
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-from alphaverify.presentation.display import SHIFT_DISPLAY_LIMIT, feature_label
+from alphaverify.presentation.display import (
+    SHIFT_DISPLAY_LIMIT, barrier_number_format, feature_label,
+)
 
 _PCT_FMT = '0.0%'
 _SHIFT_PCT_FMT = '+0.0%;-0.0%;0.0%'
@@ -136,6 +138,7 @@ def _write_face(
     barrier_count, horizon_count = values.shape
     order = np.argsort(barriers)[::-1]        # highest barrier on the top row
     end   = get_column_letter(1 + horizon_count)
+    barrier_format = barrier_number_format(barriers)
     _write_headers(ws, title, subtitle, merge_end=end)
 
     c = ws.cell(row=_COL_ROW, column=1, value='barrier')
@@ -155,7 +158,7 @@ def _write_face(
         th = float(barriers[i])
         is_zero = abs(th) < 1e-12
         tc = ws.cell(row=r, column=1, value=th)
-        tc.number_format = '+0%;-0%;0%'
+        tc.number_format = barrier_format
         tc.font, tc.alignment = Font(bold=True), _CENTER
         if is_zero:
             tc.fill = _FILL_MID

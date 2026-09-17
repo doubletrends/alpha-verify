@@ -13,6 +13,7 @@ from alphaverify.pipeline.step_03_validation import validation_summary_is_curren
 from alphaverify.pipeline.step_04_selection import selection_summary_is_current
 from alphaverify.pipeline.step_05_summary import node_summary_is_current
 from alphaverify.pipeline.context import materialized_shift
+from alphaverify.presentation.display import format_barrier
 
 
 def no_strong_cell_line(ws: Workspace) -> str:
@@ -25,7 +26,7 @@ def strongest_cell_line(ws: Workspace, best: dict) -> str:
         f"strongest cell: shift={best['dev']:+.1%}; "
         f"P={best['conditional_probability']:.1%} "
         f"vs {best['baseline_probability']:.1%} baseline "
-        f"at barrier={best['barrier']:+.0%}, +{best['horizon']}{ws.horizon_unit} "
+        f"at barrier={format_barrier(best['barrier'], ws.barriers)}, +{best['horizon']}{ws.horizon_unit} "
         f"(run={best['run']}, n={best['bin_observation_count']})"
     )
 
@@ -62,8 +63,6 @@ def _print_node_status(ws: Workspace, node_id: str) -> None:
         value for value in (1, 2, 3, 5, 7, 10, 14, 21, 30) if value in available
     ]
     columns = [int(np.flatnonzero(horizons == value)[0]) for value in shown_horizons]
-    percent_decimals = 1 if ws.barrier_step < 0.01 else 0
-    delta_format = f"+.{percent_decimals}%"
 
     print()
     header = "".join(
@@ -81,7 +80,7 @@ def _print_node_status(ws: Workspace, node_id: str) -> None:
             "       -" if not np.isfinite(value) else f"{value:>8.1%}"
             for value in row
         )
-        print(f"  {format(barriers[index], delta_format):>7}{cells}")
+        print(f"  {format_barrier(barriers[index], barriers):>7}{cells}")
         shown += 1
     if not shown:
         print(f"  no barrier row deviates by {ws.min_dev:.1%} at these horizons")
@@ -133,7 +132,7 @@ def cmd_status(ws: Workspace, node_id: str | None = None) -> None:
 
     print(f"\n=== Status [{ws.dir.name}] ===")
     print(
-        f"  barriers {ws.barriers[0]:+.0%}..{ws.barriers[-1]:+.0%}   "
+        f"  barriers {format_barrier(ws.barriers[0], ws.barriers)}..{format_barrier(ws.barriers[-1], ws.barriers)}   "
         f"horizons +{ws.horizons[0]}{ws.horizon_unit}.."
         f"+{ws.horizons[-1]}{ws.horizon_unit}   {ws.n_bins} bins"
     )

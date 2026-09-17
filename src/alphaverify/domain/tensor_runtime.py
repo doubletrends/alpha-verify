@@ -5,6 +5,9 @@ import numpy as np
 import torch
 
 _DEVICE = torch.device("cpu")
+# Share of free CUDA memory a batched kernel may plan to use; a CPU run assumes this fixed allowance.
+_CUDA_MEMORY_SHARE = 0.5
+_CPU_MEMORY_ALLOWANCE = 4 * 2 ** 30
 
 
 def configure(cuda: bool) -> torch.device:
@@ -17,6 +20,15 @@ def configure(cuda: bool) -> torch.device:
 
 def device() -> torch.device:
     return _DEVICE
+
+
+def memory_budget_bytes() -> int:
+    """Memory a batched kernel may plan to use on the selected device."""
+    if _DEVICE.type != "cuda":
+        return _CPU_MEMORY_ALLOWANCE
+    torch.cuda.empty_cache()
+    free, _ = torch.cuda.mem_get_info(_DEVICE)
+    return int(free * _CUDA_MEMORY_SHARE)
 
 
 def tensor(value, *, dtype=torch.float64) -> torch.Tensor:

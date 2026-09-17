@@ -92,3 +92,17 @@ class WorkspaceContractTests(unittest.TestCase):
             with patch.object(barrier, "forward_extremes_upto", side_effect=AssertionError("rebuilt")):
                 second = RunContext(ws).observed_outcomes(data)
             np.testing.assert_array_equal(second["touch_mask"], first["touch_mask"])
+
+
+def test_market_history_key_depends_only_on_ohlcv_values_in_canonical_order():
+    from alphaverify.infrastructure.artifact_history import market_history_key
+
+    index = pd.date_range("2024-01-01", periods=3, freq="h")
+    canonical = pd.DataFrame({"open": [10., 11., 12.], "high": [12., 13., 14.], "low": [9., 10., 11.],
+                              "close": [11., 12., 13.], "volume": [1., 2., 3.]}, index=index)
+    reordered = canonical[["open", "high", "close", "low", "volume"]]
+    with_auxiliary = canonical.assign(vix=[20., 21., np.nan])
+    assert market_history_key(canonical) == market_history_key(reordered) == market_history_key(with_auxiliary)
+    changed = canonical.copy()
+    changed.loc[index[1], "low"] = 9.5
+    assert market_history_key(changed) != market_history_key(canonical)
