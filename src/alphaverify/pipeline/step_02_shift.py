@@ -29,16 +29,14 @@ def _write_shift_array(
         try:
             source = ws.cube_path(node["id"])
             full = artifact_io.load_surface(source)
-            shifted = shift.from_cube(full, baseline)
             artifact_io.save_shift(
-                shifted,
+                shift.from_cube(full, baseline),
                 ws.shift_cube_path(node["id"]),
                 {**full["meta"], "grid": "shift", "value": "probability_shift",
                  "source_artifact": str(source.relative_to(ws.dir)),
                  "source_sha256": artifact_io.file_sha256(source),
                  "baseline_artifact": str(ws.baseline_cube.relative_to(ws.dir)),
                  "baseline_sha256": artifact_io.file_sha256(ws.baseline_cube)},
-                thin=True,
             )
         except Exception as error:
             warnings.append(f"shift skipped {node['id']}: {error}")

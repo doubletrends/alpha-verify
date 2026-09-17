@@ -8,7 +8,7 @@ import pandas as pd
 from alphaverify.infrastructure.workspace_plugins import load_workspace_module
 
 
-def validate_market_data(data: pd.DataFrame, *, require_full_ohlcv: bool = True) -> None:
+def validate_market_data(data: pd.DataFrame) -> None:
     """Reject malformed input without sorting, filling, dropping, or repairing it."""
     if not isinstance(data, pd.DataFrame) or data.empty:
         raise ValueError("workspace data must be a nonempty DataFrame")
@@ -17,7 +17,7 @@ def validate_market_data(data: pd.DataFrame, *, require_full_ohlcv: bool = True)
         raise ValueError("workspace data needs unique, increasing, nonmissing timestamps")
     if data.index.tz is not None:
         raise ValueError("workspace must normalize timestamps to its declared naive time basis")
-    required = ["open", "high", "low", "close", "volume"] if require_full_ohlcv else ["high", "low", "close"]
+    required = ["open", "high", "low", "close", "volume"]
     if not data.columns.is_unique or any(column not in data for column in required):
         raise ValueError("workspace data needs unique columns including " + ", ".join(required))
     for column in data:
@@ -25,14 +25,13 @@ def validate_market_data(data: pd.DataFrame, *, require_full_ohlcv: bool = True)
                 or pd.api.types.is_bool_dtype(data[column])
                 or pd.api.types.is_complex_dtype(data[column])):
             raise ValueError(f"workspace column {column!r} must be real numeric data")
-    market_columns = [column for column in ("open", "high", "low", "close", "volume") if column in data]
-    values = data[market_columns].to_numpy(dtype=float, na_value=np.nan)
+    values = data[required].to_numpy(dtype=float, na_value=np.nan)
     if not np.isfinite(values).all():
         raise ValueError("workspace OHLCV must be finite; missing-bar policy belongs in data.py")
-    prices = [column for column in ("open", "high", "low", "close") if column in data]
-    if (data[prices].to_numpy(dtype=float) <= 0).any() or ("volume" in data and (data["volume"] < 0).any()):
+    prices = ["open", "high", "low", "close"]
+    if (data[prices].to_numpy(dtype=float) <= 0).any() or (data["volume"] < 0).any():
         raise ValueError("workspace prices must be positive and volume nonnegative")
-    endpoints = data[[column for column in ("open", "close") if column in data]]
+    endpoints = data[["open", "close"]]
     if ((data["high"] < endpoints.max(axis=1)) | (data["low"] > endpoints.min(axis=1))).any():
         raise ValueError("workspace OHLC ordering must satisfy low <= open/close <= high")
     if np.isinf(data.to_numpy(dtype=float, na_value=np.nan)).any():

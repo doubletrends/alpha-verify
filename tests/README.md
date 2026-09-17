@@ -25,15 +25,15 @@ python -m pytest -q tests/test_validation_pipeline.py
 |---|---|
 | `test_architecture_boundaries.py` | Absolute package imports; declared layer dependencies (cli → pipeline → presentation → domain, with infrastructure and domain importing no other layer); an acyclic module graph; stages importing only earlier stages; infrastructure ownership of array persistence; flat infrastructure/presentation packages; Stage 3 consumption of Stage 2 artifacts |
 | `test_combination.py` | Naive Bayes identities for zero, one, and two conditions; unsupported thin cells; historical joint rates equal to Stage 1 for all bars and a single condition; nesting violations; stored-edge bin membership with the Stage 1 tie convention |
-| `test_artifact_io.py` | JSON fallback and round-trip behavior; SafeTensors keys and metadata; stable stored/runtime dtypes for surface and shift cubes |
-| `test_cli_contract.py` | Supported command set and order; workspace/CUDA option parsing; optional node status; rejection of removed or unsupported flags |
-| `test_validation_pipeline.py` | Observed/null role parity through actual pipeline calls despite corrupted presentation arrays; all-bin validation without selection; shared/distinct history ensembles; input fingerprints; missing artifacts; zero-score bins; rank-free bin figures shared with Stage 4 |
+| `test_artifact_io.py` | JSON fallback and round-trip behavior; SafeTensors keys and metadata; stable stored/runtime dtypes for surface cubes; shift artifacts holding only the derived shift, with other units rejected; shift materialization from Stage 1 |
+| `test_cli_contract.py` | Supported command set and order; workspace/CUDA option parsing; rejection of removed or unsupported flags |
+| `test_validation_pipeline.py` | Observed/null role parity through actual pipeline calls despite corrupted stored probabilities, counts, and shifts; all-bin validation without selection; shared/distinct history ensembles; input fingerprints; missing artifacts; zero-score bins; rank-free bin figures shared with Stage 4 |
 | `test_selection_pipeline.py` | Cleared-only Stage 4 selection, evidence-only ranking with shared ranks for equal p, q-values across all tested bins, stale manifests from other ranking methods, validation fingerprint freshness, and standard bin-figure rendering with equal-width panels |
 | `test_forecast_pipeline.py` | Stage 5 lists only nodes that cleared, groups their bins, counts tested bins per node, and orders nodes by evidence; uses one active bin per family with recorded skips; matches naive Bayes to stored Stage 1 counts and the joint rate to an independent Stage 1 measurement; writes the workbook tabs; falls back to the baseline with no cleared bins; goes stale when the selection changes; and requires a current selection |
 | `test_scoring_parity.py` | Full-grid versus streamed score/validity parity; cached versus streamed excursions; observed outcomes against an independent reference; per-path baselines; drift regression; quantiles, ties, missing values, thin bins, and fixed external edges |
 | `test_multiple_testing.py` | Benjamini–Hochberg q-values against a hand-worked example and the step-up definition, including ties and the Monte Carlo p floor |
-| `test_shift_units.py` | Probability-difference storage, legacy unit conversion, threshold equivalence, workbook percentage formatting, and score comparison invariance |
-| `test_notation_contract.py` | Canonical tensor-axis names, OHLCV component order, and version-1 artifact-name normalization |
+| `test_shift_units.py` | Probability-difference shifts, thresholds in probability units, workbook percentage formatting, and score comparison invariance |
+| `test_notation_contract.py` | OHLCV component order |
 | `test_stage_reporting.py` | Stable stage headings, summaries, timing shape, and bounded progress milestones |
 | `test_workspace_contracts.py` | Nasdaq catalog and stage paths; exact artifact-history restoration; per-run workspace feed caching; BTC hourly loader |
 | `test_workspace_data.py` | Prepared-data rejection without mutation; workspace cleaning/alignment; missing loaders; panel isolation; snapshots and measurement provenance |
@@ -62,7 +62,7 @@ Use `TemporaryDirectory` and public persistence helpers. Verify both the stored 
 
 ### CLI or pipeline
 
-Test parsing and routing without downloading data. Preserve the public order `measure`, `compare`, `validate`, `select`, `forecast`, `status`. Output assertions should protect useful structure and contracts, not incidental whitespace unless the formatting itself is the interface under test.
+Test parsing and routing without downloading data. Preserve the public order `measure`, `compare`, `validate`, `select`, `forecast`. Output assertions should protect useful structure and contracts, not incidental whitespace unless the formatting itself is the interface under test.
 
 ### Workspace
 
@@ -82,7 +82,6 @@ alphaverify compare   --workspace <name>
 alphaverify validate  --workspace <name>
 alphaverify select    --workspace <name>
 alphaverify forecast  --workspace <name>
-alphaverify status    --workspace <name>
 ```
 
 Then inspect `validation.json`, `selection.json`, representative spreadsheets, and bin figures. Generated artifacts are local and ignored by Git; see the [workspace contract](../workspaces/README.md).

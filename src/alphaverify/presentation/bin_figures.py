@@ -79,7 +79,7 @@ def draw_null_histogram(ax, row: dict, null: np.ndarray) -> None:
     ax.axvline(observed, color=S1, linewidth=2.1, label="observed bin score")
     ax.set_xlabel("two-sided bin score (weighted probability difference)")
     ax.set_ylabel("synthetic OHLC replicates")
-    _frame(ax, grid_axis="y")
+    _frame(ax)
     ax.legend(fontsize=8, frameon=False)
 
 

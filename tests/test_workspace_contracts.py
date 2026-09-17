@@ -18,7 +18,8 @@ class WorkspaceContractTests(unittest.TestCase):
     def test_catalog_and_stage_paths_match_the_three_stage_pipeline(self) -> None:
         workspace = Workspace("nasdaq_daily")
         self.assertEqual(len(workspace.catalog.all_nodes()), 58)
-        self.assertEqual(workspace.catalog.find("vix_level")["family"], "vix")
+        self.assertIn(("vix_level", "vix"),
+                      [(node["id"], node["family"]) for node in workspace.catalog.all_nodes()])
         self.assertEqual(workspace.cube_path("vix_level").parts[-3:], ("01_surface", "array", "vix_level.safetensors"))
         self.assertEqual(workspace.shift_cube_path("vix_level").parts[-3:], ("02_shift", "array", "vix_level.safetensors"))
         self.assertEqual(workspace.validation_summary_path.parts[-2:], ("03_validation", "validation.json"))
@@ -28,8 +29,10 @@ class WorkspaceContractTests(unittest.TestCase):
     def test_artifact_history_helpers_preserve_rows_and_reject_missing_prices(self) -> None:
         artifact = {
             "index": np.array(["2024-01-01", "2024-01-02", "2024-01-03"]),
+            "open": np.array([10.0, 11.0, 12.0]),
             "high": np.array([11.0, 12.0, 13.0]), "low": np.array([9.0, 10.0, 11.0]),
-            "close": np.array([10.0, 11.0, 12.0]), "feature_values": np.array([1.0, 2.0, 3.0]),
+            "close": np.array([10.0, 11.0, 12.0]), "volume": np.ones(3),
+            "feature_values": np.array([1.0, 2.0, 3.0]),
         }
         data = market_data_from_artifact(artifact)
         np.testing.assert_array_equal(feature_from_artifact(artifact, data.index).to_numpy(), [1.0, 2.0, 3.0])
@@ -77,13 +80,14 @@ class WorkspaceContractTests(unittest.TestCase):
             declaration = root / "example" / "universe.json"
             artifact_io.write_json(declaration, {
                 "meta": {"asset": {"ticker": "TEST"}, "start_date": "2024-01-01",
-                         "Delta": {"min": -.02, "max": .02, "step": .02},
+                         "barriers": {"min": -.02, "max": .02, "step": .02},
                          "horizons": {"min": 1, "max": 3}},
                 "families": {},
             })
             ws = Workspace("example", root)
             close = np.linspace(100., 110., 40)
-            data = pd.DataFrame({"high": close * 1.01, "low": close * .99, "close": close},
+            data = pd.DataFrame({"open": close, "high": close * 1.01, "low": close * .99,
+                                 "close": close, "volume": np.ones(40)},
                                 index=pd.date_range("2024-01-01", periods=40))
             context = RunContext(ws)
             first = context.observed_outcomes(data)

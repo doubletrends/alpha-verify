@@ -7,16 +7,11 @@ from alphaverify.domain import tensor_runtime
 from alphaverify.domain.scoring import baseline_shifts
 
 
-def from_cube(cube: dict, baseline_probability: np.ndarray) -> dict:
+def from_cube(cube: dict, baseline_probability: np.ndarray) -> np.ndarray:
     """
-    Convert a raw probability cube into a baseline-subtracted shift cube.
-
-    `shift` is stored as a probability difference:
+    A raw probability cube's baseline-subtracted shift, as a probability difference:
 
         conditional_probability - baseline_probability
-
-    The conditional probabilities and baseline are carried too, so inspection and
-    later derived artifacts can show the rate behind a shift without reloading stage 1.
     """
     conditional_probability = tensor_runtime.tensor(cube["conditional_probability"])
     baseline_probability = tensor_runtime.tensor(baseline_probability)
@@ -27,24 +22,7 @@ def from_cube(cube: dict, baseline_probability: np.ndarray) -> dict:
             f"{baseline_probability.shape} vs {conditional_probability.shape}"
         )
 
-    out = {
-        "probability_shift": baseline_shifts(
-            conditional_probability, baseline_probability
-        ).cpu().numpy(),
-        "conditional_probability": conditional_probability.cpu().numpy(),
-        "baseline_probability": baseline_probability.cpu().numpy(),
-        "bin_hit_counts": cube["bin_hit_counts"],
-        "bin_observation_counts": cube["bin_observation_counts"],
-        "eligible_observation_count": cube["eligible_observation_count"],
-        "barriers": cube["barriers"],
-        "horizons": cube["horizons"],
-        "bin_edges": cube["bin_edges"],
-        "meta": cube.get("meta", {}),
-    }
-    for key in ("index", "feature_values", "open", "high", "low", "close", "volume"):
-        if key in cube:
-            out[key] = cube[key]
-    return out
+    return baseline_shifts(conditional_probability, baseline_probability).cpu().numpy()
 
 
 def evaluate(cube: dict, min_dev: float, min_bin_n: int, min_run: int,

@@ -1,7 +1,4 @@
-"""Typed array and JSON persistence for pipeline artifacts.
-
-New array artifacts are SafeTensors; ``.npz`` remains readable for legacy workspaces.
-"""
+"""Typed array and JSON persistence for pipeline artifacts; arrays are SafeTensors."""
 
 from __future__ import annotations
 
@@ -28,33 +25,6 @@ _HISTORY_KEYS = (
 ARTIFACT_SCHEMA_VERSION = 2
 SHIFT_VERSION = "probability-difference-v1"
 SHIFT_UNIT = "probability_difference"
-
-# Readers accept version-1 field names so existing workspaces remain usable.
-_LEGACY_ARRAY_NAMES = {
-    "prob": "conditional_probability",
-    "base": "baseline_probability",
-    "baseline": "baseline_probability",
-    "hits": "bin_hit_counts",
-    "bin_n": "bin_observation_counts",
-    "n_obs": "eligible_observation_count",
-    "Δs": "barriers",
-    "edges": "bin_edges",
-    "bin_indices": "bin_assignments",
-    "forward_low": "downside_excursion",
-    "forward_high": "upside_excursion",
-    "touches": "touch_mask",
-}
-
-
-def _array_value(artifact: dict, canonical_name: str):
-    """Read a canonical field or its version-1 spelling from caller input."""
-    if canonical_name in artifact:
-        return artifact[canonical_name]
-    for legacy_name, current_name in _LEGACY_ARRAY_NAMES.items():
-        if current_name == canonical_name and legacy_name in artifact:
-            return artifact[legacy_name]
-    raise KeyError(canonical_name)
-
 
 def read_json(path: Path) -> dict:
     """Read a JSON artifact, returning an empty mapping when it is unavailable."""
@@ -87,54 +57,38 @@ def _history_payload(artifact: dict) -> dict:
 
 
 def _write_arrays(path: Path, payload: dict, meta: dict) -> None:
-    """Persist an array artifact, using SafeTensors when requested by its suffix."""
+    """Persist an array artifact as SafeTensors; scalars and strings go in the header."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    if path.suffix == ".safetensors":
-        tensors, encoded = {}, {}
-        for key, value in payload.items():
-            array = np.asarray(value)
-            if array.ndim == 0 or array.dtype.kind in "OUS":
-                encoded[key] = {
-                    "dtype": array.dtype.str,
-                    "shape": array.shape,
-                    "data": array.tolist(),
-                }
-            else:
-                tensors[key] = np.ascontiguousarray(array)
-        save_safetensors(
-            tensors,
-            str(path),
-            metadata={
-                "meta": json.dumps({**meta, "artifact_schema_version": ARTIFACT_SCHEMA_VERSION}),
-                "encoded_arrays": json.dumps(encoded),
-            },
-        )
-        return
-    np.savez_compressed(
-        path, **payload,
-        meta=np.array(json.dumps({**meta, "artifact_schema_version": ARTIFACT_SCHEMA_VERSION})),
+    tensors, encoded = {}, {}
+    for key, value in payload.items():
+        array = np.asarray(value)
+        if array.ndim == 0 or array.dtype.kind in "OUS":
+            encoded[key] = {
+                "dtype": array.dtype.str,
+                "shape": array.shape,
+                "data": array.tolist(),
+            }
+        else:
+            tensors[key] = np.ascontiguousarray(array)
+    save_safetensors(
+        tensors,
+        str(path),
+        metadata={
+            "meta": json.dumps({**meta, "artifact_schema_version": ARTIFACT_SCHEMA_VERSION}),
+            "encoded_arrays": json.dumps(encoded),
+        },
     )
 
 
 def _read_arrays(path: Path, float64_keys: tuple[str, ...] = ()) -> dict:
-    if path.suffix == ".safetensors":
-        artifact = dict(load_safetensors(str(path)))
-        with safe_open(str(path), framework="np") as stored:
-            header = stored.metadata() or {}
-        for key, encoded in json.loads(header.get("encoded_arrays", "{}")).items():
-            artifact[key] = np.asarray(
-                encoded["data"], dtype=np.dtype(encoded["dtype"])
-            ).reshape(encoded["shape"])
-        artifact["meta"] = json.loads(header.get("meta", "{}"))
-    else:
-        with np.load(path, allow_pickle=False) as stored:
-            artifact = {
-                key: stored[key]
-                for key in stored.files
-                if key != "meta"
-            }
-            artifact["meta"] = json.loads(str(stored["meta"]))
-    artifact = {_LEGACY_ARRAY_NAMES.get(key, key): value for key, value in artifact.items()}
+    artifact = dict(load_safetensors(str(path)))
+    with safe_open(str(path), framework="np") as stored:
+        header = stored.metadata() or {}
+    for key, encoded in json.loads(header.get("encoded_arrays", "{}")).items():
+        artifact[key] = np.asarray(
+            encoded["data"], dtype=np.dtype(encoded["dtype"])
+        ).reshape(encoded["shape"])
+    artifact["meta"] = json.loads(header.get("meta", "{}"))
     for key in float64_keys:
         if key in artifact:
             artifact[key] = artifact[key].astype(np.float64)
@@ -144,15 +98,14 @@ def _read_arrays(path: Path, float64_keys: tuple[str, ...] = ()) -> dict:
 def save_surface(cube: dict, path: Path, meta: dict) -> None:
     """Write a complete Stage 1 surface cube."""
     payload = {
-        "conditional_probability": _array_value(cube, "conditional_probability").astype(np.float32),
-        "bin_hit_counts": _array_value(cube, "bin_hit_counts"),
-        "bin_observation_counts": _array_value(cube, "bin_observation_counts"),
-        "eligible_observation_count": _array_value(cube, "eligible_observation_count"),
-        "barriers": _array_value(cube, "barriers"),
+        "conditional_probability": cube["conditional_probability"].astype(np.float32),
+        "bin_hit_counts": cube["bin_hit_counts"],
+        "bin_observation_counts": cube["bin_observation_counts"],
+        "eligible_observation_count": cube["eligible_observation_count"],
+        "barriers": cube["barriers"],
         "horizons": cube["horizons"],
-        "bin_edges": _array_value(cube, "bin_edges"),
-        **({"bin_assignments": _array_value(cube, "bin_assignments")}
-           if "bin_assignments" in cube or "bin_indices" in cube else {}),
+        "bin_edges": cube["bin_edges"],
+        "bin_assignments": cube["bin_assignments"],
         **_history_payload(cube),
     }
     _write_arrays(path, payload, meta)
@@ -174,59 +127,24 @@ def load_observed_cache(path: Path) -> dict:
     )
 
 
-def save_shift(cube: dict, path: Path, meta: dict, *, thin: bool = False) -> None:
-    """Write a complete Stage 2 baseline-subtracted shift cube."""
-    values = _shift_values(cube)
-    meta = {**meta, "value": "probability_shift",
-            "shift_version": SHIFT_VERSION, "shift_unit": SHIFT_UNIT}
-    if thin:
-        _write_arrays(
-            path, {"probability_shift": values.astype(np.float32)}, meta
-        )
-        return
-    payload = {
-        "probability_shift": values.astype(np.float32),
-        "conditional_probability": _array_value(cube, "conditional_probability").astype(np.float32),
-        "baseline_probability": _array_value(cube, "baseline_probability").astype(np.float32),
-        "bin_hit_counts": _array_value(cube, "bin_hit_counts"),
-        "bin_observation_counts": _array_value(cube, "bin_observation_counts"),
-        "eligible_observation_count": _array_value(cube, "eligible_observation_count"),
-        "barriers": _array_value(cube, "barriers"),
-        "horizons": cube["horizons"],
-        "bin_edges": _array_value(cube, "bin_edges"),
-        **_history_payload(cube),
-    }
-    _write_arrays(path, payload, meta)
+def save_shift(probability_shift: np.ndarray, path: Path, meta: dict) -> None:
+    """Write a Stage 2 shift: only the derived probability differences.
+
+    Probabilities, counts, axes, and history stay in the Stage 1 artifacts that
+    ``meta`` references.
+    """
+    _write_arrays(
+        path, {"probability_shift": np.asarray(probability_shift, dtype=np.float32)},
+        {**meta, "value": "probability_shift",
+         "shift_version": SHIFT_VERSION, "shift_unit": SHIFT_UNIT},
+    )
 
 
 def load_shift(path: Path) -> dict:
-    """Load probability differences, converting recognized legacy pp fields once."""
-    cube = _read_arrays(
-        path, ("probability_shift", "conditional_probability", "baseline_probability")
-    )
-    if "probability_shift" in cube:
-        meta = cube.get("meta", {})
-        if (meta.get("shift_version") != SHIFT_VERSION
-                or meta.get("shift_unit") != SHIFT_UNIT):
-            raise ValueError("unknown shift units/version; rerun compare")
-    values = _shift_values(cube)
-    cube.pop("probability_shift_pp", None)
-    cube.pop("shift", None)
-    cube["probability_shift"] = values
-    cube["meta"] = {**cube.get("meta", {}), "value": "probability_shift",
-                    "shift_version": SHIFT_VERSION, "shift_unit": SHIFT_UNIT}
+    """Load probability differences, rejecting any other shift units or version."""
+    cube = _read_arrays(path, ("probability_shift",))
+    meta = cube["meta"]
+    if ("probability_shift" not in cube or meta.get("shift_version") != SHIFT_VERSION
+            or meta.get("shift_unit") != SHIFT_UNIT):
+        raise ValueError("unknown shift units/version; rerun compare")
     return cube
-
-
-def _shift_values(cube: dict) -> np.ndarray:
-    keys = [key for key in ("probability_shift", "probability_shift_pp", "shift")
-            if key in cube]
-    if len(keys) != 1:
-        raise ValueError("expected exactly one shift field with unambiguous units")
-    key = keys[0]
-    unit = cube.get("meta", {}).get("shift_unit")
-    expected = SHIFT_UNIT if key == "probability_shift" else "percentage_points"
-    if unit is not None and unit != expected:
-        raise ValueError("shift field and declared units disagree")
-    values = np.asarray(cube[key], dtype=np.float64)
-    return values if key == "probability_shift" else values / 100.0
