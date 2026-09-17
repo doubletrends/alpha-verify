@@ -1,4 +1,7 @@
-"""Stage 6 combines active cleared bins, one per family, and checks them against history."""
+"""Stage 5 lists cleared nodes, combines active cleared bins one per family, and checks them against history."""
+
+from collections import Counter
+from unittest.mock import Mock
 
 import numpy as np
 from openpyxl import load_workbook
@@ -10,7 +13,10 @@ from alphaverify.infrastructure import artifact_io
 from alphaverify.infrastructure.artifact_history import feature_bins_from_artifact
 from alphaverify.infrastructure.workspace import Workspace
 from alphaverify.pipeline import step_02_shift
-from alphaverify.pipeline import step_06_forecast as forecast_stage
+from alphaverify.pipeline import step_04_selection as selection_stage
+from alphaverify.pipeline import step_05_forecast as forecast_stage
+from alphaverify.pipeline.status import cmd_status
+from alphaverify.presentation import bin_figures
 
 BARRIERS, HORIZONS = np.array([-.02, -.01, .01, .02]), np.array([1, 5])
 FEATURES = {  # node: (family, feature values over time)
@@ -18,6 +24,27 @@ FEATURES = {  # node: (family, feature values over time)
     "b": ("osc", lambda t: np.sin(t / 7 + .2)),
     "c": ("mom", lambda t: np.cos(t / 23)),
 }
+
+
+@pytest.fixture
+def cleared_workspace(selected_workspace, monkeypatch):
+    """Nodes a and b clear bins; node c is tested but never clears."""
+    monkeypatch.setattr(bin_figures, "write_bin_figures", Mock(return_value=[]))
+    validation = artifact_io.read_json(selected_workspace.validation_summary_path)
+    template = validation["tests"][0]
+    validation["tests"] += [
+        {**template, "node": "b", "bin": 0, "bin_label": "x < 0.5"},
+        {**template, "node": "a", "bin": 1, "bin_number": 2, "bin_label": "0.5 < x",
+         "monte_carlo_p_value": .004},
+        {**template, "node": "c", "family": "other", "monte_carlo_p_value": .60, "cleared": False},
+    ]
+    validation["cleared"] = [
+        {key: value for key, value in row.items() if key != "null_scores"}
+        for row in validation["tests"] if row["cleared"]
+    ]
+    artifact_io.write_json(selected_workspace.validation_summary_path, validation)
+    selection_stage.cmd_selection(selected_workspace)
+    return selected_workspace
 
 
 @pytest.fixture
@@ -56,36 +83,61 @@ def forecast_workspace(tmp_path, monkeypatch):
         artifact_io.load_surface(ws.cube_path(node)))[-1]) for node in FEATURES}
     inactive_c = (last_bins["c"] + 1) % 4
 
-    def bin_row(node, b, rank, p, q):
-        return {"bin": b, "bin_number": b + 1, "bin_label": f"bin {b + 1}",
+    def selected(node, b, rank, p, q):
+        return {"node": node, "family": FEATURES[node][0], "feature": node, "params": {},
+                "bin": b, "bin_number": b + 1, "bin_label": f"bin {b + 1}",
                 "rank": rank, "monte_carlo_p_value": p, "q_value": q}
 
-    artifact_io.write_json(ws.node_summary_path, {
-        "artifact": "05_summary", "complete": True,
-        "summary": {"nodes_tested": 3, "nodes_cleared": 3, "bins_tested": 12,
-                    "bins_cleared": 4, "expected_by_chance": .6},
-        "nodes": [
-            {"node": "a", "family": "osc", "bins": [bin_row("a", last_bins["a"], 1, .001, .01)]},
-            {"node": "b", "family": "osc", "bins": [bin_row("b", last_bins["b"], 2, .002, .01)]},
-            {"node": "c", "family": "mom", "bins": [bin_row("c", last_bins["c"], 3, .003, .01),
-                                                    bin_row("c", inactive_c, 4, .004, .01)]},
+    artifact_io.write_json(ws.validation_summary_path, {
+        "tests": [{"node": node, "bin": b} for node in FEATURES for b in range(4)],
+    })
+    artifact_io.write_json(ws.selection_summary_path, {
+        "summary": {"expected_by_chance": .6},
+        "selected": [
+            selected("a", last_bins["a"], 1, .001, .01),
+            selected("b", last_bins["b"], 2, .002, .01),
+            selected("c", last_bins["c"], 3, .003, .01),
+            selected("c", inactive_c, 4, .004, .01),
         ],
     })
-    monkeypatch.setattr(forecast_stage, "node_summary_is_current", lambda ws, summary: True)
+    monkeypatch.setattr(forecast_stage, "selection_summary_is_current", lambda ws, selection: True)
     ws.last_bins = last_bins
     return ws
 
 
-def test_forecast_uses_one_active_bin_per_family(forecast_workspace):
+def test_cleared_nodes_group_selected_bins_by_node(cleared_workspace):
+    selection = artifact_io.read_json(cleared_workspace.selection_summary_path)
+    tested = Counter(
+        row["node"] for row in artifact_io.read_json(cleared_workspace.validation_summary_path)["tests"]
+    )
+    nodes = forecast_stage.cleared_nodes(selection["selected"], tested)
+
+    assert [node["node"] for node in nodes] == ["a", "b"]
+    a, b = nodes
+    assert (a["bins_cleared"], a["bins_tested"], a["best_rank"]) == (2, 2, 1)
+    assert [item["bin_number"] for item in a["bins"]] == [1, 2]
+    assert a["best_p_value"] == .004
+    assert (b["bins_cleared"], b["bins_tested"], b["best_rank"]) == (1, 2, 2)
+
+
+def test_forecast_lists_cleared_nodes_and_uses_one_active_bin_per_family(forecast_workspace):
     ws = forecast_workspace
     forecast_stage.cmd_forecast(ws)
     result = artifact_io.read_json(ws.forecast_path)
+
+    assert result["summary"] == {
+        "nodes_tested": 3, "nodes_cleared": 3, "bins_tested": 12, "bins_cleared": 4,
+        "expected_by_chance": pytest.approx(.6), "bins_active": 3, "conditions_used": 2,
+        "nesting_violations": result["summary"]["nesting_violations"],
+    }
+    assert [(node["node"], node["bins_cleared"], node["bins_tested"]) for node in result["nodes"]] == [
+        ("a", 1, 4), ("b", 1, 4), ("c", 2, 4),
+    ]
     conditions = {row["node"]: row for row in result["conditions"]}
     assert set(conditions) == {"a", "b", "c"}
     assert conditions["a"]["used"] and conditions["c"]["used"]
     assert not conditions["b"]["used"]
     assert conditions["b"]["note"] == f"same family as a bin {ws.last_bins['a'] + 1} (rank 1)"
-    assert result["summary"]["bins_active"] == 3 and result["summary"]["conditions_used"] == 2
     assert result["as_of"] == "2023-04-14"
 
 
@@ -114,23 +166,47 @@ def test_forecast_surfaces_match_stage1_counts_and_an_independent_joint_measurem
     assert np.isfinite(joint).any()
 
 
-def test_forecast_workbook_tabs_and_currency(forecast_workspace):
+def test_forecast_workbook_tabs_and_currency(forecast_workspace, capsys):
     ws = forecast_workspace
     forecast_stage.cmd_forecast(ws)
     book = load_workbook(ws.forecast_workbook_path)
     assert book.sheetnames == ["naive Bayes", "vs baseline", "historical joint",
-                               "naive Bayes - joint", "conditions"]
+                               "naive Bayes - joint", "conditions", "cleared nodes"]
     assert book["naive Bayes"]["A1"].value.startswith("Forecast —— as of 2023-04-14 · 2 conditions")
     assert [row[1] for row in book["conditions"].iter_rows(min_row=2, values_only=True)] == ["a", "b", "c"]
+    nodes = list(book["cleared nodes"].iter_rows(values_only=True))
+    assert nodes[0][:5] == ("node", "family", "feature", "cleared bins", "tested bins")
+    assert [row[0] for row in nodes[1:]] == ["a", "b", "c"]
+    assert nodes[3][3:5] == (2, 4)
 
     result = artifact_io.read_json(ws.forecast_path)
     assert forecast_stage.forecast_is_current(ws, result)
-    summary = artifact_io.read_json(ws.node_summary_path)
-    summary["generated"] = "changed"
-    artifact_io.write_json(ws.node_summary_path, summary)
+    selection = artifact_io.read_json(ws.selection_summary_path)
+    selection["generated"] = "changed"
+    artifact_io.write_json(ws.selection_summary_path, selection)
     assert not forecast_stage.forecast_is_current(ws, result)
+    capsys.readouterr()
+    cmd_status(ws)
+    assert "forecast: stale - run forecast" in capsys.readouterr().out
 
 
-def test_forecast_requires_a_current_summary(summarized_workspace):
-    forecast_stage.cmd_forecast(summarized_workspace)
-    assert not summarized_workspace.forecast_path.exists()
+def test_no_cleared_bins_forecasts_the_baseline(forecast_workspace):
+    ws = forecast_workspace
+    selection = artifact_io.read_json(ws.selection_summary_path)
+    selection["selected"] = []
+    artifact_io.write_json(ws.selection_summary_path, selection)
+    forecast_stage.cmd_forecast(ws)
+    result = artifact_io.read_json(ws.forecast_path)
+
+    assert result["nodes"] == [] and result["conditions"] == []
+    assert result["summary"]["nodes_cleared"] == 0 and result["summary"]["nodes_tested"] == 3
+    np.testing.assert_allclose(
+        np.array(result["combined_probability"], dtype=float),
+        np.array(result["baseline_probability"], dtype=float), rtol=0, atol=1e-12,
+    )
+    assert len(list(load_workbook(ws.forecast_workbook_path)["cleared nodes"].iter_rows())) == 1
+
+
+def test_forecast_requires_a_current_selection(selected_workspace):
+    forecast_stage.cmd_forecast(selected_workspace)
+    assert not selected_workspace.forecast_path.exists()

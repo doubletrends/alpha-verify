@@ -1,15 +1,11 @@
 """Shared fixtures for downstream pipeline stages."""
 
-from unittest.mock import Mock
-
 import numpy as np
 import pytest
 
 from alphaverify.infrastructure import artifact_io
 from alphaverify.infrastructure.workspace import Workspace
 from alphaverify.pipeline import step_03_validation as validation_stage
-from alphaverify.pipeline import step_04_selection as selection_stage
-from alphaverify.presentation import bin_figures
 
 
 @pytest.fixture
@@ -70,23 +66,3 @@ def selected_workspace(tmp_path):
     artifact_io.write_json(ws.validation_summary_path, summary)
     return ws
 
-
-@pytest.fixture
-def summarized_workspace(selected_workspace, monkeypatch):
-    """Nodes a and b clear bins; node c is tested but never clears."""
-    monkeypatch.setattr(bin_figures, "write_bin_figures", Mock(return_value=[]))
-    validation = artifact_io.read_json(selected_workspace.validation_summary_path)
-    template = validation["tests"][0]
-    validation["tests"] += [
-        {**template, "node": "b", "bin": 0, "bin_label": "x < 0.5"},
-        {**template, "node": "a", "bin": 1, "bin_number": 2, "bin_label": "0.5 < x",
-         "monte_carlo_p_value": .004},
-        {**template, "node": "c", "family": "other", "monte_carlo_p_value": .60, "cleared": False},
-    ]
-    validation["cleared"] = [
-        {key: value for key, value in row.items() if key != "null_scores"}
-        for row in validation["tests"] if row["cleared"]
-    ]
-    artifact_io.write_json(selected_workspace.validation_summary_path, validation)
-    selection_stage.cmd_selection(selected_workspace)
-    return selected_workspace

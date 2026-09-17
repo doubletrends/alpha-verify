@@ -15,8 +15,7 @@ STAGE_DIRECTORIES = {
     "shift": "02_shift",
     "validation": "03_validation",
     "selection": "04_selection",
-    "summary": "05_summary",
-    "forecast": "06_forecast",
+    "forecast": "05_forecast",
 }
 
 
@@ -206,14 +205,6 @@ class Workspace:
     @property
     def selection_summary_path(self) -> Path:
         return self.stage_dir("selection") / "selection.json"
-
-    @property
-    def node_summary_path(self) -> Path:
-        return self.stage_dir("summary") / "summary.json"
-
-    @property
-    def node_summary_workbook_path(self) -> Path:
-        return self.stage_dir("summary") / "summary.xlsx"
 
     @property
     def forecast_path(self) -> Path:

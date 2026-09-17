@@ -11,7 +11,6 @@ from alphaverify.infrastructure import artifact_io
 from alphaverify.infrastructure.workspace import Workspace
 from alphaverify.pipeline.step_03_validation import validation_summary_is_current
 from alphaverify.pipeline.step_04_selection import selection_summary_is_current
-from alphaverify.pipeline.step_05_summary import node_summary_is_current
 from alphaverify.pipeline.context import materialized_shift
 from alphaverify.presentation.display import format_barrier
 
@@ -150,22 +149,15 @@ def cmd_status(ws: Workspace, node_id: str | None = None) -> None:
         print(f"  selection: {len(selected_rows)} cleared bins rendered in Stage 4")
     elif selection:
         print("  selection: stale - run select")
-    node_summary = artifact_io.read_json(ws.node_summary_path)
-    if node_summary and node_summary_is_current(ws, node_summary):
-        counts = node_summary["summary"]
-        print(
-            f"  summary: {counts['nodes_cleared']} of {counts['nodes_tested']} tested nodes "
-            f"cleared {counts['bins_cleared']} bins in Stage 5"
-        )
-    elif node_summary:
-        print("  summary: stale - run summarize")
     # Imported here: the forecast stage imports this module's wording helpers.
-    from alphaverify.pipeline.step_06_forecast import forecast_is_current
+    from alphaverify.pipeline.step_05_forecast import forecast_is_current
     forecast = artifact_io.read_json(ws.forecast_path)
     if forecast and forecast_is_current(ws, forecast):
+        counts = forecast["summary"]
         print(
-            f"  forecast: as of {forecast['as_of']}, {forecast['summary']['conditions_used']} "
-            f"conditions used of {forecast['summary']['bins_active']} active"
+            f"  forecast: {counts['nodes_cleared']} of {counts['nodes_tested']} tested nodes "
+            f"cleared {counts['bins_cleared']} bins; as of {forecast['as_of']}, "
+            f"{counts['conditions_used']} conditions used of {counts['bins_active']} active"
         )
     elif forecast:
         print("  forecast: stale - run forecast")
