@@ -19,29 +19,55 @@ You've seen lots of them: a so-called “alpha” strategy and an equity curve t
 <p align="center">
 <table>
   <tr>
-    <td align="center" width="33%"><h2>10,000</h2>random OHLC histories</td>
-    <td align="center" width="33%"><h2>19 / 20</h2>20 NASDAQ candidates</td>
-    <td align="center" width="33%"><h2>1</h2>raw pass—and not proof of alpha</td>
+    <td align="center" width="33%"><h2>1,000</h2>synthetic OHLC histories</td>
+    <td align="center" width="33%"><h2>552</h2>condition bins across 57 NASDAQ features</td>
+    <td align="center" width="33%"><h2>4.5%</h2>only 25 bins cleared</td>
   </tr>
 </table>
 <br>
 </p>
 
-The figures below are historical results from the former selection-first pipeline; they have not been regenerated with validation of all bins. Their original percentage-point score axes are historical; current shifts store `conditional_probability - baseline_probability`, and current scores are one hundredth of the former scale. A shift of 0.233 displays as 23.3%, the same 23.3-percentage-point difference.
+## Example - NASDAQ daily
 
-## Example - MA Cross 50/200
+Each figure shows one condition bin, such as "the 50-day average is 9% to 12% above the 200-day". The left panel shows how often the NASDAQ touches each barrier (±1% to ±20%) within 1 to 30 days while the condition holds, compared with all days. The circled cells are the mirror pair with the largest up/down contrast. The right panel places the bin's score among the scores of 1,000 synthetic price histories that share the market's volatility but contain no real signal. A bin clears only if its score beats the null's 95th percentile.
 
-The "MA Cross" heatmap looks decisive: the classic MA Cross 50/200 produces a coherent **23.3 percentage-point** upside/downside contrast. 
+### MA Cross 50/200 bin 9 - the golden cross
 
-<p align="center">
-  <a href="docs/selected_shift_surface__008__ma_cross_50_200.png"><img src="docs/selected_shift_surface__008__ma_cross_50_200.png" width="100%" alt="Observed MA Cross 50-200 condition shift surface with a 23.3 percentage-point contrast"></a>
-</p>
-
-Then the same full-grid score is applied to 10,000 fitted synthetic histories, and it turns out the **decisive edge** is just pure luck.
+The classic 50/200 moving-average cross, with the fast average 8.9% to 11.6% above the slow one, shows a coherent **24.5-point** contrast at ±4%. Its score still falls short of the null's 95th percentile (p = 0.084).
 
 <p align="center">
-  <a href="docs/null_histogram__008__ma_cross_50_200__bin_02.png"><img src="docs/null_histogram__008__ma_cross_50_200__bin_02.png" width="100%" alt="MA Cross 50-200 score falling well below the 95th percentile of 10,000 synthetic OHLC histories"></a>
+  <a href="docs/bin_figure__ma_cross_50_200__bin_09.png"><img src="docs/bin_figure__ma_cross_50_200__bin_09.png" width="100%" alt="MA Cross 50-200 bin 9: a 24.5 percentage-point contrast below the null 95th percentile"></a>
 </p>
+
+### MA Ratio-200 bin 4 - a textbook mirror
+
+With price 3.9% to 6.5% above its 200-day average, the surface is almost a perfect mirror: red above zero and blue below, with a **27.4-point** contrast at ±4%. Chance produces it easily (p = 0.23).
+
+<p align="center">
+  <a href="docs/bin_figure__ma_ratio_200__bin_04.png"><img src="docs/bin_figure__ma_ratio_200__bin_04.png" width="100%" alt="MA Ratio-200 bin 4: a 27.4 percentage-point contrast well inside the synthetic null"></a>
+</p>
+
+### TNX Level bin 1 - the 42-point edge
+
+When the 10-year Treasury yield sat below 1.34%, the NASDAQ was **37.7 points** more likely than usual to rise 8% within 30 days, and 4.3 points less likely to fall 8%. That is a **42-point** gap between the two sides, and it grows steadily with the horizon. It looks like a macro regime you could trade.
+
+<p align="center">
+  <a href="docs/bin_figure__tnx_level__bin_01.png"><img src="docs/bin_figure__tnx_level__bin_01.png" width="100%" alt="TNX Level bin 1: a 42 percentage-point upside contrast whose score still falls below the null 95th percentile"></a>
+</p>
+
+It does not clear. Random histories produce a score at least this large 7.6% of the time.
+
+### TNX Level bin 6 - same feature, opposite story
+
+With the yield between 2.48% and 2.92%, the picture flips: an 8-to-10% drop becomes more likely and a rise less likely, for a **21.2-point** gap. Read by itself, it looks like a second, bearish regime. The score sits near the middle of the null (p = 0.41).
+
+<p align="center">
+  <a href="docs/bin_figure__tnx_level__bin_06.png"><img src="docs/bin_figure__tnx_level__bin_06.png" width="100%" alt="TNX Level bin 6: a 21.2 percentage-point downside contrast, well inside the synthetic null"></a>
+</p>
+
+### The whole universe
+
+None of the four clears. Across all 552 bins, 25 pass the raw 5% test, while pure chance would pass about 27.6. After the Benjamini-Hochberg correction for testing 552 bins at once, the smallest q-value is 0.55. On this data, the edges that look strongest cannot be told apart from noise.
 
 ## Try it
 
