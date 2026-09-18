@@ -37,13 +37,11 @@ Traders everywhere watch for the 50-day average to cross above the 200-day. Once
 
 ## Low bond yields - the 42-point edge
 
-Cheap money lifts stocks; everyone knows that. When the 10-year Treasury yield sat below 1.34%, the NASDAQ was far more likely to rally 8% within a month: a **42-point** swing that grows steadily with time. It looks like a macro regime you could trade.
+Cheap money lifts stocks; everyone knows that. When the 10-year Treasury yield sat below 1.34%, the NASDAQ was far more likely to rally 8% within a month: a **42-point** swing that grows steadily with time. It looks like a macro regime you could trade. It isn't. Random markets draw one at least this strong 7.6% of the time. Close, but not an edge.
 
 <p align="center">
   <a href="docs/bin_figure__tnx_level__bin_01.png"><img src="docs/bin_figure__tnx_level__bin_01.png" width="100%" alt="TNX Level bin 1: a 42 percentage-point upside contrast whose score still falls below the null 95th percentile"></a>
 </p>
-
-It isn't. Random markets draw one at least this strong 7.6% of the time. Close, but not an edge.
 
 ## Moderate yields - same signal, opposite story
 
