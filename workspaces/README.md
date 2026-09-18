@@ -1,178 +1,130 @@
 # Workspaces
 
-Each experiment directory is a versioned declaration and a local artifact namespace. A workspace owns its providers, cleaning, alignment, asset, history start, barrier grid, horizons, condition catalog, and optional features. Shared numerical definitions, input validation, artifact schemas, renderers, and CLI behavior belong to [`src/`](../src/README.md). `_shared/` contains optional download and snapshot helpers, not an experiment or automatic source registry.
+Each directory here is one experiment. It holds a versioned declaration (`universe.json`, `data.py`, an optional `plugin.py`) and, once the pipeline has run, a local tree of generated artifacts. A workspace owns everything that is a choice about one market: provider, cleaning, time alignment, history start, barrier grid, horizons, the condition catalog, and experiment-only features. Everything that must mean the same thing across experiments belongs to [`src/`](../src/alphaverify/README.md). `_shared/` is a helper library that workspaces import explicitly. It is not an experiment and not a registry.
 
-## Boundary and source of truth
+# How-to guides
 
-```text
-workspaces/<name>/
-  universe.json              versioned experiment declaration
-  data.py                    required source loading, cleaning, and alignment
-  plugin.py                  optional feature registration
-  00_data/                   local source-frame snapshots and provider caches
-  00_cache/                  generated per-history observed outcomes
-  01_surface/                generated measurement artifacts
-  02_shift/                  generated baseline-relative artifacts
-  03_validation/             generated null results and bin figures
-  04_selection/              generated cleared-bin manifest and bin figures
-  05_forecast/               generated cleared nodes, forecast from active cleared bins, and workbook
+### Run a workspace
+
+See the [pipeline how-to](../src/alphaverify/pipeline/README.md#run-a-workspace). The default workspace is `nasdaq_daily`.
+
+### Add a condition to an existing workspace
+
+Add a node to a family in `universe.json` (see [node fields](#families)). Use a [built-in feature](../src/alphaverify/domain/README.md#lookups) or one registered by this workspace's `plugin.py`. List every source the feature reads in `data`. Then rerun from `measure`.
+
+### Add or change a data source
+
+1. In `data.py`, fetch the feed inside the loader's `feed(name)`, snapshot the raw frame with `_shared.snapshots.snapshot`, and clean and align it.
+2. Accept the new source name in `load(sources)`.
+3. Record anything a reader would need to reproduce the panel in `panel.attrs["provenance"]`.
+4. Bump the loader's `CLEANING_VERSION` if prepared rows change.
+5. Rerun from `measure`. Existing artifacts are not invalidated automatically (see [freshness checks](../src/alphaverify/pipeline/README.md#freshness-checks)).
+
+### Add an experiment-only feature
+
+In `plugin.py`, implement `register(features)` and call `features.register_torch(name, fn)`. Use only the [host API](#pluginpy). Plugin features stay fixed in the synthetic null. If a feature can be computed from OHLCV alone and should be tested against resampled prices, make it a built-in instead ([tutorial](../src/alphaverify/README.md#tutorials)).
+
+### Clean up a workspace
+
+Everything except `universe.json`, `data.py`, and `plugin.py` is generated and ignored by Git. Deleting a stage directory forces that stage and everything after it to run again. Deleting `00_data/` forces a fresh download. Deleting `00_cache/` rebuilds observed outcomes on the next `measure` or `validate`. Directories from an earlier stage numbering (`05_summary/`, `06_forecast/`) are never read and can be deleted.
+
+### Test a workspace change
+
+Mock the provider and assert cleaning behaviour in `tests/test_workspace_data.py` when you introduce a new cleaning rule or a new repository-wide promise, such as a required baseline or a plugin boundary. Do not add a test for every node.
+
+# Tutorials
+
+### Create a new daily workspace
+
+This walkthrough creates `spx_daily`, an S&P 500 copy of `nasdaq_daily`.
+
+**1. Copy the declaration.**
+
+```powershell
+New-Item -ItemType Directory workspaces/spx_daily
+Copy-Item workspaces/nasdaq_daily/universe.json, workspaces/nasdaq_daily/data.py workspaces/spx_daily/
 ```
 
-`universe.json` is the source of truth for cross-file experiment facts. `alphaverify.infrastructure.workspace.Workspace` loads it into an immutable runtime configuration and node catalog. Do not duplicate asset symbols, grids, horizons, or feature parameters in package code.
+**2. Edit `universe.json` `meta`.** Set `"workspace": "spx_daily"` and `"asset": {"provider": "yfinance", "ticker": "^GSPC", "interval": "1d"}`, and update `description`. Keep the grid, the horizons, and `n_bins` unless you have a reason, decided **before** you look at any result, to change them.
 
-`universe.json`, `data.py`, optional `plugin.py`, and shared Python helpers are versioned. Download snapshots, caches, and stage outputs are local and ignored by Git. Later stages depend on the exact history and metadata embedded upstream.
+**3. Check `data.py`.** The NASDAQ loader checks only `provider` and `interval`, so it works unchanged for another Yahoo daily ticker. Rename `CLEANING_VERSION` (for example to `spx-daily-v1`) so that provenance tells the two workspaces apart.
 
-## `universe.json` contract
+**4. Keep the baseline.** `families._base` must still contain the `baseline` node with the `constant` feature.
 
-The document contains `meta` and `families` objects.
+**5. Run.**
 
-### `meta`
+```powershell
+alphaverify measure  --workspace spx_daily
+alphaverify compare  --workspace spx_daily
+alphaverify validate --workspace spx_daily
+alphaverify select   --workspace spx_daily
+alphaverify forecast --workspace spx_daily
+```
 
-| Field | Meaning |
+**6. Inspect.** Read the `measure` warnings: every skipped node is listed. Open a few `02_shift/spreadsheet/*.xlsx` and `03_validation/plot/*.png` files, then check `validation.json` `summary` and `selection.json` `summary.expected_by_chance`. A command that succeeds says nothing about whether its result is scientifically meaningful.
+
+# Explanation
+
+### Why data preparation lives here
+
+When a daily bar counts as known, whether a VIX close may be joined to a NASDAQ session, and what to do with a malformed hourly bar are experimental assumptions, not engineering details. If the core made those choices, they would apply silently to every market. Instead the core only *validates* a prepared panel (see [contract](#prepared-data-contract)) and never repairs one. Each loader states its policy in code and in `provenance`.
+
+### Point-in-time caveat
+
+The shipped daily loaders use the source's date labels and join auxiliary closes on the same date, forward-filling and never backfilling. This is an end-of-day research convention. It is not evidence that every feed was available at that bar's close, and downloads can be revised later. An experiment that needs release-time guarantees must implement availability timestamps and lags in its `data.py`.
+
+### Why `universe.json` is the source of truth
+
+The asset, grid, horizons, and node parameters are read from one file into an immutable `WorkspaceConfig`. Package code carries no defaults, so a missing field fails when the workspace is opened. It cannot fall back to a value from some other experiment.
+
+### Notes on the shipped workspaces
+
+Each workspace's `universe.json` `meta` and the docstring of its `data.py` are the authoritative description of that workspace. A few facts they do not record:
+
+- The figures in the [root README](../README.md) come from an earlier `nasdaq_daily` pipeline (selection first, 10,000 null histories) and have not been regenerated.
+- The `btc_hourly` grid (±3% in 0.25% steps) was matched to hourly volatility and fixed before any hourly validation result existed.
+- `nasdaq_daily` does not exclude a still-forming session bar; both BTC loaders exclude theirs.
+
+### Why artifacts are not portable
+
+A stage artifact is meaningful only together with the exact history, grid, and declaration that produced it. Copying one between workspaces can produce files that load but contradict each other. For a materially different experiment, create a new workspace rather than editing one that has results you want to keep.
+
+# Reference
+
+### `universe.json`
+
+Loaded by `infrastructure/workspace.py`. Every `meta` field below is required, and nothing has a default.
+
+| `meta` field | Meaning |
 |---|---|
-| `workspace` | Declaration identity; keep it equal to the directory name |
-| `asset` | Provider label, ticker, and bar interval |
-| `start_date` | Earliest requested observation |
-| `min_obs` | Minimum valid feature observations required for a node |
-| `barriers` | Inclusive signed barrier grid: `min`, `max`, and `step` |
-| `horizons` | Inclusive forward-bar range: `min` and `max` |
-| `n_bins` | Quantile-bin count for conditional features |
-| `evaluate` | `min_dev`, `min_bin_n`, and `min_run` for the forecast's strongest-cell report |
+| `asset` | `provider`, `ticker`, `interval` (ending in `h` → hourly horizons) |
+| `start_date`, `min_obs` | First requested bar; minimum finite feature values per node |
+| `barriers` | Signed fractions `min`, `max`, `step`; keep symmetric |
+| `horizons` | Forward bars `min`, `max` |
+| `n_bins` | Quantile bins per feature (≤ 256) |
+| `evaluate` | `min_dev`, `min_bin_n`, `min_run` for the forecast's terminal line only |
 
-Every field except `workspace` is a required setting, including `asset.interval`, which sets the horizon unit. The core supplies no defaults, so a declaration missing one fails when the workspace is opened.
+#### `families`
 
-The `evaluate` block does not gate any stage. It controls the strongest-cell line `forecast` prints for each condition it uses.
+Family name → list of nodes, each with `id`, `family`, `category`, `feature`, `params`, `data` (source names, `ohlcv` first), and `derived_from`. `_base` must hold node `baseline` with feature `constant`.
 
-### `families`
-
-Each family maps to a list of node declarations. Every node must provide:
-
-- `id`: unique artifact-safe identifier;
-- `family`: family label, matching its enclosing family and artifact grouping;
-- `category`: descriptive grouping for consumers;
-- `feature`: a registered feature name;
-- `params`: feature arguments, each required by the feature that reads it;
-- `data`: ordered source names understood by this workspace's `data.py`;
-- `derived_from`: provenance hint or `null`.
-
-Every workspace needs the `_base` family's `baseline` node. Its constant feature produces the unconditional probability surface that Stage 2 subtracts from all conditional nodes.
-
-`NodeCatalog` currently validates the top-level shape, while missing node keys fail when a stage consumes them. Treat the complete node shape above as the authoring contract even where validation is deferred.
-
-## Required `data.py`
-
-A workspace provides this factory, returning a callable that prepares a complete panel for an ordered list of sources:
+### `data.py`
 
 ```python
-def create_loader(*, start, asset, cache_dir):
-    # Return your workspace's callable: load(sources) -> pandas.DataFrame.
-    return DailyInputs(start=start, asset=asset, cache_dir=cache_dir).load
+def create_loader(*, start, asset, cache_dir):   # cache_dir = 00_data/
+    return load                                   # load(sources: list[str]) -> DataFrame
 ```
 
-`DailyInputs` above represents your own implementation; the existing workspaces use closures with the same interface. `start` and `asset` come from `universe.json`; `cache_dir` is the workspace's `00_data/`. The factory runs once per measurement context and owns raw-feed caching across panels. The core caches completed panels and does not provide fallback sources. Missing `data.py` fails when input data is requested, so reading or validating existing artifacts remains offline.
+### Prepared-data contract
 
-Prepared frames must have unique increasing nonmissing `DatetimeIndex` labels, a documented timezone-naive time basis, and unique real numeric columns. Required `open`, `high`, `low`, `close`, and `volume` must be finite; prices must be positive, volume nonnegative, and `low <= open/close <= high`. Auxiliary columns can retain NaN. The core rejects violations without repairing data. Gaps between bars are allowed: horizons count subsequent observations, not elapsed wall-clock intervals.
+Enforced, never repaired, by `infrastructure/market_data.py` `validate_market_data`.
 
-The workspace decides how to handle sessions, time zones, duplicate dates, missing values, adjustments, and auxiliary releases. The shipped daily loaders retain exchange/source daily labels and same-date auxiliary alignment, forward-filling across missing dates without backfilling. This preserves the former end-of-day research assumption; daily labels and revised downloads are not proof of point-in-time availability. Experiments needing release-time guarantees must implement availability timestamps and lags here.
+### `plugin.py`
 
-All three loaders snapshot the selected source frames before cleaning as content-addressed CSVs under `00_data/`. These are decoded source-frame snapshots, not exact HTTP payload archives. Stage 1 stores `data_provenance` containing cleaning version, time basis, alignment, source identifiers, snapshot hashes, and raw/prepared row counts. Source snapshots are audit inputs; loaders currently fetch again on a new run rather than offering automatic snapshot replay.
-
-The daily loaders drop incomplete OHLCV rows, keep the last duplicate, and reject invalid OHLC ordering through core validation. BTC daily also excludes the current UTC day's still-forming bar and records that cutoff as `complete_before` in source provenance. BTC hourly converts timestamps to UTC, keeps the last duplicate, drops incomplete bars, drops the few published bars whose open or close lies outside their own high-low range (recorded as `invalid_ohlc_bars_dropped`), excludes the still-forming hour (recorded as `complete_before`), and never resamples, fills, or repairs bars. These explicit policies can change a remeasurement of previously malformed data. Earlier stored artifacts with missing prices are now rejected instead of silently losing rows. Rebuild measurement and downstream stages to apply new cleaning; changing `data.py` alone does not rewrite or invalidate existing stored results.
-
-## Optional `plugin.py`
-
-Plugins now expose `register(features)` and own custom feature registrations only. Move former `register(sources, features)` source logic into `data.py`. Each run gets a fresh feature registry; a plugin should not write stage artifacts or invoke pipeline commands.
-
-A plugin may use only this host API; everything else in `alphaverify` is internal and may change without notice:
+`register(features)` may use only this host API:
 
 | Entry point | Use |
 |---|---|
-| `features.register_torch(name, feature)` | Register `feature(data, params)`, returning a one-dimensional tensor aligned to `data.index` |
-| `alphaverify.domain.tensor_runtime.tensor(values)` | Place a numeric array on the run's selected device as float64 |
-| `alphaverify.domain.torch_features.rolling_mean(values, window)` | Rolling mean over the last axis of a `(rows, time)` tensor, for non-OHLC input columns |
-
-Current examples:
-
-- `btc_daily/data.py` owns Yahoo and CoinMetrics inputs; `plugin.py` registers on-chain and halving-cycle features.
-- `btc_hourly/data.py` reads raw hourly bars from the public `mouadja02/bitcoin-technical-indicators-dataset` CSV; no feature plugin is needed.
-- `nasdaq_daily/data.py` explicitly declares Yahoo price and cross-asset feeds and their cleaning policy.
-- `_shared/yahoo.py` provides transport only; workspace modules explicitly select it and handle cleaning themselves.
-
-## Artifact lifecycle
-
-| Stage | Command | Machine-readable contract | Human-readable views |
-|---|---|---|---|
-| `00_cache` | internal | Per-history excursions, touch matrix, and baseline | None |
-| `01_surface` | `measure` | Per-node SafeTensors probability cube and embedded ordered history | Per-node XLSX workbook |
-| `02_shift` | `compare` | Per-node shift tensor plus Stage 1 references/fingerprints | Per-node XLSX workbook |
-| `03_validation` | `validate` | `validation.json` with fingerprint, observed scores, null scores, p95, and raw p-values | Per-tested-bin figure: shift heatmap beside the null distribution |
-| `04_selection` | `select` | `selection.json` containing every validation-cleared bin, ranked by raw p with Benjamini–Hochberg q-values and the count expected by chance | The same standard figure for each selected bin |
-| `05_forecast` | `forecast` | `forecast.json` listing each node that cleared (its cleared bins, counts, and best rank, p, and q), the active bins, the one-per-family choice, and naive Bayes, baseline, and historical joint surfaces | `forecast.xlsx` with naive Bayes, shift, joint, gap, conditions, and cleared-nodes tabs |
-
-Stage 3 uses Stage 2 as its completion gate and reads histories and observed condition data from the referenced Stage 1 artifacts, with no provider calls. Observed excursions, touches, baselines, and bin assignments come from the versioned source cache. Synthetic batches generate one touch matrix per horizon and share it across every node. `validation.json` fingerprints both Stage 1 and Stage 2 source bytes, node declarations, bin count, measurement version, and simulation settings.
-
-Array artifacts use schema version 2 and descriptive ASCII field names such as
-`barriers`, `conditional_probability`, `baseline_probability`,
-`probability_shift`, `bin_observation_counts`, and `bin_edges`. Artifacts from
-earlier schemas are not read; rerun the pipeline to regenerate them.
-
-Do not copy generated artifacts between workspaces. Paths may look compatible while grids, histories, features, or fingerprints disagree.
-
-## Current declarations
-
-### `nasdaq_daily`
-
-The flagship Alpha Verifier experiment. It requests Nasdaq Composite (`^IXIC`) daily bars from 2015, a −20% to +20% barrier grid in 1% steps, horizons from 1 to 30 days, and ten condition bins. Its catalog combines price/volume indicators with VIX, Treasury-yield, DXY, and calendar conditions.
-
-The historical result in the [root README](../README.md) comes from this workspace's selected top 20 condition bins and 10,000-history validation run.
-
-### `btc_daily`
-
-A daily BTC (`BTC-USD`) comparison workspace from 2015 with a −20% to +20% grid and 1- to 30-day horizons. Its plugin extends the built-in price features with CoinMetrics on-chain histories and halving-cycle conditions. Those plugin-defined conditions are held fixed during the current synthetic-OHLC null because they cannot be reconstructed from OHLC alone.
-
-### `btc_hourly`
-
-An exploratory hourly BTC workspace from 2018 with a −3% to +3% grid in 0.25% steps and 1- to 12-hour horizons. The grid is matched to hourly volatility (about 0.7% per hour and 2.35% over 12 hours since 2018), where baseline touch rates span roughly 1% to 88%, and was fixed before any hourly validation result. It uses the publisher's raw OHLCV columns and recomputes indicators locally; it does not trust precomputed indicator columns from the source dataset.
-
-The GitHub media URL in its `data.py` deliberately dereferences a Git LFS object. The workspace explicitly chooses this historical dataset rather than Yahoo hourly history.
-
-## Run and inspect a workspace
-
-Run from the repository root and keep the stages in order:
-
-```powershell
-alphaverify measure   --workspace nasdaq_daily
-alphaverify compare   --workspace nasdaq_daily
-alphaverify validate  --workspace nasdaq_daily
-alphaverify select    --workspace nasdaq_daily
-alphaverify forecast  --workspace nasdaq_daily
-```
-
-`forecast` combines the cleared bins active on the last bar stored by `measure`; rerun the pipeline for newer data.
-
-Every command accepts `--cuda` when CUDA is available through PyTorch. A command reuses data and price excursions in memory only for that command; the next stage reads persisted artifacts.
-
-If a workbook is open in Excel, a stage may report it as locked while continuing with other artifacts. Close the workbook and rerun that stage. If validation is stale, rerun `validate` after rebuilding Stage 2 when its inputs have changed.
-
-## Add or change a workspace safely
-
-1. Copy the closest existing declaration into a new, clearly named child directory.
-2. Set the asset, date range, barrier grid, horizons, bin count in `universe.json`.
-3. Keep the baseline node and give every node a unique ID, registered feature, valid parameters, and declared data sources.
-4. Implement `data.py`, including source selection, cleaning, alignment, and provenance. Add `plugin.py` only for custom features. Keep reusable numerical behavior in `src/alphaverify/`.
-5. Run `measure`, `compare`, `validate`, `select`, and `forecast` in order.
-6. Review shift workbooks, bin figures, and JSON manifests; a successful command alone does not validate their scientific interpretation.
-7. Add or update [tests](../tests/README.md) when the declaration introduces a repository-level source, schema, plugin, or path contract.
-
-Changing history, grid, feature definitions, or node parameters invalidates downstream interpretation even if old artifacts remain readable. Prefer a clean new workspace identity for materially different experiments; otherwise rerun the full pipeline and use the input fingerprint to detect stale validation.
-
-### Probability-difference shift units
-
-Stage 2 writes `probability_shift` with `shift_unit: probability_difference` and
-`shift_version: probability-difference-v1`. This is a shift-specific version;
-Stage 1 arrays and observed caches do not depend on it. A shift artifact in any
-other units or version is rejected; rerun `compare`.
-
-Workspace `evaluate.min_dev` is a probability difference in [0, 1]: 0.10 means a
-10-percentage-point effect. It governs the forecast's strongest-cell report, not
-the Stage 4 statistical selection rule.
+| `features.register_torch(name, fn)` | `fn(data, params)` returns a 1-D tensor aligned with `data.index` |
+| `alphaverify.domain.tensor_runtime.tensor(values)` | Float64 tensor on the run's device |
+| `alphaverify.domain.torch_features.rolling_mean(values, window)` | Rolling mean over the last axis |

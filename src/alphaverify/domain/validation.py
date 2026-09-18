@@ -60,6 +60,8 @@ def simulated_ohlc_tensor(data: pd.DataFrame, n_replicates: int, seed: int):
         component_covariance
         + torch.eye(4, dtype=torch.float64, device=device) * jitter_scale * 1e-12
     )
+    # CPU and CUDA generators yield different streams for one seed, and the device is
+    # not part of the Stage 3 method record: results are reproducible per device only.
     generator = torch.Generator(device=device).manual_seed(seed)
     synthetic_components = torch.randn(
         (n_replicates, len(data), 4),
