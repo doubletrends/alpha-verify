@@ -58,6 +58,10 @@ def _compute(ohlcv: torch.Tensor, feature: str, params: dict, cache: dict) -> to
         if key not in cache:
             cache[key] = build()
         return cache[key]
+    # Rolling keys use the input's data_ptr, so pass mean/maximum/std views of ``ohlcv``
+    # or tensors held in ``cache``. A temporary (``-low`` below) is safe only when the
+    # caller remembers its result, so its key is never looked up again; otherwise a
+    # freed address reused by another tensor would hit the wrong cached window.
     mean = lambda x, n: remembered(("mean", x.data_ptr(), n), lambda: _rolling(x, n, "mean"))
     maximum = lambda x, n: remembered(("max", x.data_ptr(), n), lambda: _rolling(x, n, "max"))
     std = lambda x, n: remembered(("std", x.data_ptr(), n), lambda: _rolling(x, n, "std"))

@@ -37,6 +37,7 @@ class RunContext:
         data = self.load_data(node["data"])
         if data.empty:
             raise ValueError("empty data")
+        # Keyed by panel identity: panels stay referenced in self._data, so an id is never reused.
         primitives = self._feature_primitives.setdefault(id(data), {})
         feat = self.features.compute(data, node["feature"], node["params"], primitives).reindex(data.index)
         n_valid = int(feat.notna().sum())

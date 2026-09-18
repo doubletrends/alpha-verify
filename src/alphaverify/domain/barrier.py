@@ -1,24 +1,10 @@
 """
 Barrier-touch surfaces: will price reach a signed barrier within a horizon?
 
-This is the engine's single measurement: the probability that price reaches a barrier,
-given a condition. Everything the pipeline used to compute as a separate "outcome" is a
-row of it -- the -10% drawdown surface is the -10% barrier row, the +10% runup surface
-is the +10% row, and the asymmetry between them is the two rows read against each other
-in the same column. There is no outcome registry any more; the barrier is the axis.
-
-Two things differ from the close-to-close machinery this replaces:
-
-  Intraday extremes.  A barrier is touched when the bar's low or high reaches it, not
-  when the close does. Measured on BTC daily, close-only understates a -10%/14d touch
-  at 21.7% against 28.7% on the lows, and a -5%/7d touch at 28.6% against 39.5%. For a
-  question whose whole point is where to put a stop, closes are the wrong series.
-
-  Quantile bins.  Conditions are the feature's deciles rather than equal-width slices
-  of its 2nd-98th percentile range. Equal-width bins put almost no observations in the
-  tails, which is exactly where the interesting conditions live; deciles guarantee an
-  equal, known sample behind every column and make each column a condition you could
-  actually trade ("the feature is in its bottom tenth").
+The engine's single measurement, shared by Stage 1 and by both validation roles.
+A barrier is touched by a later bar's low (negative barriers) or high (positive
+barriers), not its close; conditions are quantile bins of a feature. Why both
+choices were made: src/alphaverify/domain/README.md.
 """
 
 from __future__ import annotations
@@ -40,10 +26,11 @@ def bin_edges(feature: pd.Series, n_bins: int) -> np.ndarray:
     feature, or the constant used by the baseline node -- yields duplicate quantiles,
     so the caller may get fewer bins than asked for. That is correct, not an error.
 
-    Assignment is searchsorted-left: values <= e enter the lower bin. Retain
-    the historical edge filter min(v) < e <= max(v), which eliminates phantom
-    edges for constant features. A maximum-valued edge can leave an empty final
-    bin; touch probabilities and scoring exclude it through sample counts.
+    Assignment is searchsorted-left: values <= e enter the lower bin. Edges must
+    satisfy min(v) < e <= max(v), which removes phantom edges for constant
+    features; changing that filter changes stored bins and MEASUREMENT_VERSION.
+    A maximum-valued edge can leave an empty final bin; touch probabilities and
+    scoring exclude it through sample counts.
     """
     values = tensor_runtime.tensor(feature.to_numpy(float))[None, :]
     edges = batched_bin_edges(values, n_bins)[0]
