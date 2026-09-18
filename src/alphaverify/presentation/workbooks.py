@@ -1,5 +1,5 @@
 """
-The pipeline's deliverable.
+Human-readable workbook views of stored artifacts; the arrays and JSON remain the contract.
 
 Each cube workbook renders a cube as one tab per condition bin. Each tab is that bin's
 whole barrier-by-horizon face, so the workbook holds every value the cube holds -- it is
