@@ -78,8 +78,7 @@ Validation writes `03_validation/`; selection consumes only a current validation
 
 ## Repository map
 
-- [Source architecture](src/README.md) — implementation boundaries, data flow, artifact contracts, and null mechanics.
-- [Test contracts](tests/README.md) — what the fast suite protects and what requires a real pipeline run.
+- [Source architecture](src/alphaverify/README.md) — implementation boundaries, data flow, artifact contracts, and null mechanics.
 - [Workspaces](workspaces/README.md) — experiment declarations, plugins, generated artifacts, and safe workspace changes.
 
 AlphaVerify is research software, not investment advice.

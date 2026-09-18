@@ -1,9 +1,11 @@
-"""One numerical runtime for Stages 1–3: PyTorch on CPU or CUDA."""
+"""One numerical runtime for the Torch kernels: PyTorch on CPU or CUDA."""
 from __future__ import annotations
 
 import numpy as np
 import torch
 
+# Process-global: the CLI configures it once before a stage runs. Tensors created
+# earlier stay on the previous device, so never cache tensors at import time.
 _DEVICE = torch.device("cpu")
 # Share of free CUDA memory a batched kernel may plan to use; a CPU run assumes this fixed allowance.
 _CUDA_MEMORY_SHARE = 0.5

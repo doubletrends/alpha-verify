@@ -23,7 +23,8 @@ def _barrier_reflection(barriers) -> tuple[np.ndarray, np.ndarray]:
         if len(positive) == len(negative) == 1:
             p, n = int(positive[0]), int(negative[0])
             mirror[p], mirror[n] = n, p
-            # Both signed rows carry half of the former pair contribution.
+            # Both signed rows see the same |shift(+D) - shift(-D)|, so each carries
+            # half the pair's weight and the pair counts once in the sum.
             weights[p] += magnitude / 2
             weights[n] += magnitude / 2
             largest = magnitude

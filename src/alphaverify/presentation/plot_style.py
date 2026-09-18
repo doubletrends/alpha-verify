@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 import matplotlib
+# Headless backend; must be selected before pyplot is first imported.
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
