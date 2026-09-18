@@ -61,18 +61,17 @@
   \noindent{\setlength{\fboxsep}{12pt}%
   \colorbox{ConceptPaper}{\usebox{\conceptbox}}}\par\addvspace{8pt}}
 
-\newcommand{\ind}{\mathbf{1}}
 \DeclareMathOperator{\Close}{Close}
 \DeclareMathOperator{\Open}{Open}
 \DeclareMathOperator{\High}{High}
 \DeclareMathOperator{\Low}{Low}
-\DeclareMathOperator{\chol}{chol}
-\DeclareMathOperator{\quantile}{quantile}
-\DeclareMathOperator{\searchsorted}{searchsorted}
+\newcommand{\ind}{\mathbf{1}}
 
 \title{AlphaVerify: Mathematical Specification}
 \author{}
-\date{Measurement version \texttt{shared-outcome-cache-float64-v2}}
+\date{Measurement \texttt{shared-outcome-cache-float64-v2}\\
+  Scoring \texttt{baseline-relative-bin-v5-probability-difference}\\
+  Null \texttt{gaussian-log-ohlc-v1}}
 
 \begin{document}
 \maketitle
@@ -81,53 +80,56 @@
 
 \section{Purpose and scope}
 
-AlphaVerify measures how conditioning on a feature changes the probability
-of touching signed return barriers over forward horizons. Its basic
-computational unit is a complete barrier--horizon Surface. The four stages
-measure probability surfaces, subtract a market baseline, validate a score
-of each resulting shift surface against synthetic histories, and retain the
-observed surfaces that clear the test.
-
-This document defines those transformations and their numerical contract.
-It is intended for readers implementing the method; no particular array
-library is assumed. Primitive operations and notation are defined below.
-The same measurement and scoring rules apply to observed and synthetic
-histories. Section~\ref{sec:numerics} collects array layouts, artifact
-references, and cache rules; these determine how results are represented
-and reused without changing the mathematical operations.
+AlphaVerify asks a narrow question about a market condition: \emph{when the
+condition holds, does price become more or less likely to reach a given
+distance up or down within a given time, and is that change larger than
+chance would produce?} It answers in five stages:
+\begin{center}
+\renewcommand{\arraystretch}{1.35}
+\begin{tabularx}{\linewidth}{@{}l >{\raggedright\arraybackslash}X l@{}}
+\toprule
+\rowcolor{ConceptPaper}
+\textbf{Stage} & \textbf{Question} & \textbf{Result} \\
+\midrule
+1 Measure & How often was each barrier touched, over all dates and within each feature bin? & $B$, $Y_k$ \\
+2 Compare & How much does a bin change those chances? & $Z_k=Y_k-B$ \\
+3 Validate & Could a market without memory produce as large a change? & $\widehat p$ \\
+4 Select & Which bins pass, and how many would pass by chance? & selected bins, $q$ \\
+5 Combine & What do the passing conditions that hold today imply together? & $P$, $J$ \\
+\bottomrule
+\end{tabularx}
+\end{center}
+This document explains what each stage computes and why it is built that
+way. Formulas are written at the level needed to follow the idea; the exact
+numerical conventions are collected briefly in Section~\ref{sec:numerics}.
 
 \topic{What the comparison establishes}
 
-The current decision is an exploratory comparison with a fitted independent
-Gaussian OHLC simulator. A small Monte Carlo i-value means that this simulator
-rarely produces a score as large as the observed one. It does not by itself
-establish incremental predictive information, out-of-sample performance, or
-a calibrated 5\% false-positive rate in markets with temporal dependence.
-Model limitations and support conditioning are part of the interpretation
-of the decision, not merely implementation details
-(Section~\ref{sec:validation}). This specification describes the current
-algorithm; explicitly identified diagnostics and alternatives are proposals,
-not claims about implemented behavior.
+Validation compares each result with a fitted simulator in which prices have
+no memory.
+\begin{keyconcept}{What a small p-value means}
+This simulator rarely produces a score as large as the observed one.
+\end{keyconcept}
+It does not by itself show out-of-sample performance, an edge after costs,
+or a calibrated 5\% false-positive rate in real markets, which do have
+memory (Section~\ref{sec:validation}).
 
 \section{Central concepts}\label{sec:surface}
 
 \subsection{The Surface as the computational unit}
 
-Fix an ordered signed-barrier grid $\Delta$ and an ordered forward-horizon
-grid $\Theta$. Their elements are the two coordinates of a Surface:
+Everything in AlphaVerify is laid out on two ordered grids: a barrier grid
+$\Delta$ and a horizon grid $\Theta$.
 \begin{itemize}
- \item $\delta\in\Delta$ is a signed return barrier, expressed as a
-       fraction of the starting date's close. For example, $\delta=-0.05$
-       is a barrier $5\%$ below that close, and $\delta=+0.05$ is a barrier
-       $5\%$ above it.
- \item $\theta\in\Theta$ is a forward horizon measured in subsequent
-       observations (bars). For example, $\theta=10$ asks whether the
-       barrier is touched within the next ten bars, rather than only
-       at the end of the tenth bar.
+ \item A \emph{barrier} $\delta\in\Delta$ is a distance from the starting
+       date's close. For example, $\delta=-0.05$ is $5\%$ below that close,
+       and $\delta=+0.05$ is $5\%$ above it.
+ \item A \emph{horizon} $\theta\in\Theta$ is a number of bars ahead. For
+       example, $\theta=10$ asks whether the barrier is touched at any point
+       within the next ten bars, not only at the end of the tenth.
 \end{itemize}
-Thus $\Delta$ and $\Theta$ are the grids, while $\delta$ and $\theta$
-select one barrier and one horizon within them. A real-valued Surface
-is a function on their product:
+A Surface assigns a real number to every pair of a barrier and a horizon.
+All Surfaces therefore live in one space:
 \begin{keyconcept}{The Surface space}
 \[
   \mathcal S=\mathbb R^{\Delta\times\Theta},
@@ -135,84 +137,59 @@ is a function on their product:
   \qquad F(\delta,\theta)\in\mathbb R.
 \]
 \end{keyconcept}
-Thus $\mathcal S$ is the space of surfaces, and $F$ is one Surface.
-Its array representation has $|\Delta|$ rows and $|\Theta|$ columns.
-The entire grid is one element---one point in this space---even though its
-construction and evaluation use individual coordinates.
+$\mathcal S$ is the space of Surfaces, and $F$ is one Surface. As an array
+it has $|\Delta|$ rows and $|\Theta|$ columns, but mathematically the whole
+grid is a single element of $\mathcal S$: one point in this space. That
+element is the unit the pipeline operates on. It is measured, compared,
+scored, and selected as one object, even though it is built cell by cell.
 
-\topic{Partial support}
+\topic{Blank cells}
 
-A complete Surface retains the full grid even when some entries are
-unsupported. Formally, a partially supported Surface is represented by
-an element $F\in\mathcal S$ together with a Boolean support mask on
-$\Delta\times\Theta$. Values outside the support are arbitrary and never
-used. Numerical arrays may store non-finite values there instead;
-NaN is a storage convention, not an element of $\mathbb R$. Completeness
-describes the grid, not a guarantee that every entry is available.
+A cell whose value would rest on fewer than 30 dates is left blank. A blank
+cell has no value; it is not zero. A Surface keeps its full shape even when
+some of its cells are blank. Formally, a partially supported Surface is an
+element $F\in\mathcal S$ together with its set of supported cells
+$\mathcal M\subseteq\Delta\times\Theta$; values of $F$ outside $\mathcal M$
+are never used.
 
-\subsection{Paths}\label{sec:paths}
+\subsection{Observed and synthetic histories}\label{sec:paths}
 
-The path index $i=0,1,\ldots,I$ identifies one complete OHLCV price history.
-Path $i=0$ is the observed market history. Paths $i=1,\ldots,I$ are
-random synthetic histories generated from the fitted null model for
-hypothesis testing; the current configuration uses $I=1{,}000$.
-Each path is measured and scored by the same procedure, so its surfaces
-and scores can be compared with those of the observed history.
-Section~\ref{sec:null} defines how these null histories are generated.
-
-We write the path label as a parenthesized superscript $(i)$, and the
-within-path date or bin as a subscript. The parentheses distinguish the
-path label from an exponent. For example, $X_{t}^{(i)}$ is
-the outcome Surface for path $i$ and date $t$, whereas $Y_{k}^{(i)}$ is the
-conditional probability Surface for path $i$ and bin $k$. A date-level
-outcome and a bin-level probability do not have the same outer indices:
-aggregation replaces a collection indexed by dates with one indexed by bins.
+Everything is computed on a price history: a sequence of bars with open,
+high, low, close, and volume. The observed history is the real market.
+Stage~3 also builds $I=1{,}000$ synthetic histories
+(Section~\ref{sec:null}) and runs each of them through exactly the same
+measurement and scoring. Index the histories by $i=0,1,\ldots,I$, with $i=0$
+the observed one. Because the rules are identical for every $i$, the formulas
+in this document describe one history and leave $i$ out; it appears only
+where observed and synthetic results are compared (Stage~3).
 
 \subsection{The objects carried through the pipeline}
 
-All four Surface objects belong to the same ambient space:
 \begin{keyconcept}{Four Surface objects, one common space}
 \[
-  X_{t}^{(i)},\quad Y_{k}^{(i)},\quad B^{(i)},\quad Z_{k}^{(i)}\in\mathcal S,
+  X_t,\quad Y_k,\quad B,\quad Z_k\in\mathcal S.
 \]
 \end{keyconcept}
-with the support-mask convention above wherever needed. Their outer
-indices identify different members of $\mathcal S$; their common internal
-coordinates are always $(\delta,\theta)$. On supported coordinates:
+Their subscripts say which member of $\mathcal S$ is meant, a date $t$ or a
+bin $k$; their coordinates are always $(\delta,\theta)$. Their values mean
+different things, but they are elements of the same space. On supported
+cells:
 \begin{description}[font=\normalfont\large\bfseries\color{ConceptInk}]
- \item[Outcome Surface] $X_{t}^{(i)}(\delta,\theta)\in\{0,1\}$ records whether the signed
-       barrier $\delta$ was touched within horizon $\theta$ after date $t$:
-       $0$ means not touched and $1$ means touched.
- \item[Conditional probability Surface] $Y_{k}^{(i)}(\delta,\theta)\in[0,1]$ gives the measured probability
-       of that touch among eligible dates in condition bin $k$.
-       The interval $[0,1]$ corresponds to
-       $0\%$--$100\%$; for example, $0.60$ means a $60\%$ touch probability.
- \item[Unconditional probability Surface (baseline Surface)] $B^{(i)}(\delta,\theta)\in[0,1]$ gives the unconditional
-       probability of the same touch, using every price-eligible date
-       in path $i$, regardless of feature values or bin membership.
-       It uses the same probability scale: $0.40$ means $40\%$.
-       There is one unconditional probability Surface per path, shared by all condition bins.
- \item[Shift Surface] $Z_{k}^{(i)}(\delta,\theta)= Y_{k}^{(i)}(\delta,\theta)-B^{(i)}(\delta,\theta)$
-       is the change in touch probability, as a probability difference.
-       Its range is $[-1,1]$: positive means more likely to touch,
-       negative means less likely, and zero means the same probability
-       as the baseline. For example, $0.60$ conditional versus $0.40$
-       baseline gives $+0.20$, displayed as $+20\%$: a 20-percentage-point
-       difference, not a relative percentage change.
+ \item[Outcome Surface] $X_t(\delta,\theta)\in\{0,1\}$ is $1$ if barrier
+       $\delta$ was touched within $\theta$ bars after date $t$, and $0$ if not.
+ \item[Conditional probability Surface] $Y_k(\delta,\theta)\in[0,1]$ is the
+       share of dates in feature bin $k$ that were followed by that touch.
+       For example, $0.60$ means $60\%$ of them.
+ \item[Baseline Surface] $B(\delta,\theta)\in[0,1]$ is the same share over
+       all dates, whatever the feature says. There is one baseline per
+       history, shared by every bin.
+ \item[Shift Surface] $Z_k(\delta,\theta)=Y_k(\delta,\theta)-B(\delta,\theta)\in[-1,1]$
+       is how much the bin changes the chance of the touch. $0.60$ against a
+       baseline of $0.40$ gives $+0.20$, shown as $+20\%$: a 20-percentage-point
+       difference, not a relative change.
 \end{description}
-These different value ranges and meanings do not change the ambient space.
-
-The baseline is the unrestricted case of the same averaging operation
-that produces conditional probability surfaces. Writing $\Pi^{(i)}[A]$ for
-the probability Surface measured over a date group $A$, we have
-\[
- Y_{k}^{(i)}=\Pi^{(i)}[A_{k}^{(i)}],\qquad B^{(i)}=\Pi^{(i)}[\mathcal T],
-\]
-where $A_{k}^{(i)}$ contains the dates assigned to bin $k$, and $\mathcal T$
-contains all observation dates. Horizon-specific price eligibility applies
-in both cases. Section~\ref{sec:averaging} defines this operator precisely.
-The baseline is not bin $0$: that position is already the lowest feature
-bin and requires a finite feature value.
+$Y_k$ and $B$ are the same calculation over different groups of dates: the
+dates in bin $k$, or all dates. The baseline is not one of the bins.
 
 \begin{center}
 \large
@@ -220,272 +197,195 @@ bin and requires a finite feature value.
 \begin{tabularx}{\linewidth}{@{}l l >{\raggedright\arraybackslash}X@{}}
 \toprule
 \rowcolor{ConceptPaper}
-\textbf{Object} & \textbf{One Surface per} & \textbf{Meaning of an entry} $(\delta,\theta)$ \\
+\textbf{Object} & \textbf{One Surface per} & \textbf{Meaning of a cell} $(\delta,\theta)$ \\
 \midrule
-$X_{t}^{(i)}$ & Path and date & Whether the barrier was touched \\
-$Y_{k}^{(i)}$ & Path and bin & Conditional touch probability \\
-$B^{(i)}$ & Path & Unconditional touch probability \\
-$Z_{k}^{(i)}$ & Path and bin & Conditional minus baseline \\
+$X_t$ & Date & Whether the barrier was touched \\
+$Y_k$ & Bin & Touch rate within the bin \\
+$B$ & History & Touch rate over all dates \\
+$Z_k$ & Bin & Bin minus baseline \\
 \bottomrule
 \end{tabularx}
 \end{center}
 
-\subsection{The scalar score and its validity flag}\label{sec:score-objects}
+\subsection{The score}\label{sec:score-objects}
 
-Scoring assigns two scalar quantities to each path $i$ and condition bin $k$:
-\begin{keyconcept}{One scalar score and one validity flag per bin}
+Stage~3 condenses each shift Surface into two scalars:
+\begin{keyconcept}{One score and one support flag per bin}
 \[
- Q_k^{(i)}\in\mathbb R_{\geq0}\subset\mathbb R,
- \qquad V_k^{(i)}\in\{0,1\}.
+ Q_k\in\mathbb R_{\geq0},\qquad V_k\in\{0,1\}.
 \]
 \end{keyconcept}
-Their outer indices identify a path and bin, just as for $Z_k^{(i)}$.
-They have no internal barrier or horizon coordinates: each summarizes
-one complete shift Surface.
-
 \begin{description}[font=\normalfont\large\bfseries\color{ConceptInk}]
- \item[Score] $Q_k^{(i)}$ is a nonnegative real number obtained by summing
-       weighted contributions from usable coordinates of $Z_k^{(i)}$.
-       It measures the magnitude of the difference between shifts at
-       opposite signed barriers. It is not a probability and can exceed one.
- \item[Validity flag] $V_k^{(i)}$ is a Boolean indicator encoded as $0$ or $1$.
-       It equals $1$ when the score has at least one usable coordinate,
-       and $0$ when it has none. An unsupported score is stored as
-       $Q_k^{(i)}=0$ with $V_k^{(i)}=0$; a supported score may also be zero,
-       with $V_k^{(i)}=1$.
+ \item[Score] $Q_k$ measures how lopsided the shift is between barriers
+       above and below the close. It is not a probability and can exceed one.
+ \item[Support flag] $V_k=1$ when at least one cell of the bin can be
+       scored. An unsupported bin is stored as $Q_k=0$, $V_k=0$ and is not
+       tested; a supported bin can also score $Q_k=0$, with $V_k=1$.
 \end{description}
-Validity records support, not statistical significance. Section~\ref{sec:score}
-defines the contributions and support rule; Stage~3 compares supported
-observed scores with scores from synthetic histories.
-
 \begin{keyconcept}{The central computation}
 \normalsize
 \[
- \{X_{t}^{(i)}\}_{t\in\mathcal T}
- \xrightarrow{\text{eligible averaging}}
- \bigl(\{Y_{k}^{(i)}\}_k,B^{(i)}\bigr)
- \xrightarrow{\text{baseline subtraction}}
- \{Z_{k}^{(i)}\}_k
- \xrightarrow{\text{scoring}}
- \{(Q_{k}^{(i)},V_{k}^{(i)})\}_k.
+ \{X_t\}_t\subset\mathcal S
+ \xrightarrow{\text{touch rates}}
+ Y_k,\ B\in\mathcal S
+ \xrightarrow{\text{subtract baseline}}
+ Z_k\in\mathcal S
+ \xrightarrow{\text{score}}
+ (Q_k,V_k)\in\mathbb R_{\geq0}\times\{0,1\}.
 \]
 \end{keyconcept}
-Averaging uses horizon-dependent eligible dates, so different
-columns need not have the same denominator.
+Every step until scoring maps Surfaces to Surfaces. Scoring is the one step
+that leaves $\mathcal S$: it turns a whole Surface into a single number and
+its support flag.
+A bin's score also depends on the other bins of the same feature: a cell
+counts only where at least two bins have enough dates
+(Section~\ref{sec:score}).
 
-Stage~1 constructs the observed probability surfaces. Stage~2 constructs
-their shifts $Z_{k}^{(0)}$. Stage~3 scores the observed shifts and repeats the
-computation on synthetic histories to obtain a null comparison for each
-bin. Stage~4 selects and renders the complete observed shift surfaces
-whose bins clear that comparison.
+\Needspace{16\baselineskip}
+\section{Notation}\label{sec:notation}
 
-The Surface is the unit being scored and selected. Its score also depends
-on support in the other bins of the same feature: a barrier pair contributes
-only when at least two bins are usable at that horizon. This dependency is
-made explicit in Section~\ref{sec:score}.
-
-\section{Mathematical objects and conventions}\label{sec:notation}
-
-\subsection{Outer indices and Surface coordinates}
-
-The exposition fixes one feature (one condition node). The computation is
-repeated for every node; feature-dependent quantities below implicitly
-belong to that fixed node. Outcome surfaces and market baselines are
-shared across nodes within a path.
-
-The path label always appears as a parenthesized superscript; subscripts
-identify dates, bins, or grid coordinates within that path. When a quantity
-also has a descriptive superscript, both labels are retained, for example
-$N_{k,\theta}^{\mathrm{condition},(i)}$ for conditional observation counts
-and $R_{t,\theta}^{-,(i)}$ for downside excursions.
-
+The same few symbols appear throughout.
+\begin{center}
+\renewcommand{\arraystretch}{1.3}
 \begin{tabularx}{\linewidth}{@{}l >{\raggedright\arraybackslash}X@{}}
 \toprule
-Symbol & Meaning \\
+\rowcolor{ConceptPaper}
+\textbf{Symbol} & \textbf{Meaning} \\
 \midrule
-$i\in\{0,\ldots,I\}$ & Path label; $0$ is observed and $I=1{,}000$ paths are synthetic. \\
-$t\in\mathcal T$ & identifies an observation date. In forward
-        expressions, $t+j$ means the $j$th subsequent observation. \\
-$x_{t}^{(i)}$ & is the feature value used to assign date $t$ to a bin. \\
-$k\in\{0,\ldots,K_{\mathrm{req}}-1\}$ & is a requested
-        bin position. Path $i$ has $K^{(i)}\leq K_{\mathrm{req}}$ effective
-        bins, occupying positions $0,\ldots,K^{(i)}-1$. \\
-$\delta\in\Delta,\ \theta\in\Theta$ & Signed return barrier and forward horizon in bars; grids are ordered. \\
-$\Delta_{\pm}$ & Nonzero grid rows with unique opposite-sign partners. \\
-$e^{(i)},\ \kappa_t^{(i)},\ A_k^{(i)}$ & Ordered bin edges, date assignment, and dates in bin $k$. \\
-$\mathcal E_\theta^{(i)},\ \mathcal E_{k,\theta}^{(i)}$ & Price-eligible dates, and their intersection with bin $k$. \\
-$N^{\mathrm{condition}},\ N^{\mathrm{baseline}},\ N^{\mathrm{hit}}$ & Conditional sample count, baseline sample count, and touch count; $n_{\min}=30$. \\
+$i\in\{0,\ldots,I\}$ & A history: $0$ is observed, $1,\ldots,I$ are synthetic ($I=1{,}000$). \\
+$t\in\mathcal T$ & A date (one bar); $t+j$ is $j$ bars later. \\
+$x_t$ & The feature's value on date $t$. \\
+$k$ & A feature bin, counted from $0$ (lowest values) upward. \\
+$\delta\in\Delta,\ \theta\in\Theta$ & A barrier, as a fraction of the close, and a horizon, in bars, from their ordered grids. \\
+$\mathcal S=\mathbb R^{\Delta\times\Theta}$ & The Surface space; every Surface is one element of it. \\
+$X_t,\ Y_k,\ B,\ Z_k\in\mathcal S$ & Outcome, conditional, baseline, and shift Surfaces. \\
+$\mathcal E_\theta,\ A_k$ & Dates with $\theta$ bars of future data; dates whose feature value falls in bin $k$. \\
+$\Pi[A]\in\mathcal S$ & The touch-rate Surface of a group of dates $A$. \\
+$N_k(\theta),\ N(\theta)$ & $|A_k\cap\mathcal E_\theta|$ and $|\mathcal E_\theta|$: the dates behind a cell of $Y_k$ and of $B$. \\
+$\Delta_\pm,\ \mathcal U_k$ & Barriers with a unique mirror; the usable cells of bin $k$ (Stage~3). \\
+$Q_k,\ V_k,\ \widehat p$ & A bin's score, its support flag, and its Monte Carlo p-value (Stage~3). \\
+$m,\ q$ & The number of tested bins and a bin's q-value (Stage~4). \\
+$\tilde p,\ P,\ J$ & A smoothed rate, the naive Bayes Surface, and the historical joint Surface (Stage~5). \\
 \bottomrule
 \end{tabularx}
-
-\begin{tabularx}{\linewidth}{@{}l >{\raggedright\arraybackslash}X@{}}
-\toprule
-Symbol & Meaning \\
-\midrule
-$X_t^{(i)},Y_k^{(i)},B^{(i)},Z_k^{(i)}$ & Outcome, conditional probability, baseline probability, and shift Surfaces. \\
-$\Pi^{(i)}[A]$ & Eligible averaging of outcome Surfaces over date group $A$. \\
-$R_{t,\theta}^{-,(i)},R_{t,\theta}^{+,(i)}$ & Minimum downside and maximum upside forward excursions. \\
-$\mathcal L^{(i)},\ \mathcal U_k^{(i)}$ & Locally eligible bins and usable scoring coordinates. \\
-$w_\delta,\ H_k^{(i)},\ Q_k^{(i)},\ V_k^{(i)}$ & Barrier weight, contribution Surface, scalar score, and support flag. \\
-$\widehat i_k,\ C_k,\mathcal K_{\mathrm{sel}}$ & Monte Carlo i-value, clearing flag, and selected bin positions. \\
-$g_t^{(i)},z_t^{(i)},\mu,\Sigma$ & OHLC log components, standard Gaussian innovations, fitted mean, and covariance. \\
-$\epsilon,L_\Sigma,I_4,C_{\mathrm{init}}$ & Covariance jitter, lower Cholesky factor, four-dimensional identity, and initial close. \\
-$j,\gamma$ & Local dummy indices: $j$ indexes offsets, edges, components, or time within its formula; $\gamma$ indexes barriers. \\
-\bottomrule
-\end{tabularx}
-
-Bin positions are zero-based, matching the insertion-index convention
-used in the implementation. Bin $k$ refers to an ordered position within
-each path's binning; its numerical feature boundaries can differ between
-paths.
-
-\topic{Primitive operations}
-
-$\ind[P]$ is $1$ when proposition $P$ is true and $0$ otherwise.
-For a positive-definite matrix $A$, $\chol(A)$ is the lower triangular
-matrix $L$ with positive diagonal satisfying $LL^{\mathsf T}=A$.
-For an increasing edge vector $e$,
-$\searchsorted(e,x,\mathrm{left})=|\{r:e_r<x\}|$; equality therefore enters
-the lower bin. For example, edges $(2,5)$ assign $2,3,5,6$ to bins
-$0,1,1,2$, respectively.
-
-Quantiles use linear interpolation of the sorted finite sample
-$a_0\leq\cdots\leq a_{n-1}$. For probability $u\in[0,1]$, let
-$h=(n-1)u$, $r=\lfloor h\rfloor$, and $s=\lceil h\rceil$; then
-$\quantile_u(a)=a_r+(h-r)(a_s-a_r)$. An empty finite sample has no
-finite edges and assigns no dates to any bin. NaN denotes an unavailable
-stored value, never a numeric zero.
-
-\Needspace{13\baselineskip}
-\subsection{Values, counts, and support}
-
-Outcome entries are Boolean on price-eligible coordinates; probability
-entries lie in $[0,1]$ where supported; shift entries are probability differences in $[-1,1]$. The support threshold is
+\end{center}
+\begin{keyconcept}{The support threshold}
 \[
-  n_{\min}=30.
+  n_{\min}=30
 \]
-Counts depend on horizon because fewer dates have longer forward windows.
-Probability and shift surfaces may therefore be only partially supported.
-
-A support mask is separate from a value. In particular, an unsupported
-score is stored as zero with a false flag; a supported score can also equal
-zero. All sums below use eligible or usable index sets so that excluded
-non-finite values are never interpreted as products such as $0\cdot
-\mathrm{NaN}$.
+\normalsize A cell measured from fewer than $n_{\min}$ dates is blank: it
+has no value, not a value of zero.
+\end{keyconcept}
+Counts shrink at longer horizons, because the last $\theta$ dates of a
+history have no complete window ahead of them. Long horizons therefore go
+blank first.
 
 \section{Stage 1: measurement of probability surfaces}\label{sec:measurement}
 
-Measurement turns each history into date-level outcome surfaces, then
-averages those outcomes over all eligible dates and over feature bins.
-Its outputs are conditional probability surfaces $Y_{k}^{(i)}$,
-an unconditional probability Surface $B^{(i)}$, and
-the counts supporting them. Stage~1 retains the observed outputs ($i=0$);
-Stage~3 applies the same definitions to null paths.
+Stage~1 turns prices into touch rates. It first records, for every date,
+whether each barrier was reached, then groups the dates by the feature and
+averages.
+
+\begin{keyconcept}{Stage 1 at a glance}
+\normalsize
+\[
+ \text{prices}
+ \xrightarrow{\text{was it touched?}}
+ X_t\ \text{for every date}
+ \xrightarrow{\text{average by bin, and over all dates}}
+ (Y_k,\ B).
+\]
+\end{keyconcept}
 
 \subsection{From prices to an outcome Surface}
 
-For every path, starting date, and horizon, define the greatest downside
-and upside excursion reached by future intrabar prices:
-\begin{align}
-R_{t,\theta}^{-,(i)}
-  &=\frac{\min_{1\leq j\leq\theta}\Low_{t+j}^{(i)}}{\Close_{t}^{(i)}}-1,\\
-R_{t,\theta}^{+,(i)}
-  &=\frac{\max_{1\leq j\leq\theta}\High_{t+j}^{(i)}}{\Close_{t}^{(i)}}-1.
-\end{align}
-Dates without $\theta$ future observations have non-finite excursions.
-Define the price-eligible date set
+Start from the close on date $t$. Barrier $\delta$ sits at the price
+$\Close_t\,(1+\delta)$. It is touched within $\theta$ bars when some later
+low reaches it (a barrier below) or some later high reaches it (a barrier
+above). ``Later'' means bars $t+1$ to $t+\theta$; bar $t$ itself never counts.
+\begin{keyconcept}{The outcome Surface: was the barrier touched?}
 \[
- \mathcal E_{\theta}^{(i)}
- =\{t\in\mathcal T:R_{t,\theta}^{-,(i)}
-                    \text{ and }R_{t,\theta}^{+,(i)}\text{ are finite}\}.
-\]
-For eligible dates, the outcome Surface has entries
-\[
-X_{t}^{(i)}(\delta,\theta)=
+X_t(\delta,\theta)=
 \begin{cases}
- \ind[R_{t,\theta}^{-,(i)}\leq\delta],&\delta<0,\\
- \ind[R_{t,\theta}^{+,(i)}\geq\delta],&\delta\geq0.
+ \ind\Bigl[\displaystyle\min_{1\leq j\leq\theta}\Low_{t+j}\leq\Close_t(1+\delta)\Bigr], & \delta<0,\\[10pt]
+ \ind\Bigl[\displaystyle\max_{1\leq j\leq\theta}\High_{t+j}\geq\Close_t(1+\delta)\Bigr], & \delta\geq0,
 \end{cases}
+\qquad t\in\mathcal E_\theta,
 \]
-An entry answers: starting from this date's close, was the signed barrier
-reached by a future low or high within this horizon? The zero barrier uses
-the upside branch. It belongs to the measured grid but is excluded from
-the paired-barrier score.
-
-$X_{t}^{(i)}$ depends only on the history and grids. Feature bins select which
-outcome surfaces to average; they do not change the outcome surfaces.
-
-\subsection{From feature values to date groups}
-
-For a continuous feature, request the interior quantile edges
+\normalsize where $\ind[\cdot]$ is $1$ when its statement is true and $0$
+otherwise.
+\end{keyconcept}
+Highs and lows are used, not closes, so a barrier counts as touched even if
+price comes back before the bar ends. The zero barrier asks whether any later
+high reached the starting close. Only dates with a complete window count:
 \[
- e_{j}^{(i)}=\quantile_{j/K_{\mathrm{req}}}
-       \bigl(\{x_{t}^{(i)}:x_{t}^{(i)}\text{ is finite}\}\bigr),
- \qquad j=1,\ldots,K_{\mathrm{req}}-1.
+ \mathcal E_\theta=\{t\in\mathcal T:\ \text{bar }t+\theta\text{ exists}\},
 \]
-Remove non-finite and duplicate edges, and retain only edges satisfying
-$\min(x^{(i)})<e_{j}^{(i)}\leq\max(x^{(i)})$, with extrema taken over finite
-feature values. Write $e^{(i)}$ for the resulting ordered edge vector and
-$K^{(i)}=|e^{(i)}|+1$. Heavy ties can reduce the effective bin count; an edge at
-the maximum can leave the final bin empty.
+so the last $\theta$ dates of a history are left out at horizon $\theta$.
 
-For finite feature values, assign
+$X_t$ depends only on prices. The feature never changes an outcome; it only
+decides which dates are averaged together.
+
+\subsection{From feature values to bins}
+
+Bins are quantiles of the feature. With the default of $K=10$ bins, each bin
+holds about a tenth of the dates that have a feature value, from the lowest
+values to the highest. Dates without a feature value, such as during an
+indicator's warm-up period, belong to no bin.
+
+Precisely, the edges are the interior quantiles of the finite feature values,
 \[
- \kappa_{t}^{(i)}=\searchsorted(e^{(i)},x_{t}^{(i)},\mathrm{left}).
+ e_j=\text{the }\tfrac{j}{K}\text{-quantile of }\{x_t\},\qquad j=1,\ldots,K-1,
 \]
-An observation equal to an edge enters the lower bin. Define the date group
-for bin $k$ and its price-eligible subset at horizon $\theta$ by
+with repeated edges removed and only edges in $\bigl(\min x,\ \max x\bigr]$
+kept. A date's bin is the number of edges strictly below its value, and a bin
+is the set of dates assigned to it:
+\begin{keyconcept}{Bin assignment}
 \[
- A_{k}^{(i)}=\{t\in\mathcal T:x_{t}^{(i)}\text{ is finite},\ \kappa_{t}^{(i)}=k\},
- \qquad
- \mathcal E_{k,\theta}^{(i)}=A_{k}^{(i)}\cap\mathcal E_{\theta}^{(i)}.
+ k(t)=\#\{j:\ e_j<x_t\},\qquad
+ A_k=\{t:\ x_t\text{ is finite and }k(t)=k\}.
 \]
-Positions $k\geq K^{(i)}$ have no eligible dates.
+\end{keyconcept}
+A value exactly on a bin edge is not strictly above it, so it goes to the
+lower bin. With edges $2$ and $5$:
+\[
+\renewcommand{\arraystretch}{1.25}
+\begin{array}{c|cccc}
+ x & 2 & 3 & 5 & 6\\ \hline
+ \text{bin} & \heatcell{ConceptPaper}{0} & \heatcell{ConceptInk!18!white}{1}
+   & \heatcell{ConceptInk!18!white}{1} & \heatcell{ConceptInk!36!white}{2}
+\end{array}
+\]
+A heavily tied feature can end up with fewer bins than requested, because
+repeated values produce repeated edges, which merge. Asking for four bins
+from 60 zeros and 20 ones gives the quantiles $(0,0,0.25)$; only $0.25$
+survives, so there are two bins.
 
 \subsection{Averaging outcome surfaces}\label{sec:averaging}
 
-For any date group $A\subseteq\mathcal T$, define the probability Surface
+A touch rate is the share of a group of dates that were followed by a touch.
+For any group of dates $A$, it defines a whole Surface:
 \[
- \Pi^{(i)}[A](\delta,\theta)
- =\frac{\displaystyle\sum_{t\in A\cap\mathcal E_{\theta}^{(i)}}
-                       X_{t}^{(i)}(\delta,\theta)}
-        {|A\cap\mathcal E_{\theta}^{(i)}|},
- \qquad |A\cap\mathcal E_{\theta}^{(i)}|\geq n_{\min}.
+ \Pi[A](\delta,\theta)
+ =\frac{1}{|A\cap\mathcal E_\theta|}\sum_{t\in A\cap\mathcal E_\theta}X_t(\delta,\theta),
+ \qquad\text{blank when }|A\cap\mathcal E_\theta|<n_{\min}.
 \]
-Entries are non-finite when the count requirement fails. Conditional
-measurement and baseline measurement are two applications of this operator:
+$\Pi$ maps a group of dates to an element of $\mathcal S$. Stage~1 applies it
+to two kinds of group:
+\begin{keyconcept}{One touch rate, two groups of dates}
 \[
- Y_{k}^{(i)}=\Pi^{(i)}[A_{k}^{(i)}],\qquad B^{(i)}=\Pi^{(i)}[\mathcal T].
+ Y_k=\Pi[A_k],\qquad B=\Pi[\mathcal T].
 \]
-Thus the baseline is the special case with no restriction on the date
-group; it still enforces price eligibility and the minimum count.
+\normalsize In words: the share of dates in bin $k$, or of all dates, that
+were followed by a touch. The dates behind a cell are
+$N_k(\theta)=|A_k\cap\mathcal E_\theta|$ and $N(\theta)=|\mathcal E_\theta|$.
+\end{keyconcept}
+Both count only dates with $\theta$ bars of future data, and both are blank
+below $n_{\min}=30$ dates.
 
-To make the supporting counts explicit, define
-\begin{align}
- N_{k,\theta}^{\mathrm{condition},(i)}&=|\mathcal E_{k,\theta}^{(i)}|,\\
- N_{k}^{\mathrm{hit},(i)}(\delta,\theta)
-   &=\sum_{t\in\mathcal E_{k,\theta}^{(i)}}X_{t}^{(i)}(\delta,\theta),\\
- N_{\theta}^{\mathrm{baseline},(i)}&=|\mathcal E_{\theta}^{(i)}|.
-\end{align}
-The probability surfaces are
-\begin{align}
- Y_{k}^{(i)}(\delta,\theta)
-   &=\frac{N_{k}^{\mathrm{hit},(i)}(\delta,\theta)}
-           {N_{k,\theta}^{\mathrm{condition},(i)}},
-   &&N_{k,\theta}^{\mathrm{condition},(i)}\geq n_{\min},\\
- B^{(i)}(\delta,\theta)
-   &=\frac{\sum_{t\in\mathcal E_{\theta}^{(i)}}X_{t}^{(i)}(\delta,\theta)}
-           {N_{\theta}^{\mathrm{baseline},(i)}},
-   &&N_{\theta}^{\mathrm{baseline},(i)}\geq n_{\min}.
-\end{align}
-When the stated count requirement fails, the corresponding entries are
-non-finite.
-
-The baseline includes every price-eligible date, independently of feature
-warm-up or missing feature values. The conditional surface uses only
-eligible dates in its bin. Thus the baseline generally cannot be recovered
-by averaging the conditional surfaces over bins. Each synthetic path has
-its own baseline $B^{(i)}$.
+The baseline includes every such date, even those without a feature value.
+The baseline is therefore not simply the average of the bins. Each synthetic
+history has its own baseline.
 
 \Needspace{20\baselineskip}
 \subsection{Worked example: measuring a Surface}\label{sec:example}
@@ -495,18 +395,15 @@ Take five barriers and seven daily horizons:
  \Delta=\{-2\%,-1\%,0\%,+1\%,+2\%\},
  \qquad \Theta=\{1,2,3,4,5,6,7\}.
 \]
-The percentage labels stand for returns $-0.02,-0.01,0,0.01,0.02$.
-Assume a market with a bar every calendar day, so seven bars cover one
-week. For a trading-day-only history, these horizons instead cover seven
-trading days.
+Assume a market with a bar every calendar day, so seven bars cover one week.
 
 Start from a close of $100$. The five barrier prices are then
-$98,99,100,101,102$. Suppose future intrabar prices first reach
-$100$ on day~1, $101$ on day~2, $99$ on day~3, $102$ on day~5,
-and $98$ on day~6. This gives the following outcome Surface:
+$98,99,100,101,102$. Suppose later prices first reach $100$ on day~1, $101$
+on day~2, $99$ on day~3, $102$ on day~5, and $98$ on day~6. This gives the
+following outcome Surface:
 \begin{surfaceexample}
 \[
-X_t^{(i)}=
+X_t=
 \begin{array}{c|rrrrrrr}
  \delta\backslash\theta &1&2&3&4&5&6&7\\ \hline
  -2\% &\heatcell[black]{SurfaceAmber!0!white}{0}&\heatcell[black]{SurfaceAmber!0!white}{0}&\heatcell[black]{SurfaceAmber!0!white}{0}&\heatcell[black]{SurfaceAmber!0!white}{0}&\heatcell[black]{SurfaceAmber!0!white}{0}&\heatcell[white]{SurfaceRed!100!SurfaceAmber}{1}&\heatcell[white]{SurfaceRed!100!SurfaceAmber}{1}\\
@@ -517,18 +414,16 @@ X_t^{(i)}=
 \end{array}.
 \]
 \end{surfaceexample}
-For example, $X_t^{(i)}(+2\%,4)=0$ but $X_t^{(i)}(+2\%,5)=1$:
-the price had not reached $102$ within four days, but had within five.
-Once a row becomes $1$, it stays $1$ at longer horizons, even if price
-later reverses. The zero row records a future high at or above the starting
-close; it is not automatically a touch at the starting date.
+For example, $X_t(+2\%,4)=0$ but $X_t(+2\%,5)=1$: the price had not reached
+$102$ within four days, but had within five. Once a row becomes $1$, it stays
+$1$ at longer horizons, even if price later reverses.
 
-Now collect 100 starting dates assigned to the same condition bin $k$,
-each with seven eligible future days. Each date contributes one such
-$5\times7$ outcome Surface. Suppose their coordinatewise averages are
+Now collect 100 starting dates in the same bin $k$, each with seven days of
+future data. Each date contributes one such $5\times7$ outcome Surface.
+Averaging them cell by cell gives
 \begin{surfaceexample}
 \[
-Y_k^{(i)}=
+Y_k=
 \begin{array}{c|rrrrrrr}
  \delta\backslash\theta &1&2&3&4&5&6&7\\ \hline
  -2\% &\heatcell[black]{SurfaceAmber!10!white}{0.05}&\heatcell[black]{SurfaceAmber!20!white}{0.10}&\heatcell[black]{SurfaceAmber!30!white}{0.15}&\heatcell[black]{SurfaceAmber!40!white}{0.20}&\heatcell[black]{SurfaceAmber!50!white}{0.25}&\heatcell[black]{SurfaceAmber!60!white}{0.30}&\heatcell[black]{SurfaceAmber!70!white}{0.35}\\
@@ -539,42 +434,38 @@ Y_k^{(i)}=
 \end{array}.
 \]
 \end{surfaceexample}
-The entry $Y_k^{(i)}(+2\%,5)=0.35$ means that 35 of the 100 dates
-were followed by a touch of the $+2\%$ barrier within five days.
-The hit count is 35, the observation count is 100, and the measured
-probability is $35/100=35\%$. All 35 entries together form one
-conditional probability Surface. Real histories can have different
-observation counts at different horizons.
+The cell $Y_k(+2\%,5)=0.35$ means that 35 of the 100 dates were followed by a
+touch of the $+2\%$ barrier within five days. In real histories, longer
+horizons usually rest on slightly fewer dates.
 
 \section{Stage 2: comparison with the baseline}\label{sec:comparison}
 
-Comparison converts a conditional probability Surface into a
-baseline-relative shift Surface.
+Stage~2 asks how much a bin changes the chance of each touch.
 
 \subsection{Baseline subtraction}
 
-Define the shift Surface by
+\begin{keyconcept}{The shift Surface}
 \[
- Z_{k}^{(i)}= (Y_{k}^{(i)}-B^{(i)}).
+ Z_k(\delta,\theta)=Y_k(\delta,\theta)-B(\delta,\theta),
 \]
-Subtraction is coordinatewise on their common support:
-\[
- Z_{k}^{(i)}(\delta,\theta)
- =\bigl(Y_{k}^{(i)}(\delta,\theta)-B^{(i)}(\delta,\theta)\bigr).
-\]
-A positive entry means that the barrier was touched more often in the
-condition bin than in the path's unconditional market history. A negative
-entry means it was touched less often. Null histories use their own $B^{(i)}$,
-never the observed baseline $B^{(0)}$.
+\normalsize cell by cell. A cell blank in either Surface is blank in $Z_k$.
+\end{keyconcept}
+\begin{description}[font=\normalfont\large\bfseries\color{ConceptInk}]
+ \item[Positive cell (red)] The barrier was touched more often in the bin
+       than over all dates.
+ \item[Negative cell (blue)] The barrier was touched less often.
+ \item[Zero cell (white)] The bin made no difference at that barrier and
+       horizon.
+\end{description}
+Every synthetic history subtracts its own baseline, never the observed one.
 
 \subsection{Worked example: subtracting the baseline}
 
-Continue with the same five barriers, seven daily horizons, and conditional
-Surface $Y_k^{(i)}$ from Section~\ref{sec:example}. Suppose averaging over
-all price-eligible dates in the same path gives the baseline
+Continue with the conditional Surface $Y_k$ of Section~\ref{sec:example}.
+Suppose averaging over all dates of the same history gives the baseline
 \begin{surfaceexample}
 \[
-B^{(i)}=
+B=
 \begin{array}{c|rrrrrrr}
  \delta\backslash\theta &1&2&3&4&5&6&7\\ \hline
  -2\% &\heatcell[black]{SurfaceAmber!30!white}{0.15}&\heatcell[black]{SurfaceAmber!40!white}{0.20}&\heatcell[black]{SurfaceAmber!50!white}{0.25}&\heatcell[black]{SurfaceAmber!60!white}{0.30}&\heatcell[black]{SurfaceAmber!70!white}{0.35}&\heatcell[black]{SurfaceAmber!80!white}{0.40}&\heatcell[black]{SurfaceAmber!90!white}{0.45}\\
@@ -585,12 +476,10 @@ B^{(i)}=
 \end{array}.
 \]
 \end{surfaceexample}
-Subtract each baseline entry from the conditional entry at the same
-barrier and horizon. The result is one complete
-shift Surface, with every entry below on the probability-difference scale:
+Subtracting cell by cell gives one complete shift Surface:
 \begin{surfaceexample}
 \[
-Z_k^{(i)}= (Y_k^{(i)}-B^{(i)})=
+Z_k=Y_k-B=
 \begin{array}{c|rrrrrrr}
  \delta\backslash\theta &1&2&3&4&5&6&7\\ \hline
  -2\% &\heatcell[black]{SurfaceBlue!33.33333333333333!white}{-0.10}&\heatcell[black]{SurfaceBlue!33.33333333333333!white}{-0.10}&\heatcell[black]{SurfaceBlue!33.33333333333333!white}{-0.10}&\heatcell[black]{SurfaceBlue!33.33333333333333!white}{-0.10}&\heatcell[black]{SurfaceBlue!33.33333333333333!white}{-0.10}&\heatcell[black]{SurfaceBlue!33.33333333333333!white}{-0.10}&\heatcell[black]{SurfaceBlue!33.33333333333333!white}{-0.10}\\
@@ -601,490 +490,683 @@ Z_k^{(i)}= (Y_k^{(i)}-B^{(i)})=
 \end{array}.
 \]
 \end{surfaceexample}
-For example, at $(+2\%,5)$ the conditional probability is $35\%$
-and the baseline is $25\%$:
-\[
- Z_k^{(i)}(+2\%,5)=0.35-0.25=+0.10.
-\]
-At $(-2\%,5)$, the corresponding subtraction is
-$0.25-0.35=-0.10$. The zero-barrier probabilities are equal,
-so their shifts are zero.
-The condition is associated with fewer downside touches and more upside
-touches across the seven horizons. Stage~2 retains the observed $Z_{k}^{(0)}$ together
-with references to its measurement artifacts.
+For example, at $(+2\%,5)$ the bin's rate is $35\%$ and the baseline is
+$25\%$, so $Z_k(+2\%,5)=0.35-0.25=+0.10$. At $(-2\%,5)$ it is
+$0.25-0.35=-0.10$. The zero-barrier rates are equal, so their shifts are
+zero. In this bin the price reached upside barriers more often and downside
+barriers less often, at every horizon.
 
 \section{Stage 3: validation by null comparison}\label{sec:validation}
 
-Validation asks how often the specified synthetic-history model produces
-a bin score at least as large as the observed score. It first reduces each
-shift Surface to a scalar, then repeats measurement and scoring on null
-histories, and finally compares scores at the same bin position.
+Stage~2 produced a shift Surface for every bin. Stage~3 asks one question
+of each: \emph{could a market in which the feature cannot matter have
+produced a Surface this lopsided?} It condenses each Surface into one score,
+builds $I=1{,}000$ synthetic histories that have no memory, scores the same
+bin on each, and counts how often a synthetic history scores at least as high.
+
+After the score is defined (Section~\ref{sec:score}), fix one feature and one
+bin and drop the bin index. Write $Z$ for the bin's observed shift Surface,
+$Q_{\mathrm{obs}}$ and $V_{\mathrm{obs}}$ for its observed score and support
+flag, and $Q_i$ and $V_i$ for the same quantities on synthetic history
+$i=1,\ldots,I$.
+
+\begin{keyconcept}{Stage 3 at a glance}
+\normalsize
+\begin{align*}
+ \text{observed history}\quad
+   & \xrightarrow{\text{Stages 1--2}}Z
+     \xrightarrow{\text{score}}Q_{\mathrm{obs}}\\
+ \text{synthetic histories } 1,\ldots,I\quad
+   & \xrightarrow{\text{Stages 1--2}}Z_1,\ldots,Z_I
+     \xrightarrow{\text{score}}Q_1,\ldots,Q_I\\
+ \text{compare}\quad
+   & \xrightarrow{\text{how often }Q_i\geq Q_{\mathrm{obs}}}\widehat p
+\end{align*}
+\end{keyconcept}
 
 \subsection{Scoring a shift Surface}\label{sec:score}
 
-Scoring keeps the full signed-barrier--by--horizon grid. It compares each
-shift with the shift at the opposite barrier, assigns a nonnegative
-contribution to each original coordinate, and sums that contribution
-Surface to obtain one bin score.
+The score measures how differently a condition moves the chance of an
+up-move and a down-move of the same size. Each barrier is compared with its
+mirror image at the same horizon, $+\delta$ with $-\delta$. In this subsection
+the bin index $k$ stays, because which cells count depends on the other bins
+of the same feature.
 
-\topic{Reflection and weights}
-
-Let $\Delta_{\pm}$ contain the nonzero barriers $\delta$ for which the
-grid has exactly one $\delta$ row and exactly one $-\delta$ row. Define
-reflection on the original grid by
+Only barriers with a mirror can be compared:
 \[
- (\operatorname{Ref}F)(\delta,\theta)=
- \begin{cases}
- F(-\delta,\theta),&\delta\in\Delta_{\pm},\\
- F(\delta,\theta),&\delta\notin\Delta_{\pm}.
- \end{cases}
+ \Delta_\pm=\{\delta\in\Delta:\ \delta\neq0,\ \text{both }\delta\text{ and }-\delta\text{ appear exactly once in }\Delta\},
+ \qquad
+ \delta_{\max}=\max_{\delta\in\Delta_\pm}|\delta|.
 \]
-Reflection reorders rows without changing the Surface shape. When
-$\Delta_{\pm}\ne\varnothing$, assign the magnitude weights
+\begin{keyconcept}{The score: asymmetry between mirror barriers}
 \[
- w_\delta=
- \begin{cases}
- \displaystyle\frac{|\delta|}{\max_{\gamma\in\Delta_{\pm}}|\gamma|},
-      &\delta\in\Delta_{\pm},\\
- 0,&\delta\notin\Delta_{\pm}.
- \end{cases}
+ Q_k=\sum_{(\delta,\theta)\in\mathcal U_k}
+   \frac{|\delta|}{2\,\delta_{\max}}\,
+   \bigl|Z_k(\delta,\theta)-Z_k(-\delta,\theta)\bigr|,
+ \qquad
+ V_k=\ind\bigl[\mathcal U_k\neq\varnothing\bigr],
 \]
-If $\Delta_{\pm}$ is empty, all weights are zero.
+\normalsize where $\mathcal U_k\subseteq\Delta_\pm\times\Theta$ is the set of
+usable cells of bin $k$, defined below.
+\end{keyconcept}
+Read the formula one piece at a time:
+\begin{description}[font=\normalfont\large\bfseries\color{ConceptInk}]
+ \item[Mirror difference] $|Z_k(\delta,\theta)-Z_k(-\delta,\theta)|$ is large
+       when the condition makes one side more likely to be touched and the
+       other side less likely. If both sides shift by the same amount, it is
+       zero. The absolute value ignores which side wins.
+ \item[Distance weight] $|\delta|/\delta_{\max}$ makes far barriers count
+       more, in proportion to their distance: a $\pm2\%$ pair counts twice
+       as much as a $\pm1\%$ pair.
+ \item[The factor $1/2$] Every pair appears twice in the sum, once at
+       $+\delta$ and once at $-\delta$. Halving counts each pair once.
+\end{description}
 
-The current scorer silently ignores unmatched or ambiguously matched rows;
-it returns zero scores and false support flags when no pairs remain. This
-is a configuration failure mode, not evidence of no signal. Recommended
-diagnostics are paired and excluded row counts and an error when no pairs
-remain; these are not currently enforced. Numerically, the implementation
-matches using \texttt{isclose} with absolute tolerance $10^{-12}$ and
-relative tolerance $10^{-5}$, and ignores magnitudes at most $10^{-12}$.
-The exact reflection above assumes an unambiguous symmetric grid.
+\topic{Which cells count}
 
-\topic{Usable coordinates}
-
-Support is determined on this same grid. First identify locally eligible
-bins at each nonzero matched barrier and horizon:
+A cell is \emph{usable} for bin $k$ when three things hold at that barrier and
+horizon: bin $k$ has at least $n_{\min}=30$ dates, both mirror shifts exist,
+and at least one other bin of the same feature meets the same two conditions.
+First collect the bins that are measurable at a mirror pair,
 \[
- \mathcal L^{(i)}(\delta,\theta)=
- \left\{k\in\{0,\ldots,K_{\mathrm{req}}-1\}:
- \begin{array}{l}
- Z_k^{(i)}(\delta,\theta),Z_k^{(i)}(-\delta,\theta)\text{ are finite},\\
- N_{k,\theta}^{\mathrm{condition},(i)}\geq n_{\min}
- \end{array}\right\},
- \qquad \delta\in\Delta_{\pm}.
+ \mathcal L(\delta,\theta)=\bigl\{j:\ N_j(\theta)\geq n_{\min},\
+   Z_j(\delta,\theta)\text{ and }Z_j(-\delta,\theta)\text{ are not blank}\bigr\},
+ \qquad\delta\in\Delta_\pm,
 \]
-The usable coordinates for bin $k$ are
+then keep the cells where bin $k$ is one of at least two such bins:
+\begin{keyconcept}{Usable cells}
 \[
- \mathcal U_k^{(i)}
- =\{(\delta,\theta)\in\Delta_{\pm}\times\Theta:
- k\in\mathcal L^{(i)}(\delta,\theta),\
- |\mathcal L^{(i)}(\delta,\theta)|\geq2\}.
+ \mathcal U_k=\bigl\{(\delta,\theta)\in\Delta_\pm\times\Theta:\
+   k\in\mathcal L(\delta,\theta),\ |\mathcal L(\delta,\theta)|\geq2\bigr\}.
 \]
-Thus support still depends on the other bins of the same feature.
-\topic{Contribution and score}
+\end{keyconcept}
+A cell therefore counts only where the feature splits the dates into at least
+two measurable groups. The zero barrier is not in $\Delta_\pm$ and never counts.
 
-Define the full contribution Surface $H_k^{(i)}\in\mathcal S$ by
-\[
- H_k^{(i)}(\delta,\theta)=
- \begin{cases}
- \displaystyle\frac{w_\delta}{2}
- \left|Z_k^{(i)}(\delta,\theta)
-       -(\operatorname{Ref}Z_k^{(i)})(\delta,\theta)\right|,
-       &(\delta,\theta)\in\mathcal U_k^{(i)},\\
- 0,&\text{otherwise}.
- \end{cases}
-\]
-Both signed rows carry their own contribution. The factor $1/2$ accounts
-for the same absolute difference appearing at both $\delta$ and $-\delta$,
-preserving the score's scale. No reduced magnitude--horizon Surface is
-constructed. Unsupported coordinates, zero barriers, and unmatched barriers
-contribute zero.
+A bin is \emph{supported} ($V_k=1$) when at least one of its cells is usable.
+An unsupported bin is stored with score $0$, but ``unsupported'' and ``scored
+zero'' are different facts: a supported bin whose mirror shifts are equal
+also scores $0$. Losing some horizons does not make a bin unsupported; only
+losing every usable cell does.
 
-The full-grid score and its validity flag are
-\[
- Q_k^{(i)}=\sum_{\theta\in\Theta}\sum_{\delta\in\Delta}
-                       H_k^{(i)}(\delta,\theta),
- \qquad V_k^{(i)}=\ind[\mathcal U_k^{(i)}\ne\varnothing].
-\]
-Equal shifts at opposite barriers contribute zero; the absolute value
-discards the direction of the asymmetry. Larger barrier magnitudes receive
-greater linear weight. The sum is not normalized by the number of usable
-coordinates. It is a weighted probability-difference score, not a probability,
-and can exceed one. An unsupported bin has score zero and false validity;
-a supported zero score remains valid.
+The grid should be symmetric. A barrier outside $\Delta_\pm$ is ignored, and
+it does not affect $\delta_{\max}$: adding an unpaired $+5\%$ row to a
+$\pm2\%$ grid leaves every weight unchanged. A grid with $\Delta_\pm=\varnothing$
+gives every bin score $0$ and no support. That outcome is a configuration
+mistake, not evidence of no effect.
 
-There is no inverse-variance weighting or normalization for usable grid
-size. Coordinates supported by 31 and 3,000 dates receive the same barrier
-weight. Under independent Bernoulli observations, the standard error at
-probability $0.5$ with 30 dates is $\sqrt{0.25/30}\approx0.091$.
-This is not an uncertainty bound here: forward windows overlap, the baseline
-overlaps each bin, and opposite-barrier outcomes are dependent. Precision
-weighting would need these covariances. Equal scoring rules do not compensate
-for a mismatch in observed and simulated dependence or support.
+\topic{What the score does not do}
+
+The score is a weighted sum of probability differences, not a probability,
+and it can exceed one. It is not divided by the number of usable cells, so a
+bin with more usable cells can reach a larger score. Every usable cell
+counts equally whether it rests on 31 dates or 3,000. For scale, a rate
+measured from 30 independent dates has a standard error of about $0.09$
+near $50\%$, and overlapping forward windows make the real uncertainty
+larger. The score does not weight cells by this precision.
 
 \subsection{Worked example: scoring the shift}\label{sec:score-example}
 
-For the running example, take the Stage~2 Surface as the observed
-Surface $Z_k^{(0)}$. Its two negative-barrier rows are $-0.10$ and
-its two positive-barrier rows are $+0.10$ at every horizon.
-The bin has 100 eligible dates at every horizon; assume at least one
-other bin is locally eligible at both magnitudes and all seven horizons.
-Each nonzero coordinate is therefore usable.
+For the running example, take the Stage~2 Surface as the observed $Z$. Its
+two negative-barrier rows are $-0.10$ and its two positive-barrier rows are
+$+0.10$ at every horizon. The bin has 100 dates at every horizon, and at
+least one other bin is measurable everywhere, so every nonzero cell is usable.
 
-The $1\%$ rows have weight $0.01/0.02=0.5$, so each entry contributes
-$\tfrac12(0.5)|-0.10-(+0.10)|=0.05$. The $2\%$ rows have weight $1$, so
-each entry contributes $\tfrac12(1)|-0.10-(+0.10)|=0.10$. The resulting
-contribution Surface has the same $5\times7$ layout as the shift Surface:
+Each row is paired with its mirror and weighted by its distance:
+\begin{center}
+\large
+\renewcommand{\arraystretch}{1.45}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+\rowcolor{ConceptPaper}
+\textbf{Barrier} & $-2\%$ & $-1\%$ & $0\%$ & $+1\%$ & $+2\%$ \\
+\midrule
+Mirror & $+2\%$ & $+1\%$ & none & $-1\%$ & $-2\%$ \\
+Weight $|\delta|/\delta_{\max}$ & \heatcell{ConceptInk!45!white}{$1$} & \heatcell{ConceptInk!22.5!white}{$0.5$}
+  & $0$ & \heatcell{ConceptInk!22.5!white}{$0.5$} & \heatcell{ConceptInk!45!white}{$1$} \\
+\bottomrule
+\end{tabular}
+\end{center}
+Every mirror difference is $|-0.10-(+0.10)|=0.20$. A $1\%$ cell contributes
+$\tfrac12\cdot0.5\cdot0.20=0.05$, and a $2\%$ cell contributes
+$\tfrac12\cdot1\cdot0.20=0.10$. Laid out on the grid:
 \begin{surfaceexample}
 \[
-H_k^{(0)}=
 \begin{array}{c|rrrrrrr}
  \delta\backslash\theta &1&2&3&4&5&6&7\\ \hline
- -2\% &0.10&0.10&0.10&0.10&0.10&0.10&0.10\\
- -1\% &0.05&0.05&0.05&0.05&0.05&0.05&0.05\\
-  0\% &0&0&0&0&0&0&0\\
- +1\% &0.05&0.05&0.05&0.05&0.05&0.05&0.05\\
- +2\% &0.10&0.10&0.10&0.10&0.10&0.10&0.10
-\end{array}.
+ -2\% &\heatcell{ConceptInk!45!white}{0.10}&\heatcell{ConceptInk!45!white}{0.10}&\heatcell{ConceptInk!45!white}{0.10}&\heatcell{ConceptInk!45!white}{0.10}&\heatcell{ConceptInk!45!white}{0.10}&\heatcell{ConceptInk!45!white}{0.10}&\heatcell{ConceptInk!45!white}{0.10}\\
+ -1\% &\heatcell{ConceptInk!22.5!white}{0.05}&\heatcell{ConceptInk!22.5!white}{0.05}&\heatcell{ConceptInk!22.5!white}{0.05}&\heatcell{ConceptInk!22.5!white}{0.05}&\heatcell{ConceptInk!22.5!white}{0.05}&\heatcell{ConceptInk!22.5!white}{0.05}&\heatcell{ConceptInk!22.5!white}{0.05}\\
+  0\% &\heatcell{white}{0}&\heatcell{white}{0}&\heatcell{white}{0}&\heatcell{white}{0}&\heatcell{white}{0}&\heatcell{white}{0}&\heatcell{white}{0}\\
+ +1\% &\heatcell{ConceptInk!22.5!white}{0.05}&\heatcell{ConceptInk!22.5!white}{0.05}&\heatcell{ConceptInk!22.5!white}{0.05}&\heatcell{ConceptInk!22.5!white}{0.05}&\heatcell{ConceptInk!22.5!white}{0.05}&\heatcell{ConceptInk!22.5!white}{0.05}&\heatcell{ConceptInk!22.5!white}{0.05}\\
+ +2\% &\heatcell{ConceptInk!45!white}{0.10}&\heatcell{ConceptInk!45!white}{0.10}&\heatcell{ConceptInk!45!white}{0.10}&\heatcell{ConceptInk!45!white}{0.10}&\heatcell{ConceptInk!45!white}{0.10}&\heatcell{ConceptInk!45!white}{0.10}&\heatcell{ConceptInk!45!white}{0.10}
+\end{array}
 \]
 \end{surfaceexample}
-Each column contributes $0.10+0.05+0+0.05+0.10=0.30$. Summing the entire Surface gives
+Each horizon contributes $0.10+0.05+0+0.05+0.10=0.30$, and seven horizons give
 \[
- Q_k^{(0)}=\underbrace{0.30+0.30+0.30+0.30+0.30+0.30+0.30}_{\text{seven horizons}}
-         =2.10,
- \qquad V_k^{(0)}=1.
+ Q_{\mathrm{obs}}=7\times0.30=2.10.
 \]
-Stage~3 compares this single score with scores from null histories; it
-does not test each of the 35 Surface entries separately.
+Stage~3 compares this one number with the synthetic scores; it does not
+test the 35 cells separately.
 
 \topic{Worked boundary cases: support is not a score}
 
-Use one horizon and $\Delta=(-0.02,+0.02)$, so both weights are $1$.
-With two eligible bins, shifts $(-0.10,+0.10)$ in one bin give two
-contributions of $0.10$, hence $Q=0.20,V=1$. Vary this setup independently:
-\begin{itemize}
- \item \textbf{Unsupported entry.} With 29 eligible dates, this bin's
- probabilities and shifts are NaN; its contributions are zero and
- $Q=0,V=0$. If the other bin is the only eligible bin left, it also has
- $V=0$: the two-bin rule fails even though its shifts are finite.
- \item \textbf{Supported zero.} With both bins eligible, shifts
- $(+0.10,+0.10)$ give $Q=0,V=1$, distinguishing zero asymmetry from no support.
- \item \textbf{No matched pair.} For $\Delta=(-0.02,+0.01)$,
- $\Delta_{\pm}=\varnothing$. All weights and scores are zero and all
- support flags are false, even with 100 dates in each bin.
- \item \textbf{Heavy ties.} Request four bins from 80 values: 60 zeros
- and 20 ones. Linear-interpolated interior quantiles are $(0,0,0.25)$;
- filtering retains $(0.25)$. Thus $K^{(i)}=2$, with counts 60 and 20 if
- all dates are price eligible. Positions 2 and 3 are absent, bin 1 misses
- the count threshold, and bin 0 fails the two-bin rule. All flags are false.
-\end{itemize}
-Losing one horizon need not invalidate a whole score: $V=0$ requires
-that no usable coordinate remains anywhere on the grid.
+Use one horizon and the barriers $\pm2\%$, so both weights are $1$. Start
+from two measurable bins, with shifts $-0.10$ and $+0.10$ in this bin, and
+change one thing at a time:
+\begin{center}
+\renewcommand{\arraystretch}{1.35}
+\begin{tabularx}{\linewidth}{@{}l >{\raggedright\arraybackslash}X c c@{}}
+\toprule
+\rowcolor{ConceptPaper}
+\textbf{Case} & \textbf{What changes} & \textbf{Score} & \textbf{Supported} \\
+\midrule
+Reference & Nothing: two contributions of $0.10$. & $0.20$ & \heatcell{ConceptPaper}{yes} \\
+Too few dates & This bin has 29 dates, so its shifts do not exist. The other
+  bin, now the only measurable one, loses support too. & $0$ & no \\
+Equal shifts & Both shifts are $+0.10$: no asymmetry, but fully measured. & $0$ & \heatcell{ConceptPaper}{yes} \\
+No mirror & The barriers are $-2\%$ and $+1\%$, so nothing pairs up. & $0$ & no \\
+Heavy ties & Four bins requested from 60 zeros and 20 ones collapse into
+  two bins of 60 and 20 dates. The 20-date bin is too small, which
+  leaves the other bin alone. & $0$ & no \\
+\bottomrule
+\end{tabularx}
+\end{center}
 
 \subsection{The synthetic-history model}\label{sec:null}
 
-The null model fits the contemporaneous mean and covariance of four
-observed OHLC log components, then draws independent innovations across
-time. It provides the reference histories for the score comparison.
+A synthetic history should look like the market one bar at a time, but have
+no memory: nothing in past bars can say anything about the next one. Then
+no feature, whether computed from past bars or taken from outside data, can
+predict the next bar, so any score it
+earns is chance.
 
-\topic{Fitting and drawing log components}
-
-For the observed inputs below, suppress the path superscript $(0)$.
-Component labels such as $\mathrm{open}$ share the superscript with the
-path label when both are present, as in $g_t^{\mathrm{open},(i)}$. Define
-\begin{align}
- g^{\mathrm{open}}_t
-   &=\log\left(\frac{\Open_t}{\Close_{t-1}}\right),&
- g^{\mathrm{close}}_t
-   &=\log\left(\frac{\Close_t}{\Open_t}\right),\\
- g^{\mathrm{high}}_t
-   &=\log\left(\frac{\High_t}{\max(\Open_t,\Close_t)}\right),&
- g^{\mathrm{low}}_t
-   &=\log\left(\frac{\Low_t}{\min(\Open_t,\Close_t)}\right).
-\end{align}
-After removing non-finite rows, let $\mu$ and $\Sigma$ be the empirical
-mean vector and covariance matrix of these components. Add diagonal
-jitter before Cholesky factorization:
+Each bar is described by four log components:
+\begin{center}
+\large
+\renewcommand{\arraystretch}{1.9}
+\begin{tabular}{@{}l c l@{}}
+\toprule
+\rowcolor{ConceptPaper}
+\textbf{Component} & \textbf{Definition} & \textbf{Part of the bar} \\
+\midrule
+$g^{\mathrm{open}}_t$ & $\log\left(\dfrac{\Open_t}{\Close_{t-1}}\right)$ & Gap from the previous close \\
+$g^{\mathrm{close}}_t$ & $\log\left(\dfrac{\Close_t}{\Open_t}\right)$ & Body, open to close \\
+$g^{\mathrm{high}}_t$ & $\log\left(\dfrac{\High_t}{\max(\Open_t,\Close_t)}\right)$ & Upper wick \\
+$g^{\mathrm{low}}_t$ & $\log\left(\dfrac{\Low_t}{\min(\Open_t,\Close_t)}\right)$ & Lower wick \\
+\bottomrule
+\end{tabular}
+\end{center}
+Stack them into one vector per bar,
+$g_t=(g^{\mathrm{open}}_t,g^{\mathrm{close}}_t,g^{\mathrm{high}}_t,g^{\mathrm{low}}_t)\in\mathbb R^4$.
+Let $\mu$ and $\Sigma$ be the sample mean and covariance of the observed
+vectors, then draw every synthetic bar on its own:
+\begin{keyconcept}{One synthetic bar: realistic shape, no memory}
 \[
- \epsilon=10^{-12}\max(1,\max_j|\Sigma_{jj}|),
- \qquad L_\Sigma=\chol(\Sigma+\epsilon I_4).
+ g_1,\ldots,g_{|\mathcal T|}\ \overset{\text{i.i.d.}}{\sim}\ \mathcal N(\mu,\Sigma).
 \]
-Using deterministic seed \texttt{20260907}, draw row vectors
+\end{keyconcept}
+Within a bar the four components keep their observed correlations; across
+bars they are independent. Chain the bars into prices, starting from the
+first observed close as $\Close_0$:
 \[
- z_{t}^{(i)}\sim\mathcal N(0,I_4),
- \qquad g_{t}^{(i)}=z_{t}^{(i)}L_\Sigma^{\mathsf T}+\mu.
+ \Open_t=\Close_{t-1}\,e^{g^{\mathrm{open}}_t},\qquad
+ \Close_t=\Open_t\,e^{g^{\mathrm{close}}_t},
 \]
-The draws retain the fitted contemporaneous covariance, with the stated
-diagonal jitter, and are independent across time.
+\[
+ \High_t=\max(\Open_t,\Close_t)\,e^{g^{\mathrm{high}}_t},\qquad
+ \Low_t=\min(\Open_t,\Close_t)\,e^{g^{\mathrm{low}}_t}.
+\]
+Each synthetic history has as many bars as the observed one, and volume is
+copied from the observed history. A fixed seed makes the ensemble
+reproducible.
+\begin{description}[font=\normalfont\large\bfseries\color{ConceptInk}]
+ \item[What the null keeps] The average size of each part of a bar, and
+       how the four parts move together within one bar.
+ \item[What the null discards] Every link between bars: autocorrelation,
+       volatility clustering, and regimes. It also has no liquidity,
+       execution, or trading costs.
+\end{description}
 
-\topic{Reconstructing a price history}
+\topic{What this null can and cannot show}
 
-Let $C_{\mathrm{init}}$ denote the observed close used to initialize
-each synthetic history, with $\Close_{0}^{(i)}=C_{\mathrm{init}}$.
-For synthetic steps $t\geq1$, reconstruct
-\begin{align}
- \Close_{t}^{(i)}
-   &=C_{\mathrm{init}}\exp\left(
-        \sum_{j=1}^{t}(g_{j}^{\mathrm{open},(i)}+g_{j}^{\mathrm{close},(i)})
-                           \right),\\
- \Open_{t}^{(i)}&=\Close_{t-1}^{(i)}\exp(g_{t}^{\mathrm{open},(i)}),\\
- \High_{t}^{(i)}&=\max(\Open_{t}^{(i)},\Close_{t}^{(i)})\exp(g_{t}^{\mathrm{high},(i)}),\\
- \Low_{t}^{(i)}&=\min(\Open_{t}^{(i)},\Close_{t}^{(i)})\exp(g_{t}^{\mathrm{low},(i)}).
-\end{align}
-Observed volume is broadcast across synthetic histories. The null does
-not model temporal autocorrelation, volatility clustering, regime
-transitions, liquidity, execution, or trading costs.
+Real markets have memory; this null has none. A feature that tracks
+persistent volatility or a regime can therefore beat the null without
+predicting anything beyond ``volatile periods stay volatile.'' Clearing
+means \emph{beats a memoryless market}, not \emph{carries a usable edge}.
 
-\topic{Consequences for inference and OHLC consistency}
+The normal draw can also produce impossible bars. An upper wick of $-1\%$
+puts the high below the body; the reconstruction does not repair such bars.
 
-The fitted mean and covariance do not reproduce temporal dependence or
-non-Gaussian tails. Features associated with persistent volatility or regimes
-can distinguish observed history from this simulator without establishing
-incremental predictive content. The direction and size of the score effect
-require measurement: symmetric changes in opposite-barrier shifts can cancel.
-Restricting features to those uncorrelated with a volatility proxy does not
-establish calibration either.
-
-The Gaussian draw also fails to enforce $g^{\mathrm{high}}\geq0$ and
-$g^{\mathrm{low}}\leq0$. With $\Open=\Close=100$, draws
-$g^{\mathrm{high}}=-0.01$ and $g^{\mathrm{low}}=+0.01$ give
-$\High\approx99.00$ and $\Low\approx101.01$, violating OHLC ordering.
-The reconstruction documents this limitation; it does not repair those
-draws. A constraint-preserving generator would be a model change requiring
-new validation and cache versions.
-
-A dependent resampling or volatility model is a candidate replacement,
-not an automatic inferential fix. A block bootstrap can preserve both
-temporal dependence and the feature--future relationship under investigation.
-A replacement must specify which relationship its null removes, which
-dependence it preserves, and how calibration is checked.
+A null with memory, such as a block bootstrap, would fix the first problem
+but could also keep the very feature--future relationship under test. Any
+replacement has to say what it removes, what it keeps, and how its
+calibration is checked.
 
 \subsection{Repeating measurement on each null path}
 
-For an OHLCV-derived feature, recompute its values and quantile edges
-independently on each synthetic path. External, calendar, and
-workspace-extension conditions that cannot be reconstructed from synthetic
-OHLCV reuse their observed feature values and observed edges on every
-null path.
-
-Apply Sections~\ref{sec:measurement}--\ref{sec:comparison} and
-Section~\ref{sec:score} to every path. This produces
-$Q_{k}^{(1)},\ldots,Q_{k}^{(I)}$ at each requested bin position. The comparison
-matches bin positions; it does not require identical numerical quantile
-edges or identical effective bin counts across histories.
-
-For a reconstructed feature, position $k$ denotes an adaptive ordered bin
-with path-dependent cutoffs; ties can change its nominal quantile interval.
-For a fixed external feature, it denotes the same cutoffs and date group
-on each path. These are different conditioning policies. Applying the same
-policy to observed and simulated data defines a reproducible statistic,
-but position matching alone does not establish exchangeability or calibration.
-Observed volume is fixed even for reconstructed OHLCV features; its joint
-dynamics with synthetic prices are not preserved.
+Features follow one of two policies on synthetic histories:
+\begin{description}[font=\normalfont\large\bfseries\color{ConceptInk}]
+ \item[OHLCV-derived feature (recomputed)] Recompute the feature and its
+       quantile edges on each synthetic history.
+ \item[External, calendar, or workspace-extension feature (fixed)]
+       These cannot be rebuilt from synthetic prices, so every synthetic
+       history reuses the observed values and cutoffs.
+\end{description}
+Each synthetic history then goes through Stages~1--2 and the scoring above
+exactly as the observed history did, giving $Q_1,\ldots,Q_I$. ``The same
+bin'' means the same position, such as the lowest decile, on every history.
+For a recomputed feature, its cutoffs are that history's own deciles, so
+they differ between histories. Volume is copied from the observed history
+even when a feature uses it, so its link to synthetic prices is lost.
 
 \subsection{The test and decision rule}
 
-For each supported observed bin, the one-sided Monte Carlo i-value is
+The p-value is the observed score's rank among all $1+I$ scores:
+\begin{keyconcept}{The Monte Carlo p-value and the decision}
 \[
- \widehat i_k=
- \frac{1+\sum_{i=1}^{I}\ind[Q_{k}^{(i)}\geq Q_{k}^{(0)}]}{I+1}.
+ \widehat p=\frac{1+\#\{i\in\{1,\ldots,I\}:\ Q_i\geq Q_{\mathrm{obs}}\}}{1+I},
+ \qquad
+ C=\ind\bigl[V_{\mathrm{obs}}=1\ \text{and}\ \widehat p<0.05\bigr].
 \]
-Invalid null bins retain their zero scores in this complete ensemble.
-They are not dropped from the numerator or denominator. The output
-separately records $\sum_{i=1}^I V_{k}^{(i)}$, the number of valid null scores.
+\normalsize The bin clears when $C=1$.
+\end{keyconcept}
+The $1$ in the numerator counts the observed history as one of the draws,
+so $\widehat p$ is never zero; with $I=1{,}000$ the smallest possible value
+is $1/1{,}001$. Ties count against the bin. Unsupported observed bins are
+skipped, not tested. There is no multiple-testing correction in this rule;
+Stage~4 reports one beside it.
 
-With the current $I=1{,}000$, the denominator is $1{,}001$.
-A supported observed bin clears precisely when $\widehat i_k<0.05$.
-Unsupported observed bins are skipped. There is no family-wise or
-false-discovery-rate correction across bins in the current decision rule.
-The comparison concerns this score under the specified null model.
+\topic{Unsupported synthetic runs push $\widehat p$ down}
 
-\topic{Support conditioning and an alternative comparison}
-
-Let $M_k=\sum_{i=1}^I V_k^{(i)}$ be the supported-null count. For a positive
-supported observed score, define
+On some synthetic histories this bin is unsupported and scores $0$, which
+can never reach a positive $Q_{\mathrm{obs}}$. Those runs stay in the count,
+which makes $\widehat p$ smaller than if they were left out. The alternative
+counts only the $M=\sum_{i=1}^{I}V_i$ runs on which the bin was supported:
 \[
- A_k=\sum_{i:V_k^{(i)}=1}\ind[Q_k^{(i)}\geq Q_k^{(0)}].
+ \widehat p_{\mathrm{supported}}
+ =\frac{1+\#\{i:\ V_i=1,\ Q_i\geq Q_{\mathrm{obs}}\}}{1+M}.
 \]
-The implemented value is $(1+A_k)/(1+I)$. A comparison conditional on null
-support would instead use
-\[
- \widehat i_k^{\mathrm{supported}}=\frac{1+A_k}{1+M_k},\qquad M_k>0.
-\]
-This alternative is not the current decision rule. With no supported null
-paths it should be reported as untestable. Supported null zeros remain in
-its sample. For a supported observed zero, both comparisons equal one
-whenever the conditional comparison is defined.
+The difference can decide the outcome. With $M=100$ supported runs:
+\begin{center}
+\large
+\renewcommand{\arraystretch}{1.45}
+\begin{tabular}{@{}c c c@{}}
+\toprule
+\rowcolor{ConceptPaper}
+\textbf{Supported runs} $\boldsymbol{\geq Q_{\mathrm{obs}}}$ & \textbf{Current} $\widehat p$ & $\boldsymbol{\widehat p_{\mathrm{supported}}}$ \\
+\midrule
+$4$ & \heatcell{ConceptPaper}{$5/1{,}001\approx0.0050$ clears} & \heatcell{ConceptPaper}{$5/101\approx0.0495$ clears} \\
+$5$ & \heatcell{ConceptPaper}{$6/1{,}001\approx0.0060$ clears} & $6/101\approx0.0594$ does not \\
+\bottomrule
+\end{tabular}
+\end{center}
+Neither version is automatically right. The current rule compares against
+every synthetic history; the alternative compares only against histories on
+which this bin could be measured. The current rule is the implemented one,
+and each result records $M$ so the gap can be checked. In both versions the
+null is fitted to the observed history, so $\widehat p$ carries no exact
+guarantee.
 
-For example, $I=1{,}000$, $M_k=100$, and $A_k=4$ give implemented value
-$5/1{,}001\approx0.0050$ and conditional value $5/101\approx0.0495$.
-With $A_k=5$, they become $6/1{,}001\approx0.0060$ and
-$6/101\approx0.0594$, reversing the decision. Invalid zeros lower the
-implemented tail rank for a fixed positive score relative to the supported
-comparison. This does not prove unconditional type-I error inflation:
-under an exchangeable null, an identically applied statistic may legitimately
-include a mass at zero. Conditioning on observed support changes the target
-population and requires its own calibration argument.
+\topic{Clearing is not discovery}
 
-The fitted simulator does not establish that exchangeability. Its parameters
-are estimated from observed history, so the plus-one formula alone supplies
-no exact finite-sample guarantee. Resolution $1/(I+1)$ is not a guarantee
-of statistical accuracy. Recommended diagnostics are $M_k/I$, observed and
-null usable-coordinate counts, effective bin counts, and both comparison
-values, followed by repeated full-pipeline null experiments across ties,
-missingness, sample sizes, and horizon grids. Currently the supported-null
-count, rather than this full diagnostic set, is recorded alongside scores.
-
-\topic{Multiplicity and the meaning of clearing}
-
-For a fixed family containing $m_0$ true null hypotheses, valid marginal
-tests at level $0.05$ imply an expected number of false rejections at most
-$0.05m_0$; independence is unnecessary for this expectation. For example,
-100 features with ten true-null bin tests each would yield 50 expected false
-rejections if each test had size exactly $0.05$. This is not a calibration
-result for the present simulator and does not automatically apply after
-conditioning on a data-selected set of supported bins. Clearing is an
-unadjusted exploratory flag, not a family-level error guarantee.
+At a $0.05$ threshold, about one bin in twenty clears by chance when it has
+no effect. Among 1,000 tested bins with no effect at all, about 50 would
+clear. Clearing is an exploratory flag. Stage~4 therefore reports the count
+expected by chance and a q-value beside each bin
+(Section~\ref{sec:selection}).
 
 \Needspace{16\baselineskip}
 \subsection{Worked example: applying the decision rule}\label{sec:decision-example}
 
-To finish the running example, the observed score is $Q_k^{(0)}=2.10$.
-Generate and score 1,000 null histories using the same rules. Suppose,
-for illustration, that 24 null scores are at least 2.10, including any
-ties. Then
+To finish the running example, $Q_{\mathrm{obs}}=2.10$. Score 1,000
+synthetic histories and suppose, for illustration, that 24 of them score at
+least $2.10$. Then
 \[
- \widehat i_k=\frac{1+24}{1{,}001}
-            =\frac{25}{1{,}001}\approx0.025<0.05.
+ \widehat p=\frac{1+24}{1{,}001}\approx0.025<0.05,
 \]
-This bin clears, and Stage~4 retains its complete $-0.10/0/+0.10$ shift
-Surface. The count of 24 is an illustrative assumption, not a simulation
-result: the observed shifts alone cannot determine the null comparison.
-
-For a non-rejection example with the same positive observed score, 50 null
-scores at least as large give $\widehat i_k=51/1{,}001\approx0.05095$:
-the bin does not clear. With 49 exceedances, $50/1{,}001\approx0.04995$
-clears. Ties count as exceedances. An unsupported observed bin is skipped
-rather than assigned a passing i-value, regardless of its stored zero score.
-
-\section{Stage 4: selection and presentation}
-
-Stage~4 consumes the Stage~3 decision and introduces no new score.
-
-\subsection{Selection and rendering rules}
-
-Writing $C_k$ for the \texttt{cleared} indicator, select exactly
-\[
- \mathcal K_{\mathrm{sel}}
- =\{k:C_k=\mathrm{true}\}
- =\{k:V_{k}^{(0)}=1\text{ and }\widehat i_k<0.05\}.
-\]
-For every selected bin, render the complete observed shift Surface
-$Z_{k}^{(0)}$ as a signed-barrier--by--horizon heatmap.
-
-There is no top-$k$ truncation, family quota, effect-size gate, or
-representative-cell rule. Ordering by ascending $\widehat i_k$ and
-descending $Q_{k}^{(0)}$ is presentational only.
-
-\subsection{Worked example: selecting the shift Surface}
-
-In the running example, the observed bin is supported and its illustrative
-Monte Carlo i-value is $25/1{,}001<0.05$
-(Section~\ref{sec:decision-example}). Hence $C_k=\mathrm{true}$ and
-$k\in\mathcal K_{\mathrm{sel}}$.
-
-Render the complete observed $5\times7$ shift Surface: both
-negative-barrier rows contain $-0.10$, the zero-barrier row contains
-$0$, and both positive-barrier rows contain $+0.10$ across all seven
-horizons. The score $Q_k^{(0)}=2.10$ summarizes this Surface for validation;
-the selected output retains all 35 entries. Selection of any other bin
-depends on that bin's own support and decision result.
-
-\section{Numerical and artifact contract}\label{sec:numerics}
-
-\subsection{Surface notation and stored axes}
-
-Surface arguments $(\delta,\theta)$ identify mathematical coordinates,
-not tensor axis positions. The following table is the storage-axis contract;
-no alternate scalar-subscript ordering is implied. A touch matrix is
-evaluated at a fixed horizon and has no horizon axis. Slicing a horizon
-from a logical four-axis tensor does not determine where that axis belonged.
-A path batch contains a
-subset of the paths $i=0,1,\ldots,I$; an observed role batch contains one path.
-
+so the bin clears, and Stage~4 keeps its complete shift Surface. The count
+of 24 is assumed, not simulated: the observed Surface alone cannot tell how
+the synthetic histories will score. Other counts place the threshold:
 \begin{center}
-\begin{tabular}{ll}
+\large
+\renewcommand{\arraystretch}{1.45}
+\begin{tabular}{@{}c c c@{}}
 \toprule
-Quantity & Array axes, in order \\
+\rowcolor{ConceptPaper}
+\textbf{Synthetic scores} $\boldsymbol{\geq Q_{\mathrm{obs}}}$ & $\boldsymbol{\widehat p}$ & \textbf{Clears?} \\
 \midrule
-OHLCV histories & path, observation, OHLCV component \\
-Excursions at one horizon & path, observation \\
-Touches at one horizon & path, observation, barrier \\
-Conditional probabilities and hit counts & path, barrier, bin, horizon \\
-Unconditional probabilities & path, barrier, horizon \\
-Shift surfaces & path, barrier, bin, horizon \\
-Bin observation counts & path, bin, horizon \\
-Bin scores and validity flags & path, bin \\
+$24$ & $25/1{,}001\approx0.02498$ & \heatcell{ConceptPaper}{yes} \\
+$49$ & $50/1{,}001\approx0.04995$ & \heatcell{ConceptPaper}{yes} \\
+$50$ & $51/1{,}001\approx0.05095$ & no \\
 \bottomrule
 \end{tabular}
 \end{center}
+The boundary sits between 49 and 50 synthetic scores at or above the
+observed one.
 
-OHLCV component order is open, high, low, close, volume. Feature values
-have path (or one shared path) and observation axes; edges have path
-(or one shared path) and edge axes; assignments have path and observation
-axes. A complete logical excursion tensor adds the horizon axis.
-The numerical computation can stream that axis without materializing
-every complete outcome Surface simultaneously.
+\section{Stage 4: selection and presentation}\label{sec:selection}
 
-Batched results retain $K_{\mathrm{req}}$ bin positions, with
-$k\geq K^{(i)}$ unsupported. Compact observed artifacts retain $K^{(0)}$ bins.
-The default NASDAQ configuration has $|\Delta|=41$, $|\Theta|=30$,
-$K_{\mathrm{req}}=10$, and $I=1{,}000$ null replicates.
+Stage~4 adds no new test. It keeps the bins that passed, orders them by
+evidence, and says how much passing means when many bins are tested. From
+here on, the bins of all features are pooled: a \emph{tested bin} $b$ is one
+supported bin of one feature, with p-value $\widehat p_b$.
 
-\subsection{Artifacts and exact reuse}
+\subsection{Selection and rendering rules}
 
-\topic{Stored artifacts}
+\begin{keyconcept}{Every bin that clears, and only those}
+\[
+ \mathcal K_{\mathrm{sel}}=\{b:\ C_b=1\}=\{b:\ V_b=1\ \text{and}\ \widehat p_b<0.05\},
+\]
+\normalsize where $b$ ranges over all tested bins.
+\end{keyconcept}
+Each kept bin is drawn as its shift Surface heatmap beside the histogram of
+its 1,000 synthetic scores. Stage~3 draws the same figure for every tested
+bin.
 
-Stage~1 stores the observed conditional and unconditional probability surfaces,
-hit counts, and bin observation counts. Observed forward excursions,
-touches, and unconditional probabilities are retained as float64 source-level
-cache tensors. Feature values, quantile edges, and integer bin assignments
-are retained in the node artifact.
+There is no top-$k$ cut, quota per feature, or minimum effect size. Kept
+bins are ranked by $\widehat p$ alone; bins with equal $\widehat p$ share a
+rank, and the score never breaks a tie. The order is evidence against
+chance, not size of effect.
 
-Shift arrays use \texttt{probability\_shift} in probability-difference units.
-A separate shift version identifies these units; a shift in any other units
-or version is rejected, without changing Stage~1 measurements. Percentage
-formatting is applied only in presentation.
+\topic{How much would pass by chance}
 
-Stage~2 stores only the shifts plus cryptographic references to its node
-and baseline Stage~1 artifacts. Probabilities, counts, axes, conditions,
-and market history are materialized from those references when required.
+Let $m$ be the number of tested bins. Two numbers put the selection in
+context; neither changes it.
+\begin{description}[font=\normalfont\large\bfseries\color{ConceptInk}]
+ \item[Expected by chance] $0.05\,m$: how many bins would clear if none had
+       any effect and the test were exactly calibrated.
+ \item[q-value] The Benjamini--Hochberg adjusted p-value: roughly, the share
+       of bins at least this strong that would be false discoveries.
+\end{description}
+Sort the p-values of all $m$ tested bins, not only the kept ones, as
+$\widehat p_{(1)}\leq\cdots\leq\widehat p_{(m)}$. The bin at rank $j$ gets
+\begin{keyconcept}{The q-value}
+\[
+ q_{(j)}=\min_{l\geq j}\ \min\Bigl(1,\ \frac{m\,\widehat p_{(l)}}{l}\Bigr).
+\]
+\normalsize The core is $\widehat p\times m/\text{rank}$; the minimum over
+later ranks keeps $q$ from falling as $\widehat p$ rises, and bins with equal
+$\widehat p$ share a $q$.
+\end{keyconcept}
+For example, with $m=400$ tested bins, a bin ranked 10th with
+$\widehat p=0.01$ has $q\leq0.01\times400/10=0.4$: of the ten strongest bins,
+about four would be expected by chance.
 
-\topic{Shared computation and cache validity}
+The q-value's guarantee assumes independent or positively related tests.
+Here all features of one history share the same synthetic histories, and
+the simulator's own calibration is not established (Section~\ref{sec:null}),
+so q-values give context, not a guarantee.
 
-Horizons are traversed incrementally: running future minima and maxima
-extend the state for shorter horizons. Synthetic histories are evaluated
-in memory-bounded path batches. At each batch and horizon, one touch
-matrix serves the baseline and all node-specific bin reductions.
+The number of synthetic histories limits q-values. With $I=1{,}000$ the
+smallest possible $\widehat p$ is $1/1{,}001$. If one of 400 tested bins
+reaches it and every other bin has $\widehat p=0.5$, that bin's q-value is
+$400/1{,}001\approx0.40$. The strongest possible single result is still
+unremarkable at the family level.
 
-Features sharing a history also share its synthetic ensemble. Their results
-are dependent through both the data and the common simulations. A fixed seed
-makes one ensemble reproducible; it does not provide independent replication
-across features or eliminate Monte Carlo uncertainty. Shared draws do not
-inherently invalidate marginal tests and can support a joint multiplicity
-procedure, but no such correction is currently applied.
+\subsection{Worked example: selecting the shift Surface}
 
-The following quantities are reused exactly rather than approximated:
-\begin{itemize}
- \item observed forward excursions, touches, and unconditional probabilities;
- \item observed feature values, quantile edges, and bin assignments;
- \item the synthetic touch matrix shared across the baseline and all
-       nodes in a batch; and
- \item common rolling feature primitives within a history or synthetic batch.
-\end{itemize}
-Observed caches are keyed by ordered market-history content and validated
-against the measurement version, barrier grid, and horizon grid.
-Stage~2 references are protected by SHA-256 hashes. A changed history,
-grid, numerical version, or referenced Stage~1 artifact invalidates reuse.
+In the running example the bin is supported and its illustrative
+$\widehat p=25/1{,}001<0.05$ (Section~\ref{sec:decision-example}), so it is
+kept, and its complete shift Surface is drawn:
+\begin{surfaceexample}
+\[
+Z_k=
+\begin{array}{c|rrrrrrr}
+ \delta\backslash\theta &1&2&3&4&5&6&7\\ \hline
+ -2\% &\heatcell[black]{SurfaceBlue!33.33333333333333!white}{-0.10}&\heatcell[black]{SurfaceBlue!33.33333333333333!white}{-0.10}&\heatcell[black]{SurfaceBlue!33.33333333333333!white}{-0.10}&\heatcell[black]{SurfaceBlue!33.33333333333333!white}{-0.10}&\heatcell[black]{SurfaceBlue!33.33333333333333!white}{-0.10}&\heatcell[black]{SurfaceBlue!33.33333333333333!white}{-0.10}&\heatcell[black]{SurfaceBlue!33.33333333333333!white}{-0.10}\\
+ -1\% &\heatcell[black]{SurfaceBlue!33.33333333333333!white}{-0.10}&\heatcell[black]{SurfaceBlue!33.33333333333333!white}{-0.10}&\heatcell[black]{SurfaceBlue!33.33333333333333!white}{-0.10}&\heatcell[black]{SurfaceBlue!33.33333333333333!white}{-0.10}&\heatcell[black]{SurfaceBlue!33.33333333333333!white}{-0.10}&\heatcell[black]{SurfaceBlue!33.33333333333333!white}{-0.10}&\heatcell[black]{SurfaceBlue!33.33333333333333!white}{-0.10}\\
+  0\% &\heatcell[black]{SurfaceRed!0!white}{0}&\heatcell[black]{SurfaceRed!0!white}{0}&\heatcell[black]{SurfaceRed!0!white}{0}&\heatcell[black]{SurfaceRed!0!white}{0}&\heatcell[black]{SurfaceRed!0!white}{0}&\heatcell[black]{SurfaceRed!0!white}{0}&\heatcell[black]{SurfaceRed!0!white}{0}\\
+ +1\% &\heatcell[black]{SurfaceRed!33.33333333333333!white}{+0.10}&\heatcell[black]{SurfaceRed!33.33333333333333!white}{+0.10}&\heatcell[black]{SurfaceRed!33.33333333333333!white}{+0.10}&\heatcell[black]{SurfaceRed!33.33333333333333!white}{+0.10}&\heatcell[black]{SurfaceRed!33.33333333333333!white}{+0.10}&\heatcell[black]{SurfaceRed!33.33333333333333!white}{+0.10}&\heatcell[black]{SurfaceRed!33.33333333333333!white}{+0.10}\\
+ +2\% &\heatcell[black]{SurfaceRed!33.33333333333333!white}{+0.10}&\heatcell[black]{SurfaceRed!33.33333333333333!white}{+0.10}&\heatcell[black]{SurfaceRed!33.33333333333333!white}{+0.10}&\heatcell[black]{SurfaceRed!33.33333333333333!white}{+0.10}&\heatcell[black]{SurfaceRed!33.33333333333333!white}{+0.10}&\heatcell[black]{SurfaceRed!33.33333333333333!white}{+0.10}&\heatcell[black]{SurfaceRed!33.33333333333333!white}{+0.10}
+\end{array}.
+\]
+\end{surfaceexample}
+The score $2.10$ summarized this Surface for the test; the output keeps all
+35 cells.
+
+\section{Stage 5: combination of active conditions}\label{sec:forecast}
+
+Stage~5 adds no test and changes no selection. It asks what the kept
+conditions imply together for the last stored bar, and how far that combined
+estimate is from what history shows when those conditions held at once.
+
+\begin{keyconcept}{Stage 5 at a glance}
+\normalsize
+\[
+ \text{kept bins}
+ \xrightarrow{\text{hold on the last bar}}
+ \text{active}
+ \xrightarrow{\text{one per family}}
+ \text{used}
+ \xrightarrow{\text{combine}}
+ (P,\ J).
+\]
+\end{keyconcept}
+
+\subsection{Active and used conditions}
+
+Let $t_{\mathrm{last}}$ be the last stored bar.
+\begin{description}[font=\normalfont\large\bfseries\color{ConceptInk}]
+ \item[Active bin] A kept bin $k$ of a feature whose value on the last bar
+       falls in it: $x_{t_{\mathrm{last}}}$ is finite and
+       $k(t_{\mathrm{last}})=k$, under the feature's stored
+       Stage~1 edges.
+ \item[Used condition] The best-ranked active bin within its feature family,
+       with ties broken by feature and then bin. Active bins from a history
+       whose dates differ from the baseline's are not used. Every active bin
+       that is not used is listed with the reason.
+\end{description}
+Write $\mathcal C$ for the used conditions and $A_c$ for the dates on which
+condition $c\in\mathcal C$ held.
+Families group closely related features, such as one indicator at several
+periods, so the one-per-family rule removes their most obvious overlap. It
+does not remove overlap between different families.
+
+\subsection{Naive Bayes combination}
+
+At one barrier and horizon, let $E$ be the event of a touch. Bayes' rule
+combines conditions through their odds:
+\[
+ \operatorname{odds}\Bigl(E\Bigm|{\textstyle\bigcap_{c\in\mathcal C}A_c}\Bigr)
+ =\operatorname{odds}(E)
+  \prod_{c\in\mathcal C}\frac{\operatorname{odds}(E\mid A_c)}{\operatorname{odds}(E)}.
+\]
+Each condition multiplies the baseline odds by how much it changes the odds
+on its own. This is exact only when the conditions are independent once the
+outcome is known.
+
+Rates are smoothed first, as if each group had one extra touch and one extra
+miss, so that a rate of $0$ or $1$ still has finite odds:
+\[
+ \tilde p=\frac{\text{touches}+1}{\text{dates}+2}.
+\]
+Taking logarithms turns the product into a sum. With
+$\operatorname{logit}p=\log\bigl(p/(1-p)\bigr)$:
+\begin{keyconcept}{Naive Bayes: each condition adds its log odds ratio}
+\[
+ \operatorname{logit}P(\delta,\theta)
+ =\operatorname{logit}\tilde B(\delta,\theta)
+  +\sum_{c\in\mathcal C}\bigl(\operatorname{logit}\tilde Y_c(\delta,\theta)-\operatorname{logit}\tilde B(\delta,\theta)\bigr),
+\]
+\normalsize so $P\in\mathcal S$, built cell by cell.
+\end{keyconcept}
+Its support is the weakest contributor at each horizon,
+\[
+ n^P(\theta)=\min\Bigl(N(\theta),\ \min_{c\in\mathcal C}N_c(\theta)\Bigr),
+\]
+and a cell of $P$ is blank when $n^P(\theta)<n_{\min}$. With no used
+conditions, $P=\tilde B$. Conditions that measure the same thing count the same evidence
+more than once, which pushes $P$ further from the baseline than the evidence
+supports.
+
+\subsection{The historical joint rate}
+
+The direct estimate needs no independence assumption:
+\begin{keyconcept}{The historical joint rate}
+\[
+ J=\Pi\Bigl[\,\bigcap_{c\in\mathcal C}A_c\Bigr]\in\mathcal S,
+\]
+\normalsize the unsmoothed touch rate over the dates on which \emph{every}
+used condition held.
+\end{keyconcept}
+It is the same operator $\Pi$ that produced $Y_k$ and $B$, so it is blank
+below $n_{\min}$ such dates. With no used conditions, the intersection is
+all of $\mathcal T$ and $J=B$.
+
+$P$ and $J$ trade one weakness for another:
+\begin{description}[font=\normalfont\large\bfseries\color{ConceptInk}]
+ \item[Naive Bayes Surface $P$] Uses each condition's full sample, but
+       assumes the conditions are independent given the outcome.
+ \item[Historical joint Surface $J$] Assumes nothing about dependence, but
+       its sample shrinks quickly: two unrelated decile conditions hold
+       together on about one date in a hundred.
+\end{description}
+The gap $P-J$, summarized by its average and its largest value, shows how far
+the independence assumption moves the estimate, read against how few dates
+$J$ rests on.
+
+Both are in-sample. Every used bin was kept because its score was extreme,
+so its measured shift is likely larger than its true effect, and neither
+$P$ nor $J$ corrects for that.
+
+\subsection{Nesting of touch events}
+
+A farther barrier can only be reached by passing a nearer one on the same
+side, and a touch within $\theta$ bars is also a touch within any longer
+horizon. Any Surface $F$ of touch probabilities must therefore satisfy
+\begin{keyconcept}{Nesting inequalities}
+\begin{align*}
+ F(\delta',\theta)&\leq F(\delta,\theta)&&\text{for }0\leq\delta<\delta'\text{ or }\delta'<\delta<0,\\
+ F(\delta,\theta)&\leq F(\delta,\theta')&&\text{for }\theta<\theta'.
+\end{align*}
+\end{keyconcept}
+The measured Surface of Section~\ref{sec:example} respects this; a combined
+Surface need not:
+\begin{center}
+\large
+\renewcommand{\arraystretch}{1.45}
+\begin{tabular}{@{}l c c@{}}
+\toprule
+\rowcolor{ConceptPaper}
+\textbf{Barrier} & \textbf{Nested (measured $Y_k$)} & \textbf{Violating (illustrative)} \\
+\midrule
+$0\%$  & \heatcell[white]{SurfaceRed!80!SurfaceAmber}{$0.90$} & \heatcell[white]{SurfaceRed!80!SurfaceAmber}{$0.90$} \\
+$+1\%$ & \heatcell{SurfaceAmber!90!white}{$0.45$} & \heatcell{SurfaceAmber!90!white}{$0.45$} \\
+$+2\%$ & \heatcell{SurfaceAmber!70!white}{$0.35$} & \heatcell{SurfaceAmber!96!white}{$0.48$}\ $\uparrow$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+In the right column the $+2\%$ barrier is more likely to be touched than the
+nearer $+1\%$ barrier, which is impossible for real touch probabilities.
+
+Stage~5 counts the adjacent pairs of cells of $P$ that break these
+inequalities: neighbouring barriers within $\delta<0$, neighbouring barriers
+within $\delta\geq0$, and neighbouring horizons, ignoring blank cells. It
+reports the count without correcting it. Adding log odds ratios cell by cell
+does not have to preserve the order. Even measured rates can break the
+horizon order slightly, because longer horizons leave out the most recent
+dates.
+
+\subsection{Strongest cell of a used condition}
+
+For each used condition, the report also points to one cell worth looking
+at: the largest shift inside a run of at least two neighbouring barrier rows
+that all move the same way by at least 10 percentage points, at a horizon
+where the bin has at least 50 dates (the NASDAQ defaults). It is a reading
+aid for the shift Surface; nothing is tested.
+
+\Needspace{16\baselineskip}
+\subsection{Worked example: combining two conditions}
+
+At one cell, suppose the baseline has 250 touches among 1,000 dates,
+condition 1 has 40 among 100, and condition 2 has 35 among 100, from
+different families. Smoothing and log-odds give
+\begin{center}
+\large
+\renewcommand{\arraystretch}{1.45}
+\begin{tabular}{@{}l c c c@{}}
+\toprule
+\rowcolor{ConceptPaper}
+ & \textbf{Smoothed rate} $\tilde p$ & $\boldsymbol{\operatorname{logit}\tilde p}$ & \textbf{Log odds ratio} \\
+\midrule
+Baseline & $251/1{,}002\approx$ \heatcell{SurfaceAmber!50.1!white}{$0.2505$} & $-1.0960$ & \\
+Condition 1 & $41/102\approx$ \heatcell{SurfaceAmber!80.4!white}{$0.4020$} & $-0.3973$ & $+0.6987$ \\
+Condition 2 & $36/102\approx$ \heatcell{SurfaceAmber!70.6!white}{$0.3529$} & $-0.6061$ & $+0.4898$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+so that
+\[
+ \operatorname{logit}P=-1.0960+0.6987+0.4898=0.0925,
+ \qquad P=\frac{1}{1+e^{-0.0925}}\approx0.523.
+\]
+The smallest group behind it has 100 dates. Each condition alone raises the
+touch rate from about $25\%$ to $35$--$40\%$; together, under independence,
+they raise it to about $52\%$.
+
+Now suppose both conditions held on 40 dates and the barrier was touched
+after 15 of them. Then $J=15/40=0.375$, enough dates to report, and the gap
+is $P-J\approx+0.148$. Side by side:
+\begin{center}
+\large
+\renewcommand{\arraystretch}{1.45}
+\begin{tabular}{@{}l c c@{}}
+\toprule
+\rowcolor{ConceptPaper}
+\textbf{Estimate} & \textbf{Touch probability} & \textbf{Dates behind it} \\
+\midrule
+Baseline $\tilde B$ & \heatcell{SurfaceAmber!50.1!white}{$0.2505$} & 1,000 \\
+Naive Bayes $P$ & \heatcell{SurfaceRed!4.6!SurfaceAmber}{$0.523$} & 100 \\
+Historical joint $J$ & \heatcell{SurfaceAmber!75!white}{$0.375$} & 40 \\
+\bottomrule
+\end{tabular}
+\end{center}
+History with both conditions looks much like history with either one, as it
+would if the two conditions largely measured the same thing. The joint rate
+rests on only 40 dates, so the gap is itself uncertain.
+
+\Needspace{30\baselineskip}
+\section{Short reference}\label{sec:numerics}
+
+Conventions and defaults behind the explanations above.
+\begin{center}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabularx}{\linewidth}{@{}l >{\raggedright\arraybackslash}X@{}}
+\toprule
+\rowcolor{ConceptPaper}
+\textbf{Item} & \textbf{Convention} \\
+\midrule
+Bin edges & Linearly interpolated quantiles of the finite feature values; repeated edges removed; a value on an edge goes to the lower bin. \\
+Minimum dates & 30 per cell for rates, shifts, scores, and $P$ and $J$; 50 for the strongest-cell line. \\
+Mirror pairs & A barrier counts only with exactly one mirror of opposite sign on the grid. \\
+Synthetic histories & $I=1{,}000$ per distinct market history, seed \texttt{20260907}, shared by every feature of that history. CPU and CUDA generators give different, equally valid ensembles for the same seed. \\
+Null fit & Rows with a non-finite component are dropped; the first bar uses its own close as the previous close; the covariance is the $n-1$ sample covariance plus diagonal jitter $10^{-12}\max(1,\max_j\Sigma_{jj})$ before the Cholesky factorization. \\
+Unsupported synthetic runs & Score $0$ and stay in the p-value count. \\
+Clearing & Supported and raw $\widehat p<0.05$; no multiple-testing correction in the rule. \\
+Default NASDAQ grid & Barriers $-20\%$ to $+20\%$ in $1\%$ steps (41), horizons 1--30 bars, 10 bins. \\
+Stored precision & Stored probabilities and shifts are float32; Stage~3 remeasures every score in float64 from the stored prices. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\Needspace{14\baselineskip}
+Stored arrays use these axes:
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\rowcolor{ConceptPaper}
+\textbf{Quantity} & \textbf{Array axes, in order} \\
+\midrule
+OHLCV histories & history, bar, OHLCV component \\
+Touches at one horizon & history, bar, barrier \\
+Conditional probabilities and hit counts & history, barrier, bin, horizon \\
+Baseline probabilities & history, barrier, horizon \\
+Shift surfaces & history, barrier, bin, horizon \\
+Bin date counts & history, bin, horizon \\
+Bin scores and support flags & history, bin \\
+\bottomrule
+\end{tabular}
+\end{center}
 
 \end{document}
