@@ -1,75 +1,66 @@
 <div align="center">
   <h1><strong>AlphaVerify</strong> - Multi-Asset Financial Strategy Debunker</h1>
   <img src="docs/alphaverify-icon-old.svg" alt="AlphaVerify icon" width="180">
-  <br><br>
-  <img src="https://img.shields.io/badge/Python-%E2%89%A5%203.12-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python >= 3.12">
-  <img src="https://img.shields.io/badge/CUDA-%E2%89%A5%2012.0-76B900?style=for-the-badge&logo=nvidia&logoColor=white" alt="CUDA >= 12.0">
-  <br><br>  
-  <pre><code>pip install -e .</code></pre>
+  <br>
+  <h3>Most “technical” indicators are essentially astrology with better charts.<br>  
+  AlphaVerify is built to put an end to all that bullshit.</h3>
 </div>
 
-**The chart found an edge. We asked whether chance could draw it too.**
-
-You've seen lots of them: a so-called “alpha” strategy and an equity curve that claims to beat the market. They explain the setup, promise there is no future leak, and show that it earns money.
-
-**Most “technical” indicators are essentially astrology with better charts.**
-
- AlphaVerify is built to put an end to all that bullshit.
-
 <p align="center">
-<table>
-  <tr>
-    <td align="center" width="33%"><h2>1,000</h2>synthetic OHLC histories</td>
-    <td align="center" width="33%"><h2>552</h2>condition bins across 57 NASDAQ features</td>
-    <td align="center" width="33%"><h2>4.5%</h2>only 25 bins cleared</td>
-  </tr>
-</table>
-<br>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/stats-dark.svg">
+    <img src="docs/stats-light.svg" width="100%" alt="1,000 synthetic OHLC histories; 552 NASDAQ condition bins tested, across 57 features; 25 bins cleared, where pure chance predicts 27.6">
+  </picture>
 </p>
 
-## Example - NASDAQ daily
+# How to look at the figures
+Each figure tests one market condition. 
 
-Each figure shows one condition bin, such as "the 50-day average is 9% to 12% above the 200-day". The left panel shows how often the NASDAQ touches each barrier (±1% to ±20%) within 1 to 30 days while the condition holds, compared with all days. The circled cells are the mirror pair with the largest up/down contrast. The right panel places the bin's score among the scores of 1,000 synthetic price histories that share the market's volatility but contain no real signal. A bin clears only if its score beats the null's 95th percentile.
+**Left:** while the condition holds, is the NASDAQ more likely (red) or less likely (blue) to move by a given percentage within 30 days? 
+**Right:** the same test run on 1,000 random markets that contain no signal. To count as an edge, the real score (blue line) has to beat 95% of them (dashed line).
 
-### MA Cross 50/200 bin 9 - the golden cross
+## The golden cross - folklore
 
-The classic 50/200 moving-average cross, with the fast average 8.9% to 11.6% above the slow one, shows a coherent **24.5-point** contrast at ±4%. Its score still falls short of the null's 95th percentile (p = 0.084).
+Traders everywhere watch for the 50-day average to cross above the 200-day. Once it runs about 10% above, the heatmap looks decisive: the odds of a 4% drop jump, the odds of a 4% rise fall, a **24.5-point** swing. It looks like a real edge. It's folklore: random markets draw one at least this strong 8.4% of the time.
 
 <p align="center">
   <a href="docs/bin_figure__ma_cross_50_200__bin_09.png"><img src="docs/bin_figure__ma_cross_50_200__bin_09.png" width="100%" alt="MA Cross 50-200 bin 9: a 24.5 percentage-point contrast below the null 95th percentile"></a>
 </p>
 
-### MA Ratio-200 bin 4 - a textbook mirror
+## Above the 200-day - a textbook mirror
 
-With price 3.9% to 6.5% above its 200-day average, the surface is almost a perfect mirror: red above zero and blue below, with a **27.4-point** contrast at ±4%. Chance produces it easily (p = 0.23).
+"Stay long while price is above the 200-day" is trend following's first rule. With price 4% to 6% above it, the picture is a near-perfect mirror: rises more likely, drops much less likely, a **27.4-point** swing. Random markets draw one at least this strong 23% of the time.
 
 <p align="center">
   <a href="docs/bin_figure__ma_ratio_200__bin_04.png"><img src="docs/bin_figure__ma_ratio_200__bin_04.png" width="100%" alt="MA Ratio-200 bin 4: a 27.4 percentage-point contrast well inside the synthetic null"></a>
 </p>
 
-### TNX Level bin 1 - the 42-point edge
+## Low bond yields - the 42-point edge
 
-When the 10-year Treasury yield sat below 1.34%, the NASDAQ was **37.7 points** more likely than usual to rise 8% within 30 days, and 4.3 points less likely to fall 8%. That is a **42-point** gap between the two sides, and it grows steadily with the horizon. It looks like a macro regime you could trade.
+Cheap money lifts stocks; everyone knows that. When the 10-year Treasury yield sat below 1.34%, the NASDAQ was far more likely to rally 8% within a month: a **42-point** swing that grows steadily with time. It looks like a macro regime you could trade.
 
 <p align="center">
   <a href="docs/bin_figure__tnx_level__bin_01.png"><img src="docs/bin_figure__tnx_level__bin_01.png" width="100%" alt="TNX Level bin 1: a 42 percentage-point upside contrast whose score still falls below the null 95th percentile"></a>
 </p>
 
-It does not clear. Random histories produce a score at least this large 7.6% of the time.
+It isn't. Random markets draw one at least this strong 7.6% of the time. Close, but not an edge.
 
-### TNX Level bin 6 - same feature, opposite story
+## Moderate yields - same signal, opposite story
 
-With the yield between 2.48% and 2.92%, the picture flips: an 8-to-10% drop becomes more likely and a rise less likely, for a **21.2-point** gap. Read by itself, it looks like a second, bearish regime. The score sits near the middle of the null (p = 0.41).
+Move the yield to 2.5%-2.9% and the story flips: an 8% drop becomes likelier than a rise, a **21.2-point** swing. Read alone, it's a second, bearish regime. Random markets draw one at least this strong 41% of the time.
 
 <p align="center">
   <a href="docs/bin_figure__tnx_level__bin_06.png"><img src="docs/bin_figure__tnx_level__bin_06.png" width="100%" alt="TNX Level bin 6: a 21.2 percentage-point downside contrast, well inside the synthetic null"></a>
 </p>
 
-### The whole universe
+# Try it
 
-None of the four clears. Across all 552 bins, 25 pass the raw 5% test, while pure chance would pass about 27.6. After the Benjamini-Hochberg correction for testing 552 bins at once, the smallest q-value is 0.55. On this data, the edges that look strongest cannot be told apart from noise.
+<p>
+  <img src="https://img.shields.io/badge/PyTorch-%E2%89%A5%202.0-EE4C2C?logo=pytorch&logoColor=white" alt="PyTorch >= 2.0">
+  <img src="https://img.shields.io/badge/CUDA-%E2%89%A5%2012.0-76B900?logo=nvidia&logoColor=white" alt="CUDA >= 12.0">
+</p>
 
-## Try it
+**PyTorch is mandatory. A dedicated CUDA-enabled GPU is strongly recommended.**
 
 Run commands from the repository root. 
 
@@ -87,9 +78,11 @@ alphaverify select
 alphaverify forecast
 ```
 
+After `validate`, the figure for every tested bin, including the four above, is in `workspaces/nasdaq_daily/03_validation/plot/`.
+
 Each pipeline command also accepts `--cuda` when a CUDA-capable PyTorch installation and device are available.
 
-## How it works
+# How it works
 
 | Stage | CLI Command | What it does | Mathematical form |
 |---|---|---|---|
@@ -102,7 +95,7 @@ Each pipeline command also accepts `--cuda` when a CUDA-capable PyTorch installa
 
 Validation writes `03_validation/`; selection consumes only a current validation result and writes `04_selection/`; the forecast consumes only a current selection and writes `05_forecast/`. Every cleared bin is retained—there is no top-k ranking or secondary economic gate.
 
-## Repository map
+# Repository map
 
 - [Source architecture](src/alphaverify/README.md) — implementation boundaries, data flow, artifact contracts, and null mechanics.
 - [Workspaces](workspaces/README.md) — experiment declarations, plugins, generated artifacts, and safe workspace changes.
