@@ -72,3 +72,16 @@ def test_matches_step_up_definition_with_ties_and_the_monte_carlo_floor():
 
 def test_no_tests_have_no_q_values():
     assert benjamini_hochberg([]).shape == (0,)
+
+
+def test_strongest_mirror_pair_ignores_unpaired_rows_and_blank_cells():
+    # Rows: -2%, -1%, 0, +1%, +2%, +5% (unpaired); columns are horizons.
+    barriers = np.array([-.02, -.01, 0., .01, .02, .05])
+    surface = np.zeros((6, 3))
+    surface[3, 1], surface[1, 1] = .10, -.05   # +/-1% at horizon 1: contrast .15
+    surface[5, 2] = .90                        # unpaired row never counts
+    surface[4, 0] = np.nan                     # blank mirror cell is skipped
+    row, mirror_row, column, contrast = bin_figures.strongest_mirror_pair(barriers, surface)
+    assert {row, mirror_row} == {1, 3} and column == 1
+    assert contrast == pytest.approx(.15)
+    assert bin_figures.strongest_mirror_pair(np.array([.01, .02]), np.ones((2, 3))) is None
