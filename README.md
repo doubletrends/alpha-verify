@@ -1,5 +1,5 @@
 <div align="center">
-  <h1><strong>AlphaVerify</strong> - Multi-Asset Financial Strategy Debunker</h1>
+  <h1><strong>AlphaVerify</strong> - Trading-Signal Validation Framework</h1>
   <img src="docs/alphaverify-icon-old.svg" alt="AlphaVerify icon" width="180">
   <br>
   <h3>Most “technical” indicators are essentially astrology with better charts.<br>  
