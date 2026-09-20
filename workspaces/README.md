@@ -2,6 +2,8 @@
 
 Each directory here is one experiment. It holds a versioned declaration (`universe.json`, `data.py`, an optional `plugin.py`) and, once the pipeline has run, a local tree of generated artifacts. A workspace owns everything that is a choice about one market: provider, cleaning, time alignment, history start, barrier grid, horizons, the condition catalog, and experiment-only features. Everything that must mean the same thing across experiments belongs to [`src/`](../src/alphaverify/README.md). `_shared/` is a helper library that workspaces import explicitly. It is not an experiment and not a registry.
 
+The declarations here are also distributed with the package as `alphaverify.templates`: `alphaverify init --workspace <name>` copies one of them, together with `_shared/`, into the workspaces directory of an installed CLI. A workspace that should ship must be listed in `pyproject.toml` `[tool.setuptools]`; `tests/test_workspace_data.py` fails when one is missing.
+
 # How-to guides
 
 ### Run a workspace

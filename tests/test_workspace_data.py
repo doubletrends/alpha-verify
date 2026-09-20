@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import shutil
+import tomllib
 from unittest.mock import Mock
 
 import numpy as np
@@ -10,6 +11,11 @@ import pytest
 
 from alphaverify.infrastructure import artifact_io
 from alphaverify.infrastructure.artifact_history import market_history_key
+from alphaverify.infrastructure.scaffold import (
+    DECLARATION_FILES,
+    available_templates,
+    copy_workspace,
+)
 from alphaverify.infrastructure.market_data import WorkspaceData, validate_market_data
 from alphaverify.infrastructure.workspace import Workspace
 from alphaverify.infrastructure.workspace_plugins import load_workspace_module
@@ -242,3 +248,30 @@ def test_market_history_key_depends_only_on_ohlcv_values_in_canonical_order():
     changed = canonical.copy()
     changed.iloc[1, changed.columns.get_loc("low")] = 9.5
     assert market_history_key(changed) != market_history_key(canonical)
+
+
+def test_init_copies_declarations_and_shared_helpers_only(tmp_path):
+    """An installed CLI has no checkout, so `init` must write a workspace that opens."""
+    written = copy_workspace("nasdaq_daily", tmp_path)
+
+    assert {path.name for path in written} <= set(DECLARATION_FILES) | {"yahoo.py", "snapshots.py"}
+    assert (tmp_path / "_shared" / "yahoo.py").exists()
+    assert not any(path.is_dir() for path in (tmp_path / "nasdaq_daily").iterdir())
+    assert Workspace("nasdaq_daily", tmp_path).asset["ticker"] == "^IXIC"
+
+    with pytest.raises(FileExistsError):
+        copy_workspace("nasdaq_daily", tmp_path)
+
+
+def test_every_shipped_workspace_is_distributed_with_the_package():
+    """`init` copies from the installed wheel; an unpackaged workspace is missing there."""
+    build = tomllib.loads(
+        (Path(__file__).parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+    )["tool"]["setuptools"]
+    packages, package_data = set(build["packages"]), build["package-data"]
+
+    assert "alphaverify.templates._shared" in packages
+    for name in available_templates():
+        package = f"alphaverify.templates.{name}"
+        assert package in packages, f"add {package} to pyproject packages"
+        assert "universe.json" in package_data.get(package, []), f"add {package} package-data"

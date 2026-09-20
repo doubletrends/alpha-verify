@@ -12,13 +12,13 @@
 ### Install and run
 
 ```powershell
-python -m pip install -e .
+python -m pip install -e .   # or: python -m pip install alphaverify
 alphaverify --help
 ```
 
 `pyproject.toml` requires `torch>=2.0`. If pip has to install it, PyPI supplies a CPU-only build on Windows. For `--cuda`, first install a CUDA build from the index pytorch.org gives for your CUDA version, then install this package; pip keeps a torch that already satisfies the requirement. `--cuda` also needs a visible device.
 
-Run commands from the repository root. The CLI resolves workspaces as `Path.cwd() / "workspaces" / <name>`. Stage-by-stage usage is in the [pipeline README](pipeline/README.md#how-to-guides).
+The CLI resolves the workspaces directory as `--workspaces-dir`, else `$ALPHAVERIFY_WORKSPACES`, else `Path.cwd() / "workspaces"`. From a checkout, run commands from the repository root and that default is the repository's own `workspaces/`; from an installed wheel, `alphaverify init --workspace <name>` copies a shipped declaration there first. Stage-by-stage usage is in the [pipeline README](pipeline/README.md#how-to-guides).
 
 ### Find where a change belongs
 
@@ -32,6 +32,7 @@ Run commands from the repository root. The CLI resolves workspaces as `Path.cwd(
 | Change the null model | `domain/validation.py` | Bump `NULL_VERSION` in `pipeline/step_03_validation.py` |
 | Change a stage artifact, path, or schema | `infrastructure/workspace.py` (paths), `infrastructure/artifact_io.py` (arrays) | [Pipeline how-to](pipeline/README.md#change-a-stage-artifact) |
 | Add, rename, or reorder a command | `infrastructure/workspace.py` (`STAGES`), `cli.py` (`COMMANDS`) | [Pipeline how-to](pipeline/README.md#add-a-stage) |
+| Add a workspace that ships with the package | `workspaces/<name>/` | `pyproject.toml` `[tool.setuptools]` packages and package-data |
 | Change a workbook or figure | `presentation/workbooks.py`, `presentation/bin_figures.py` | Leave JSON and SafeTensors contracts unchanged |
 | Change terminal output | `pipeline/reporting.py` | Nothing else. Output text is not a contract |
 
