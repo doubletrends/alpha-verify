@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=69"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,6 +8,29 @@ version = "0.1.0"
 description = "Conditional barrier-touch probability pipeline."
 readme = "README.md"
 requires-python = ">=3.12"
+license = "CC0-1.0"
+license-files = ["LICENSE"]
+authors = [{ name = "chengmarc" }]
+keywords = [
+  "quantitative-finance",
+  "technical-analysis",
+  "hypothesis-testing",
+  "multiple-testing",
+  "barrier-touch",
+  "market-research",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Environment :: GPU :: NVIDIA CUDA",
+  "Intended Audience :: Science/Research",
+  "Intended Audience :: Financial and Insurance Industry",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Office/Business :: Financial :: Investment",
+  "Topic :: Scientific/Engineering :: Information Analysis",
+]
 dependencies = [
   "numpy>=2.0",
   "pandas>=2.2",
@@ -18,14 +41,36 @@ dependencies = [
   "torch>=2.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/doubletrends/alpha-verify"
+Repository = "https://github.com/doubletrends/alpha-verify"
+Issues = "https://github.com/doubletrends/alpha-verify/issues"
+
 [project.scripts]
 alphaverify = "alphaverify.cli:main"
 
 [tool.setuptools]
-package-dir = {"" = "src"}
+# The shipped workspaces are distributed as `alphaverify.templates`, the source
+# `alphaverify init` copies from. Adding a workspace means adding it here too;
+# tests/test_workspace_data.py fails when one is missing.
+package-dir = { "" = "src", "alphaverify.templates" = "workspaces" }
+packages = [
+  "alphaverify",
+  "alphaverify.domain",
+  "alphaverify.infrastructure",
+  "alphaverify.pipeline",
+  "alphaverify.presentation",
+  "alphaverify.templates",
+  "alphaverify.templates._shared",
+  "alphaverify.templates.btc_daily",
+  "alphaverify.templates.btc_hourly",
+  "alphaverify.templates.nasdaq_daily",
+]
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.setuptools.package-data]
+"alphaverify.templates.btc_daily" = ["universe.json"]
+"alphaverify.templates.btc_hourly" = ["universe.json"]
+"alphaverify.templates.nasdaq_daily" = ["universe.json"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
