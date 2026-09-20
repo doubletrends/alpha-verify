@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
 BASELINE_NODE = "baseline"
+
+# Where workspaces live when the caller names no directory.
+WORKSPACES_ENV = "ALPHAVERIFY_WORKSPACES"
+WORKSPACES_DIRNAME = "workspaces"
 
 # Pipeline order; each stage's number and artifact directory derive from its position.
 STAGES = ("surface", "shift", "validation", "selection", "forecast")
@@ -17,6 +22,18 @@ STAGE_DIRECTORIES = {stage: f"{number:02d}_{stage}" for number, stage in enumera
 
 def stage_number(stage: str) -> int:
     return STAGES.index(stage) + 1
+
+
+def workspaces_root(workspaces_dir: Path | str | None = None) -> Path:
+    """The directory holding workspaces: the argument, the environment, then ``./workspaces``.
+
+    An installed CLI is run from anywhere, so the root is always resolved to an
+    absolute path and never left relative to the process working directory.
+    """
+    named = workspaces_dir if workspaces_dir is not None else os.environ.get(WORKSPACES_ENV)
+    if named is None:
+        return Path.cwd() / WORKSPACES_DIRNAME
+    return Path(named).expanduser().resolve()
 
 
 @dataclass(frozen=True)
@@ -101,9 +118,15 @@ class Workspace:
     """
 
     def __init__(self, name: str, workspaces_dir: Path | None = None):
-        root = workspaces_dir or Path.cwd() / "workspaces"
-        self.dir = root / name
-        self.catalog = NodeCatalog.load(self.dir / "universe.json")
+        self.dir = workspaces_root(workspaces_dir) / name
+        declaration = self.dir / "universe.json"
+        if not declaration.exists():
+            raise FileNotFoundError(
+                f"no workspace declaration at {declaration}. "
+                f"Run `alphaverify init --workspace {name}` to copy a shipped workspace here, "
+                f"or point --workspaces-dir / ${WORKSPACES_ENV} at the directory that holds it"
+            )
+        self.catalog = NodeCatalog.load(declaration)
         self.config = WorkspaceConfig.from_meta(self.catalog.meta)
 
     @property

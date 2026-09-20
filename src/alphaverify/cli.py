@@ -5,9 +5,16 @@ from __future__ import annotations
 import argparse
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 from alphaverify.domain import tensor_runtime
-from alphaverify.infrastructure.workspace import STAGE_DIRECTORIES, Workspace
+from alphaverify.infrastructure.scaffold import available_templates, copy_workspace
+from alphaverify.infrastructure.workspace import (
+    STAGE_DIRECTORIES,
+    WORKSPACES_DIRNAME,
+    Workspace,
+    workspaces_root,
+)
 from alphaverify.pipeline.reporting import RULE, ansi_styles, color_enabled
 from alphaverify.pipeline.step_01_surface import cmd_surface
 from alphaverify.pipeline.step_02_shift import cmd_shift
@@ -58,13 +65,22 @@ COMMANDS = (
 )
 COMMAND_BY_NAME = {command.name: command for command in COMMANDS}
 
+# Setup, not a stage: it writes the workspace that the stage commands then read.
+INIT_COMMAND = "init"
+
 
 def overview(color: bool) -> str:
-    """Root help: the pipeline commands in order, each with its artifact directory."""
+    """Root help: setup, then the pipeline commands in order with their artifact directories."""
     accent, bold, dim, reset = ansi_styles(color)
 
     def heading(text: str) -> list[str]:
         return [f"  {accent}{bold}{text}{reset}", ""]
+
+    def row(name: str, summary: str, target: str) -> str:
+        return (
+            f"    {bold}{name}{reset}{' ' * (12 - len(name))}"
+            f"{summary:<38}→ {dim}{target}{reset}"
+        )
 
     lines = [
         f"{accent}{RULE}{reset}",
@@ -72,19 +88,20 @@ def overview(color: bool) -> str:
         "Conditional barrier-touch probability pipeline",
         f"{accent}{RULE}{reset}",
         "",
+        *heading("Setup"),
+        row(INIT_COMMAND, "Copy a shipped workspace here", f"{WORKSPACES_DIRNAME}/NAME/"),
+        "",
         *heading("Pipeline"),
     ]
     for command in COMMANDS:
-        lines.append(
-            f"    {bold}{command.name}{reset}{' ' * (12 - len(command.name))}"
-            f"{command.summary:<38}→ {dim}{STAGE_DIRECTORIES[command.stage]}/{reset}"
-        )
+        lines.append(row(command.name, command.summary, f"{STAGE_DIRECTORIES[command.stage]}/"))
     lines += [
         "",
         *heading("Options"),
-        "    --workspace NAME    Select a workspace",
-        "    --cuda              Use CUDA numerical kernels",
-        "    -h, --help          Show this help",
+        "    --workspace NAME        Select a workspace",
+        "    --workspaces-dir DIR    Workspace root (or $ALPHAVERIFY_WORKSPACES)",
+        "    --cuda                  Use CUDA numerical kernels",
+        "    -h, --help              Show this help",
     ]
     return "\n".join(lines) + "\n"
 
@@ -96,8 +113,21 @@ class RootParser(argparse.ArgumentParser):
         return overview(color_enabled())
 
 
-def _add_run_options(parser: argparse.ArgumentParser) -> None:
+def _add_workspace_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--workspace", metavar="NAME", default="nasdaq_daily")
+    parser.add_argument(
+        "--workspaces-dir",
+        metavar="DIR",
+        default=None,
+        help=(
+            "directory holding workspaces "
+            f"(default: $ALPHAVERIFY_WORKSPACES, else ./{WORKSPACES_DIRNAME})"
+        ),
+    )
+
+
+def _add_run_options(parser: argparse.ArgumentParser) -> None:
+    _add_workspace_options(parser)
     parser.add_argument(
         "--cuda",
         action="store_true",
@@ -111,9 +141,29 @@ def build_parser() -> argparse.ArgumentParser:
         dest="command", metavar="COMMAND", parser_class=argparse.ArgumentParser
     )
 
+    _add_workspace_options(
+        commands.add_parser(
+            INIT_COMMAND,
+            help=f"copy a shipped workspace ({', '.join(available_templates())}) into place",
+        )
+    )
     for command in COMMANDS:
         _add_run_options(commands.add_parser(command.name))
     return parser
+
+
+def cmd_init(name: str, workspaces_dir: str | None) -> None:
+    """Write one shipped workspace declaration where the stage commands will look for it."""
+    root = workspaces_root(workspaces_dir)
+    written = copy_workspace(name, root)
+    accent, bold, dim, reset = ansi_styles(color_enabled())
+    print(f"\n{accent}{RULE}{reset}")
+    print(f"{accent}{bold}Workspace {name}{reset} → {root / name}")
+    print(f"{accent}{RULE}{reset}\n")
+    for path in written:
+        print(f"  {dim}{path.relative_to(root)}{reset}")
+    option = "" if root == Path.cwd() / WORKSPACES_DIRNAME else f" --workspaces-dir {root}"
+    print(f"\n  next: alphaverify measure --workspace {name}{option}\n")
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -122,7 +172,10 @@ def main(argv: list[str] | None = None) -> None:
     if args.command is None:
         parser.print_help()
         return
-    ws = Workspace(args.workspace)
+    if args.command == INIT_COMMAND:
+        cmd_init(args.workspace, args.workspaces_dir)
+        return
+    ws = Workspace(args.workspace, args.workspaces_dir)
     tensor_runtime.configure(args.cuda)
 
     COMMAND_BY_NAME[args.command].handler(ws)

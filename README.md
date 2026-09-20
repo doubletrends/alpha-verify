@@ -1,6 +1,6 @@
 <div align="center">
   <h1><strong>AlphaVerify</strong> - Multi-Asset Financial Strategy Debunker</h1>
-  <img src="docs/alphaverify-icon-old.svg" alt="AlphaVerify icon" width="180">
+  <img src="https://raw.githubusercontent.com/doubletrends/alpha-verify/master/docs/alphaverify-icon-old.svg" alt="AlphaVerify icon" width="180">
   <br>
   <h3>Most “technical” indicators are essentially astrology with better charts.<br>  
   AlphaVerify is built to put an end to all that bullshit.</h3>
@@ -8,8 +8,8 @@
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/stats-dark.svg">
-    <img src="docs/stats-light.svg" width="100%" alt="1,000 synthetic OHLC histories; 552 NASDAQ condition bins tested, across 57 features; 25 bins cleared, where pure chance predicts 27.6">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/doubletrends/alpha-verify/master/docs/stats-dark.svg">
+    <img src="https://raw.githubusercontent.com/doubletrends/alpha-verify/master/docs/stats-light.svg" width="100%" alt="1,000 synthetic OHLC histories; 552 NASDAQ condition bins tested, across 57 features; 25 bins cleared, where pure chance predicts 27.6">
   </picture>
 </p>
 
@@ -24,7 +24,7 @@ Each figure tests one market condition.
 Traders everywhere watch for the 50-day average to cross above the 200-day. Once it runs about 10% above, the heatmap looks decisive: the odds of a 4% drop jump, the odds of a 4% rise fall, a **24.5-point** swing. It looks like a real edge. It's folklore: random markets draw one at least this strong 8.4% of the time.
 
 <p align="center">
-  <a href="docs/bin_figure__ma_cross_50_200__bin_09.png"><img src="docs/bin_figure__ma_cross_50_200__bin_09.png" width="100%" alt="MA Cross 50-200 bin 9: a 24.5 percentage-point contrast below the null 95th percentile"></a>
+  <a href="https://github.com/doubletrends/alpha-verify/blob/master/docs/bin_figure__ma_cross_50_200__bin_09.png"><img src="https://raw.githubusercontent.com/doubletrends/alpha-verify/master/docs/bin_figure__ma_cross_50_200__bin_09.png" width="100%" alt="MA Cross 50-200 bin 9: a 24.5 percentage-point contrast below the null 95th percentile"></a>
 </p>
 
 ## Above the 200-day - a textbook mirror
@@ -32,7 +32,7 @@ Traders everywhere watch for the 50-day average to cross above the 200-day. Once
 "Stay long while price is above the 200-day" is trend following's first rule. With price 4% to 6% above it, the picture is a near-perfect mirror: rises more likely, drops much less likely, a **27.4-point** swing. Random markets draw one at least this strong 23% of the time.
 
 <p align="center">
-  <a href="docs/bin_figure__ma_ratio_200__bin_04.png"><img src="docs/bin_figure__ma_ratio_200__bin_04.png" width="100%" alt="MA Ratio-200 bin 4: a 27.4 percentage-point contrast well inside the synthetic null"></a>
+  <a href="https://github.com/doubletrends/alpha-verify/blob/master/docs/bin_figure__ma_ratio_200__bin_04.png"><img src="https://raw.githubusercontent.com/doubletrends/alpha-verify/master/docs/bin_figure__ma_ratio_200__bin_04.png" width="100%" alt="MA Ratio-200 bin 4: a 27.4 percentage-point contrast well inside the synthetic null"></a>
 </p>
 
 ## Low bond yields - the 42-point edge
@@ -40,7 +40,7 @@ Traders everywhere watch for the 50-day average to cross above the 200-day. Once
 Cheap money lifts stocks; everyone knows that. When the 10-year Treasury yield sat below 1.34%, the NASDAQ was far more likely to rally 8% within a month: a **42-point** swing that grows steadily with time. It looks like a macro regime you could trade. It isn't. Random markets draw one at least this strong 7.6% of the time. Close, but not an edge.
 
 <p align="center">
-  <a href="docs/bin_figure__tnx_level__bin_01.png"><img src="docs/bin_figure__tnx_level__bin_01.png" width="100%" alt="TNX Level bin 1: a 42 percentage-point upside contrast whose score still falls below the null 95th percentile"></a>
+  <a href="https://github.com/doubletrends/alpha-verify/blob/master/docs/bin_figure__tnx_level__bin_01.png"><img src="https://raw.githubusercontent.com/doubletrends/alpha-verify/master/docs/bin_figure__tnx_level__bin_01.png" width="100%" alt="TNX Level bin 1: a 42 percentage-point upside contrast whose score still falls below the null 95th percentile"></a>
 </p>
 
 ## Moderate yields - same signal, opposite story
@@ -48,7 +48,7 @@ Cheap money lifts stocks; everyone knows that. When the 10-year Treasury yield s
 Move the yield to 2.5%-2.9% and the story flips: an 8% drop becomes likelier than a rise, a **21.2-point** swing. Read alone, it's a second, bearish regime. Random markets draw one at least this strong 41% of the time.
 
 <p align="center">
-  <a href="docs/bin_figure__tnx_level__bin_06.png"><img src="docs/bin_figure__tnx_level__bin_06.png" width="100%" alt="TNX Level bin 6: a 21.2 percentage-point downside contrast, well inside the synthetic null"></a>
+  <a href="https://github.com/doubletrends/alpha-verify/blob/master/docs/bin_figure__tnx_level__bin_06.png"><img src="https://raw.githubusercontent.com/doubletrends/alpha-verify/master/docs/bin_figure__tnx_level__bin_06.png" width="100%" alt="TNX Level bin 6: a 21.2 percentage-point downside contrast, well inside the synthetic null"></a>
 </p>
 
 # Try it
@@ -60,21 +60,25 @@ Move the yield to 2.5%-2.9% and the story flips: an 8% drop becomes likelier tha
 
 **PyTorch is mandatory. A dedicated CUDA-enabled GPU is strongly recommended.**
 
-Run commands from the repository root. 
-
 The distribution, CLI, and Python package are named `alphaverify`.
-The repository name remains `alpha-verify`. Reinstall the editable package
-after updating an existing checkout.
+The repository name remains `alpha-verify`. `init` copies one of the shipped
+workspaces into `./workspaces`, which is where every later command looks for it.
 
 ```
-python -m pip install -e .
+python -m pip install alphaverify
 
+alphaverify init --workspace nasdaq_daily
 alphaverify measure
 alphaverify compare
 alphaverify validate
 alphaverify select
 alphaverify forecast
 ```
+
+From a checkout, `python -m pip install -e .` installs the same CLI, and `init`
+is unnecessary because `workspaces/` is already there; run commands from the
+repository root and reinstall the editable package after updating it. To keep
+workspaces anywhere else, pass `--workspaces-dir DIR` or set `$ALPHAVERIFY_WORKSPACES`.
 
 After `validate`, the figure for every tested bin, including the four above, is in `workspaces/nasdaq_daily/03_validation/plot/`.
 
@@ -95,10 +99,10 @@ Validation writes `03_validation/`; selection consumes only a current validation
 
 # Repository map
 
-- [Source architecture](src/alphaverify/README.md) — implementation boundaries, data flow, artifact contracts, and null mechanics.
-- [Workspaces](workspaces/README.md) — experiment declarations, plugins, generated artifacts, and safe workspace changes.
+- [Source architecture](https://github.com/doubletrends/alpha-verify/blob/master/src/alphaverify/README.md) — implementation boundaries, data flow, artifact contracts, and null mechanics.
+- [Workspaces](https://github.com/doubletrends/alpha-verify/blob/master/workspaces/README.md) — experiment declarations, plugins, generated artifacts, and safe workspace changes.
 
 AlphaVerify is research software, not investment advice.
 
 The complete numerical specification is available as LaTeX in
-[`mathematics.tex`](mathematics.tex).
+[`mathematics.tex`](https://github.com/doubletrends/alpha-verify/blob/master/mathematics.tex).
