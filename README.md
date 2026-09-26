@@ -1,6 +1,6 @@
 <div align="center">
 
-  <img src="docs/alphaverify-icon-old.svg" width="180"><br>
+  <img src="docs/alphaverify-icon.svg" width="180"><br>
 
   <img src="docs/badge-cuda.svg">
   <a href="https://pypi.org/project/alphaverify/"><img src="docs/badge-pypi.svg"></a>

@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "alphaverify"
 version = "0.1.0"
 description = "Conditional barrier-touch probability pipeline."
-readme = "README.md"
+readme = "docs/PYPI.md"
 requires-python = ">=3.12"
 license = "CC0-1.0"
 license-files = ["LICENSE"]
