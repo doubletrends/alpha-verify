@@ -1,7 +1,6 @@
 <div align="center">
-  <h1><strong>AlphaVerify</strong> - Trading-Signal Validation Framework</h1>
   <img src="https://raw.githubusercontent.com/doubletrends/alpha-verify/master/docs/alphaverify-icon-old.svg" alt="AlphaVerify icon" width="180">
-  <br>
+  <h1><strong>AlphaVerify</strong> - Trading-Signal Validation Framework</h1>
   <h3>Most “technical” indicators are essentially astrology with better charts.<br>  
   AlphaVerify is built to put an end to all that bullshit.</h3>
 </div>
