@@ -1,4 +1,4 @@
-﻿.claude/
+.claude/
 .codex/
 .venv/
 *.pyc
@@ -24,5 +24,4 @@ workspaces/*/*
 *.out
 *.toc
 
-# The images promo/generator/ renders, all uploaded by hand: made again whenever they're needed, never kept.
 /promo/out/
