@@ -1,6 +1,6 @@
 <!doctype html>
 <!-- GitHub's social preview, the card shown when the repo's link is shared: render.py loads this page at 1280 x 640
-     into docs/social-preview.png, which is uploaded in the repo's Settings. The name and its line on the left; on the
+     into promo/out/github/social-preview.png, which is uploaded in the repo's Settings. The name and its line on the left; on the
      right two of the README's figures, each a signal that looks like an edge but doesn't clear the synthetic null
      ("The golden cross" and "Low bond yields"), over the README's headline stats (docs/stats-light.svg). GitHub crops
      a little off the edges in places, so everything stays 56px clear of them. -->
@@ -49,6 +49,9 @@
     background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.22);
   }
 
+  /* The README's badges, in its order, under the facts. */
+  .badges { display: flex; gap: 10px; margin-top: 18px; align-items: center; }
+  .badges img { display: block; height: 34px; }
   /* The right side, 700 x 528 inside the edges: two figures, fanned, over the stats. */
   .paper { position: absolute; border-radius: 12px; background: var(--paper); box-shadow: 0 24px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.08); }
   .figure { width: 560px; padding: 8px 6px 2px; }
@@ -70,21 +73,22 @@
 </head>
 <body>
   <div class="caption">
-    <div class="app"><img src="../alphaverify-icon.svg" alt=""><span><b>Alpha<span class="brand">Verify</span></b><small>Trading-Signal Validation Framework</small></span></div>
+    <div class="app"><img src="../../docs/alphaverify-icon.svg" alt=""><span><b>Alpha<span class="brand">Verify</span></b><small>Trading-Signal Validation Framework</small></span></div>
     <h1>Looks like an edge?<br><span class="brand">Test it against noise.</span></h1>
     <p>Every trading signal is tested against 1,000 synthetic markets that contain no signal at all.</p>
     <div class="facts"><span>pip install alphaverify</span><span>PyTorch · CUDA</span></div>
+    <div class="badges"><img src="../../docs/badge-cuda.svg" alt=""><img src="../../docs/badge-pypi.svg" alt=""></div>
   </div>
 
   <div class="paper figure back">
-    <div class="crop"><img src="../bin_figure__ma_cross_50_200__bin_09.png" alt=""></div>
+    <div class="crop"><img src="../../docs/bin_figure__ma_cross_50_200__bin_09.png" alt=""></div>
     <div class="stamp">NOT CLEARED <small>· 24.5 pts</small></div>
   </div>
   <div class="paper figure front">
-    <div class="crop"><img src="../bin_figure__tnx_level__bin_01.png" alt=""></div>
+    <div class="crop"><img src="../../docs/bin_figure__tnx_level__bin_01.png" alt=""></div>
     <div class="stamp">NOT CLEARED <small>· 42 pts</small></div>
   </div>
-  <div class="paper stats"><img src="../stats-light.svg" alt=""></div>
+  <div class="paper stats"><img src="../../docs/stats-light.svg" alt=""></div>
 <script>
   // The headline's wider line spans the caption's width, as on ZimAI's card.
   const h1 = document.querySelector("h1");

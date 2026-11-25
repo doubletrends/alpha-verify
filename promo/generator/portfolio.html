@@ -1,0 +1,73 @@
+<!doctype html>
+<!-- A portfolio tile for a job profile (Boss 直聘, 猎聘, 脉脉): render.py loads this page at 1080 x 1080 into
+     promo/out/portfolio/portfolio.png. It's mostly seen as a thumbnail about 1.5 cm wide, four to a row, so the figures fill the
+     square and only the name, at the top, has to read at that size; the tag under it is for when the tile is opened.
+     The same layout on every repo's tile, so they read as a set. The figures and the stats are social.html's: two of
+     the README's signals that don't clear the null, over the headline stats (docs/stats-light.svg). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  :root {
+    --brand: linear-gradient(90deg, #b8fffb, #00f0ff 35%, #087cff);
+    --sans: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+    --text: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 1080px; height: 1080px; overflow: hidden; }
+  body {
+    position: relative; font-family: var(--sans); color: #fff;
+    background:
+      radial-gradient(60% 45% at 0% 0%, rgba(33, 69, 232, 0.6), transparent 70%),
+      radial-gradient(50% 60% at 100% 100%, rgba(114, 0, 217, 0.4), transparent 70%),
+      linear-gradient(135deg, #0a1660 0%, #070d3a 55%, #040722 100%);
+  }
+  body::before {
+    content: ""; position: absolute; inset: 0;
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+  .brand { background: var(--brand); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+  /* The label: icon and name in the top-left corner. */
+  .label { position: absolute; left: 0; right: 0; top: 0; z-index: 5; display: flex; align-items: center; gap: 30px; padding: 52px 56px 0; }
+  .label img { width: 156px; height: 156px; flex: none; filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.5)); }
+  .label b { display: block; width: max-content; white-space: nowrap; font-size: 124px; line-height: 0.95; font-weight: 700; letter-spacing: -0.03em; }
+  .label small { display: block; margin-top: 14px; font: 600 40px var(--text); color: rgba(255, 255, 255, 0.8); }
+
+  /* Two figures, fanned, over the stats, which bleed off the bottom. */
+  .paper { position: absolute; border-radius: 16px; background: #fcfcfb; box-shadow: 0 24px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.08); }
+  .figure { width: 900px; padding: 10px 8px 2px; }
+  /* Cut below the axis titles: the figure's footnote is too small to read. */
+  .figure .crop { overflow: hidden; aspect-ratio: 2899 / 1000; }
+  .figure img { display: block; width: 100%; }
+  .figure.back { left: 40px; top: 300px; }
+  .figure.front { left: 140px; top: 470px; }
+  .stamp {
+    position: absolute; right: -14px; top: -20px; padding: 8px 16px; border-radius: 10px; transform: rotate(4deg);
+    font: 700 24px var(--text); letter-spacing: 0.05em; color: #fff; white-space: nowrap;
+    background: #d23b3a; box-shadow: 0 6px 14px rgba(0, 0, 0, 0.4);
+  }
+  .stamp small { font-weight: 600; letter-spacing: 0; opacity: 0.85; }
+  .stats { left: 40px; top: 832px; width: 1000px; padding: 6px 0 40px; border-radius: 16px 16px 0 0; }
+  .stats img { display: block; width: 100%; }
+</style>
+</head>
+<body>
+  <div class="paper figure back">
+    <div class="crop"><img src="../../docs/bin_figure__ma_cross_50_200__bin_09.png" alt=""></div>
+    <div class="stamp">NOT CLEARED <small>· 24.5 pts</small></div>
+  </div>
+  <div class="paper figure front">
+    <div class="crop"><img src="../../docs/bin_figure__tnx_level__bin_01.png" alt=""></div>
+    <div class="stamp">NOT CLEARED <small>· 42 pts</small></div>
+  </div>
+  <div class="paper stats"><img src="../../docs/stats-light.svg" alt=""></div>
+  <div class="label">
+    <img src="../../docs/alphaverify-icon.svg" alt="">
+    <span><b>Alpha<span class="brand">Verify</span></b><small>GPU signal validation · PyTorch</small></span>
+  </div>
+</body>
+</html>
